@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Secrets / runtime config
+.env
+backend/.env
+
+# Runtime storage (uploads / generated files)
+backend/storage/inputs/*
+backend/storage/templates/*
+backend/storage/outputs/*
+!backend/storage/**/.gitkeep
+
+# Model caches
+.cache/
+*.onnx
+
+# Per-document run logs
+logs/
+backend/logs/
+
+# Tooling
+.pytest_cache/
+.idea/
+.vscode/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

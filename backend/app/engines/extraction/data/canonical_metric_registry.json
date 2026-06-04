@@ -1,0 +1,4565 @@
+{
+  "revenue": {
+    "display_name": "Revenue",
+    "aliases": [
+      "sales",
+      "net sales",
+      "turnover",
+      "revenue from contracts with customers",
+      "revenue",
+      "total revenue",
+      "turnover - net",
+      "net revenue",
+      "total net sales",
+      "reported net sales",
+      "net sales amount"
+    ],
+    "category": "income_statement"
+  },
+  "gross_sales": {
+    "display_name": "Gross Sales",
+    "aliases": [
+      "gross sales",
+      "total gross sales",
+      "reported gross sales",
+      "gross sales amount",
+      "gross revenue"
+    ],
+    "category": "income_statement"
+  },
+  "cost_of_sales": {
+    "display_name": "Cost Of Sales",
+    "aliases": [
+      "cost of sales",
+      "total cost of sales",
+      "reported cost of sales",
+      "cost of sales amount"
+    ],
+    "category": "income_statement"
+  },
+  "cost_of_goods_sold": {
+    "display_name": "Cost Of Goods Sold",
+    "aliases": [
+      "cost of goods sold",
+      "total cost of goods sold",
+      "reported cost of goods sold",
+      "cost of goods sold amount"
+    ],
+    "category": "income_statement"
+  },
+  "gross_profit": {
+    "display_name": "Gross Profit",
+    "aliases": [
+      "gross margin amount",
+      "gross earnings",
+      "profit before operating expenses",
+      "gross profit",
+      "total gross profit",
+      "reported gross profit"
+    ],
+    "category": "income_statement"
+  },
+  "distribution_expenses": {
+    "display_name": "Distribution Expenses",
+    "aliases": [
+      "distribution cost",
+      "selling and distribution expenses",
+      "selling and distribution cost",
+      "distribution expenses",
+      "total distribution expenses",
+      "reported distribution expenses",
+      "distribution expense",
+      "selling and distribution expense",
+      "Distribution Co st"
+    ],
+    "category": "income_statement"
+  },
+  "administrative_expenses": {
+    "display_name": "Administrative Expenses",
+    "aliases": [
+      "admin expenses",
+      "administration expenses",
+      "general and administrative expenses",
+      "administrative expenses",
+      "total administrative expenses",
+      "reported administrative expenses",
+      "administrative cost",
+      "administrative costs"
+    ],
+    "category": "income_statement"
+  },
+  "selling_expenses": {
+    "display_name": "Selling Expenses",
+    "aliases": [
+      "selling expenses",
+      "total selling expenses",
+      "reported selling expenses",
+      "selling expenses amount"
+    ],
+    "category": "income_statement"
+  },
+  "operating_expenses": {
+    "display_name": "Operating Expenses",
+    "aliases": [
+      "operating expenses",
+      "total operating expenses",
+      "reported operating expenses",
+      "operating expenses amount",
+      "Operating exp ense s"
+    ],
+    "category": "income_statement"
+  },
+  "other_income": {
+    "display_name": "Other Income",
+    "aliases": [
+      "other income",
+      "total other income",
+      "reported other income",
+      "other income amount",
+      "other income charges",
+      "other income charge"
+    ],
+    "category": "income_statement"
+  },
+  "other_expenses": {
+    "display_name": "Other Expenses",
+    "aliases": [
+      "other expenses",
+      "total other expenses",
+      "reported other expenses",
+      "other expenses amount"
+    ],
+    "category": "income_statement"
+  },
+  "operating_profit": {
+    "display_name": "Operating Profit",
+    "aliases": [
+      "operating income",
+      "operating result",
+      "operating profit",
+      "total operating profit",
+      "reported operating profit",
+      "Operating Profi"
+    ],
+    "category": "income_statement"
+  },
+  "profit_from_operations": {
+    "display_name": "Profit From Operations",
+    "aliases": [
+      "profit from operations",
+      "total profit from operations",
+      "reported profit from operations",
+      "profit from operations amount"
+    ],
+    "category": "income_statement"
+  },
+  "ebitda": {
+    "display_name": "EBITDA",
+    "aliases": [
+      "earnings before interest tax depreciation and amortization",
+      "operating profit before depreciation",
+      "profit before depreciation and amortization",
+      "ebitda",
+      "total ebitda",
+      "reported ebitda"
+    ],
+    "category": "income_statement"
+  },
+  "ebit": {
+    "display_name": "EBIT",
+    "aliases": [
+      "ebit",
+      "total ebit",
+      "reported ebit",
+      "ebit amount"
+    ],
+    "category": "income_statement"
+  },
+  "finance_cost": {
+    "display_name": "Finance Cost",
+    "aliases": [
+      "financial charges",
+      "borrowing cost",
+      "finance cost",
+      "total finance cost",
+      "Markup Interest expenses o n borrow ed fun ds",
+      "Finance costs p aid",
+      "Accretion of in terest on leas e liabilities",
+      "Accretion of intere st o n lease liabilities"
+    ],
+    "category": "income_statement"
+  },
+  "interest_expense": {
+    "display_name": "Interest Expense",
+    "aliases": [
+      "interest expense",
+      "total interest expense",
+      "reported interest expense",
+      "interest expense amount"
+    ],
+    "category": "income_statement"
+  },
+  "markup_expense": {
+    "display_name": "Markup Expense",
+    "aliases": [
+      "mark-up expense",
+      "markup on financing",
+      "profit on islamic financing",
+      "markup expense",
+      "total markup expense",
+      "reported markup expense"
+    ],
+    "category": "income_statement"
+  },
+  "profit_before_tax": {
+    "display_name": "Profit Before Tax",
+    "aliases": [
+      "pbt",
+      "profit before taxation",
+      "earnings before tax",
+      "profit before tax",
+      "total profit before tax",
+      "reported profit before tax",
+      "profit before taxation and levy"
+    ],
+    "category": "income_statement"
+  },
+  "tax_expense": {
+    "display_name": "Tax Expense",
+    "aliases": [
+      "taxation",
+      "income tax expense",
+      "tax expense",
+      "total tax expense",
+      "reported tax expense"
+    ],
+    "category": "income_statement"
+  },
+  "current_tax": {
+    "display_name": "Current Tax",
+    "aliases": [
+      "current tax",
+      "total current tax",
+      "reported current tax",
+      "current tax amount"
+    ],
+    "category": "income_statement"
+  },
+  "deferred_tax": {
+    "display_name": "Deferred Tax",
+    "aliases": [
+      "deferred tax",
+      "total deferred tax",
+      "reported deferred tax",
+      "deferred tax amount"
+    ],
+    "category": "income_statement"
+  },
+  "profit_after_tax": {
+    "display_name": "Profit After Tax",
+    "aliases": [
+      "pat",
+      "profit for the year",
+      "profit after taxation",
+      "profit after tax",
+      "total profit after tax",
+      "reported profit after tax"
+    ],
+    "category": "income_statement"
+  },
+  "net_income": {
+    "display_name": "Net Income",
+    "aliases": [
+      "net profit",
+      "profit attributable to shareholders",
+      "earnings after tax",
+      "net income",
+      "total net income",
+      "reported net income",
+      "NP (Attributabl",
+      "net profit attributable",
+      "net profit attributable to owners"
+    ],
+    "category": "income_statement"
+  },
+  "earnings_per_share": {
+    "display_name": "Earnings Per Share",
+    "aliases": [
+      "eps",
+      "basic and diluted earnings per share",
+      "earnings per share rupees",
+      "earnings per share",
+      "total earnings per share",
+      "reported earnings per share",
+      "earning per share rupees",
+      "earning per share",
+      "Earnings Per S",
+      "Earnings per share (EPS) and Diluted EPS rupees",
+      "Investment Valuation Ratios - Earnings per share (EPS) and Diluted EPS rupees",
+      "Basic and dil uted earnin gs per share (PKR)",
+      "Basic and diluted ear nings pe r share – PKR"
+    ],
+    "category": "income_statement"
+  },
+  "basic_earnings_per_share": {
+    "display_name": "Basic Earnings Per Share",
+    "aliases": [
+      "basic earnings per share",
+      "total basic earnings per share",
+      "reported basic earnings per share",
+      "basic earnings per share amount"
+    ],
+    "category": "income_statement"
+  },
+  "diluted_earnings_per_share": {
+    "display_name": "Diluted Earnings Per Share",
+    "aliases": [
+      "diluted earnings per share",
+      "total diluted earnings per share",
+      "reported diluted earnings per share",
+      "diluted earnings per share amount"
+    ],
+    "category": "income_statement"
+  },
+  "share_of_profit_from_associates": {
+    "display_name": "Share Of Profit From Associates",
+    "aliases": [
+      "share of profit from associates",
+      "total share of profit from associates",
+      "reported share of profit from associates",
+      "share of profit from associates amount"
+    ],
+    "category": "income_statement"
+  },
+  "impairment_loss": {
+    "display_name": "Impairment Loss",
+    "aliases": [
+      "impairment loss",
+      "total impairment loss",
+      "reported impairment loss",
+      "impairment loss amount"
+    ],
+    "category": "income_statement"
+  },
+  "exchange_gain_loss": {
+    "display_name": "Exchange Gain Loss",
+    "aliases": [
+      "exchange gain loss",
+      "total exchange gain loss",
+      "reported exchange gain loss",
+      "exchange gain loss amount"
+    ],
+    "category": "income_statement"
+  },
+  "royalty_expense": {
+    "display_name": "Royalty Expense",
+    "aliases": [
+      "royalty expense",
+      "total royalty expense",
+      "reported royalty expense",
+      "royalty expense amount"
+    ],
+    "category": "income_statement"
+  },
+  "research_and_development_expense": {
+    "display_name": "Research And Development Expense",
+    "aliases": [
+      "research and development expense",
+      "total research and development expense",
+      "reported research and development expense",
+      "research and development expense amount"
+    ],
+    "category": "income_statement"
+  },
+  "staff_cost": {
+    "display_name": "Staff Cost",
+    "aliases": [
+      "staff cost",
+      "total staff cost",
+      "reported staff cost",
+      "staff cost amount",
+      "salaries and amenities",
+      "salaries wages and benefits",
+      "salaries benefits and other costs",
+      "salaries benefits and other c osts"
+    ],
+    "category": "income_statement"
+  },
+  "salaries_wages_benefits": {
+    "display_name": "Salaries Wages Benefits",
+    "aliases": [
+      "salaries wages benefits",
+      "total salaries wages benefits",
+      "reported salaries wages benefits",
+      "salaries wages benefits amount"
+    ],
+    "category": "income_statement"
+  },
+  "depreciation_expense": {
+    "display_name": "Depreciation Expense",
+    "aliases": [
+      "depreciation expense",
+      "total depreciation expense",
+      "reported depreciation expense",
+      "depreciation expense amount",
+      "depreciation"
+    ],
+    "category": "income_statement"
+  },
+  "amortization_expense": {
+    "display_name": "Amortization Expense",
+    "aliases": [
+      "amortization expense",
+      "total amortization expense",
+      "reported amortization expense",
+      "amortization expense amount",
+      "Amortisation",
+      "Amortisation of in t an gible assets"
+    ],
+    "category": "income_statement"
+  },
+  "zakat_expense": {
+    "display_name": "Zakat Expense",
+    "aliases": [
+      "zakat expense",
+      "total zakat expense",
+      "reported zakat expense",
+      "zakat expense amount"
+    ],
+    "category": "income_statement"
+  },
+  "workers_profit_participation_fund": {
+    "display_name": "Workers Profit Participation Fund",
+    "aliases": [
+      "wppf",
+      "workers' profit participation fund",
+      "provision for workers profit participation fund",
+      "total workers profit participation fund",
+      "reported workers profit participation fund"
+    ],
+    "category": "income_statement"
+  },
+  "workers_welfare_fund": {
+    "display_name": "Workers Welfare Fund",
+    "aliases": [
+      "wwf",
+      "workers' welfare fund",
+      "provision for workers welfare fund",
+      "total workers welfare fund",
+      "reported workers welfare fund"
+    ],
+    "category": "income_statement"
+  },
+  "unrealized_gain_loss": {
+    "display_name": "Unrealized Gain Loss",
+    "aliases": [
+      "unrealized gain loss",
+      "total unrealized gain loss",
+      "reported unrealized gain loss",
+      "unrealized gain loss amount"
+    ],
+    "category": "income_statement"
+  },
+  "non_operating_income": {
+    "display_name": "Non Operating Income",
+    "aliases": [
+      "non operating income",
+      "total non operating income",
+      "reported non operating income",
+      "non operating income amount"
+    ],
+    "category": "income_statement"
+  },
+  "gain_on_disposal_of_assets": {
+    "display_name": "Gain On Disposal Of Assets",
+    "aliases": [
+      "gain on disposal of assets",
+      "total gain on disposal of assets",
+      "reported gain on disposal of assets",
+      "gain on disposal of assets amount",
+      "Income from non-financial assets - Sale of scrap",
+      "Gain on disposal of operating fixed assets"
+    ],
+    "category": "income_statement"
+  },
+  "minority_interest": {
+    "display_name": "Minority Interest",
+    "aliases": [
+      "minority interest",
+      "total minority interest",
+      "reported minority interest",
+      "minority interest amount"
+    ],
+    "category": "income_statement"
+  },
+  "comprehensive_income": {
+    "display_name": "Comprehensive Income",
+    "aliases": [
+      "comprehensive income",
+      "total comprehensive income",
+      "reported comprehensive income",
+      "comprehensive income amount",
+      "total comprehensive income for the year"
+    ],
+    "category": "income_statement"
+  },
+  "cash_and_bank_balances": {
+    "display_name": "Cash And Bank Balances",
+    "aliases": [
+      "cash at bank",
+      "bank balances",
+      "cash in hand and at banks",
+      "cash and bank balances",
+      "total cash and bank balances",
+      "reported cash and bank balances",
+      "cash and bank balance"
+    ],
+    "category": "balance_sheet"
+  },
+  "cash_and_cash_equivalents": {
+    "display_name": "Cash And Cash Equivalents",
+    "aliases": [
+      "cash and cash equivalents",
+      "total cash and cash equivalents",
+      "reported cash and cash equivalents",
+      "cash and cash equivalents amount",
+      "Cash and cash equivalen ts",
+      "Cash and cash equ ivalents",
+      "Cash and cash equivale nts",
+      "Cash and cash eq uivalents",
+      "cash equival ents"
+    ],
+    "category": "balance_sheet"
+  },
+  "short_term_investments": {
+    "display_name": "Short Term Investments",
+    "aliases": [
+      "short term investments",
+      "total short term investments",
+      "reported short term investments",
+      "short term investments amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "long_term_investments": {
+    "display_name": "Long Term Investments",
+    "aliases": [
+      "long term investments",
+      "total long term investments",
+      "reported long term investments",
+      "long term investments amount",
+      "Investment at cost",
+      "Note 2025 2024 - Investment at cost"
+    ],
+    "category": "balance_sheet"
+  },
+  "trade_receivables": {
+    "display_name": "Trade Receivables",
+    "aliases": [
+      "accounts receivable",
+      "trade debtors",
+      "trade receivables",
+      "total trade receivables",
+      "reported trade receivables"
+    ],
+    "category": "balance_sheet"
+  },
+  "trade_debts": {
+    "display_name": "Trade Debts",
+    "aliases": [
+      "trade debts",
+      "total trade debts",
+      "reported trade debts",
+      "trade debts amount",
+      "Bills receivabl e secured",
+      "Bills receivable secured"
+    ],
+    "category": "balance_sheet"
+  },
+  "loans_and_advances": {
+    "display_name": "Loans And Advances",
+    "aliases": [
+      "loans and advances",
+      "total loans and advances",
+      "reported loans and advances",
+      "loans and advances amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "deposits_prepayments_other_receivables": {
+    "display_name": "Deposits Prepayments Other Receivables",
+    "aliases": [
+      "deposits prepayments other receivables",
+      "total deposits prepayments other receivables",
+      "reported deposits prepayments other receivables",
+      "deposits prepayments other receivables amount",
+      "other receivables",
+      "other advances and deposits",
+      "Prepayments"
+    ],
+    "category": "balance_sheet"
+  },
+  "tax_refunds_due_from_government": {
+    "display_name": "Tax Refunds Due From Government",
+    "aliases": [
+      "tax refunds due from government",
+      "total tax refunds due from government",
+      "reported tax refunds due from government",
+      "tax refunds due from government amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "inventory": {
+    "display_name": "Inventory",
+    "aliases": [
+      "inventories",
+      "stock",
+      "inventory",
+      "total inventory",
+      "reported inventory"
+    ],
+    "category": "balance_sheet"
+  },
+  "stock_in_trade": {
+    "display_name": "Stock In Trade",
+    "aliases": [
+      "stock-in-trade",
+      "finished goods stock",
+      "raw and packing material stock",
+      "total stock in trade",
+      "reported stock in trade",
+      "Raw and packing mat erials",
+      "Work-in-process"
+    ],
+    "category": "balance_sheet"
+  },
+  "stores_spares_loose_tools": {
+    "display_name": "Stores Spares Loose Tools",
+    "aliases": [
+      "stores and spares",
+      "spares and loose tools",
+      "stores spares and loose tools",
+      "stores spares loose tools",
+      "total stores spares loose tools",
+      "reported stores spares loose tools"
+    ],
+    "category": "balance_sheet"
+  },
+  "biological_assets": {
+    "display_name": "Biological Assets",
+    "aliases": [
+      "biological assets",
+      "total biological assets",
+      "reported biological assets",
+      "biological assets amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "current_assets": {
+    "display_name": "Current Assets",
+    "aliases": [
+      "current assets",
+      "total current assets",
+      "reported current assets",
+      "current assets amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "non_current_assets": {
+    "display_name": "Non Current Assets",
+    "aliases": [
+      "non current assets",
+      "total non current assets",
+      "reported non current assets",
+      "non current assets amount",
+      "noncurrent assets"
+    ],
+    "category": "balance_sheet"
+  },
+  "total_assets": {
+    "display_name": "Total Assets",
+    "aliases": [
+      "total assets",
+      "total total assets",
+      "reported total assets",
+      "total assets amount",
+      "OTAL ASSETS"
+    ],
+    "category": "balance_sheet"
+  },
+  "property_plant_equipment": {
+    "display_name": "Property Plant Equipment",
+    "aliases": [
+      "ppe",
+      "property plant & equipment",
+      "fixed assets",
+      "property plant equipment",
+      "total property plant equipment",
+      "reported property plant equipment"
+    ],
+    "category": "balance_sheet"
+  },
+  "operating_fixed_assets": {
+    "display_name": "Operating Fixed Assets",
+    "aliases": [
+      "operating fixed assets",
+      "total operating fixed assets",
+      "reported operating fixed assets",
+      "operating fixed assets amount",
+      "Operating fix ed assets"
+    ],
+    "category": "balance_sheet"
+  },
+  "capital_work_in_progress": {
+    "display_name": "Capital Work In Progress",
+    "aliases": [
+      "cwip",
+      "capital work-in-progress",
+      "projects in progress",
+      "total capital work in progress",
+      "reported capital work in progress",
+      "Capital work in p rogress"
+    ],
+    "category": "balance_sheet"
+  },
+  "transfer_from_capital_work_in_progress": {
+    "display_name": "Transfer From Capital Work In Progress",
+    "aliases": [
+      "transfer from capital work-in-progress",
+      "Transfer from capital work i n pr ogress",
+      "transferred from capital work-in-progress"
+    ],
+    "category": "balance_sheet"
+  },
+  "right_of_use_assets": {
+    "display_name": "Right Of Use Assets",
+    "aliases": [
+      "right-of-use assets",
+      "rou assets",
+      "leased assets under ifrs 16",
+      "total right of use assets",
+      "reported right of use assets"
+    ],
+    "category": "balance_sheet"
+  },
+  "intangible_assets": {
+    "display_name": "Intangible Assets",
+    "aliases": [
+      "intangible assets",
+      "total intangible assets",
+      "reported intangible assets",
+      "intangible assets amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "goodwill": {
+    "display_name": "Goodwill",
+    "aliases": [
+      "goodwill",
+      "total goodwill",
+      "reported goodwill",
+      "goodwill amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "investment_property": {
+    "display_name": "Investment Property",
+    "aliases": [
+      "investment property",
+      "total investment property",
+      "reported investment property",
+      "investment property amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "long_term_deposits": {
+    "display_name": "Long Term Deposits",
+    "aliases": [
+      "long term deposits",
+      "total long term deposits",
+      "reported long term deposits",
+      "long term deposits amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "deferred_tax_asset": {
+    "display_name": "Deferred Tax Asset",
+    "aliases": [
+      "deferred tax asset",
+      "total deferred tax asset",
+      "reported deferred tax asset",
+      "deferred tax asset amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "trade_payables": {
+    "display_name": "Trade Payables",
+    "aliases": [
+      "trade creditors",
+      "accounts payable",
+      "amounts due to suppliers",
+      "trade payables",
+      "total trade payables",
+      "reported trade payables"
+    ],
+    "category": "balance_sheet"
+  },
+  "creditors_accrued_other_liabilities": {
+    "display_name": "Creditors Accrued Other Liabilities",
+    "aliases": [
+      "creditors accrued and other liabilities",
+      "accrued expenses",
+      "other payables",
+      "creditors accrued other liabilities",
+      "total creditors accrued other liabilities",
+      "reported creditors accrued other liabilities",
+      "trade and other payables"
+    ],
+    "category": "balance_sheet"
+  },
+  "contract_liabilities": {
+    "display_name": "Contract Liabilities",
+    "aliases": [
+      "contract liabilities",
+      "total contract liabilities",
+      "reported contract liabilities",
+      "contract liabilities amount",
+      "Advances fro m cust omers / cont ract liabilities"
+    ],
+    "category": "balance_sheet"
+  },
+  "current_liabilities": {
+    "display_name": "Current Liabilities",
+    "aliases": [
+      "current liabilities",
+      "total current liabilities",
+      "reported current liabilities",
+      "current liabilities amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "non_current_liabilities": {
+    "display_name": "Non Current Liabilities",
+    "aliases": [
+      "non current liabilities",
+      "total non current liabilities",
+      "reported non current liabilities",
+      "non current liabilities amount",
+      "noncurrent liabilities"
+    ],
+    "category": "balance_sheet"
+  },
+  "total_liabilities": {
+    "display_name": "Total Liabilities",
+    "aliases": [
+      "total liabilities",
+      "total total liabilities",
+      "reported total liabilities",
+      "total liabilities amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "short_term_borrowings": {
+    "display_name": "Short Term Borrowings",
+    "aliases": [
+      "short-term borrowings",
+      "short term running finance",
+      "short term financing",
+      "total short term borrowings",
+      "reported short term borrowings",
+      "Short term borrowin gs",
+      "Short term borr owings obtained repaid net"
+    ],
+    "category": "balance_sheet"
+  },
+  "running_finance": {
+    "display_name": "Running Finance",
+    "aliases": [
+      "short term running finances",
+      "running finance under mark-up arrangements",
+      "bank overdraft",
+      "running finance",
+      "total running finance",
+      "reported running finance"
+    ],
+    "category": "balance_sheet"
+  },
+  "current_portion_long_term_debt": {
+    "display_name": "Current Portion Long Term Debt",
+    "aliases": [
+      "current portion long term debt",
+      "total current portion long term debt",
+      "reported current portion long term debt",
+      "current portion long term debt amount",
+      "current portion of long term finance",
+      "current portion of long term financing",
+      "long-term liabilities - current portion of long term finance",
+      "Current por tion of long term finance"
+    ],
+    "category": "balance_sheet"
+  },
+  "long_term_financing": {
+    "display_name": "Long Term Financing",
+    "aliases": [
+      "long-term financing",
+      "long term loans",
+      "term finance",
+      "total long term financing",
+      "reported long term financing",
+      "long term finance",
+      "Long-term financin g",
+      "Long term fina ncing"
+    ],
+    "category": "balance_sheet"
+  },
+  "long_term_debt": {
+    "display_name": "Long Term Debt",
+    "aliases": [
+      "long term debt",
+      "total long term debt",
+      "reported long term debt",
+      "long term debt amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "lease_liabilities": {
+    "display_name": "Lease Liabilities",
+    "aliases": [
+      "lease liability",
+      "ifrs 16 lease liabilities",
+      "right of use lease obligations",
+      "lease liabilities",
+      "total lease liabilities",
+      "reported lease liabilities"
+    ],
+    "category": "balance_sheet"
+  },
+  "deferred_tax_liability": {
+    "display_name": "Deferred Tax Liability",
+    "aliases": [
+      "deferred tax liability",
+      "total deferred tax liability",
+      "reported deferred tax liability",
+      "deferred tax liability amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "provision_for_taxation": {
+    "display_name": "Provision For Taxation",
+    "aliases": [
+      "provision for taxation",
+      "total provision for taxation",
+      "reported provision for taxation",
+      "provision for taxation amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "gratuity_payable": {
+    "display_name": "Gratuity Payable",
+    "aliases": [
+      "gratuity payable",
+      "total gratuity payable",
+      "reported gratuity payable",
+      "gratuity payable amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "accrued_markup": {
+    "display_name": "Accrued Markup",
+    "aliases": [
+      "accrued mark-up",
+      "markup payable",
+      "interest accrued",
+      "accrued markup",
+      "total accrued markup",
+      "reported accrued markup"
+    ],
+    "category": "balance_sheet"
+  },
+  "equity": {
+    "display_name": "Equity",
+    "aliases": [
+      "shareholders equity",
+      "total equity",
+      "equity attributable to owners",
+      "equity",
+      "reported equity",
+      "equity amount",
+      "shareholders funds",
+      "shareholders funds rupees in mn",
+      "profitability ratios - shareholders' funds rupees in mn",
+      "return on shareholders' funds percent",
+      "profitability ratios - return on shareholders' funds percent"
+    ],
+    "category": "balance_sheet"
+  },
+  "share_capital": {
+    "display_name": "Share Capital",
+    "aliases": [
+      "share capital",
+      "total share capital",
+      "reported share capital",
+      "share capital amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "paid_up_capital": {
+    "display_name": "Paid Up Capital",
+    "aliases": [
+      "paid-up capital",
+      "issued paid up capital",
+      "subscribed and paid up capital",
+      "total paid up capital",
+      "reported paid up capital"
+    ],
+    "category": "balance_sheet"
+  },
+  "share_premium": {
+    "display_name": "Share Premium",
+    "aliases": [
+      "share premium",
+      "total share premium",
+      "reported share premium",
+      "share premium amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "reserves": {
+    "display_name": "Reserves",
+    "aliases": [
+      "reserves",
+      "total reserves",
+      "reported reserves",
+      "reserves amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "revenue_reserves": {
+    "display_name": "Revenue Reserves",
+    "aliases": [
+      "revenue reserves",
+      "total revenue reserves",
+      "reported revenue reserves",
+      "revenue reserves amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "capital_reserves": {
+    "display_name": "Capital Reserves",
+    "aliases": [
+      "capital reserves",
+      "total capital reserves",
+      "reported capital reserves",
+      "capital reserves amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "unappropriated_profit": {
+    "display_name": "Unappropriated Profit",
+    "aliases": [
+      "unappropriated profits",
+      "accumulated profit",
+      "retained profit",
+      "unappropriated profit",
+      "total unappropriated profit",
+      "reported unappropriated profit"
+    ],
+    "category": "balance_sheet"
+  },
+  "retained_earnings": {
+    "display_name": "Retained Earnings",
+    "aliases": [
+      "retained earnings",
+      "total retained earnings",
+      "reported retained earnings",
+      "retained earnings amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "treasury_shares": {
+    "display_name": "Treasury Shares",
+    "aliases": [
+      "treasury shares",
+      "total treasury shares",
+      "reported treasury shares",
+      "treasury shares amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "non_controlling_interest": {
+    "display_name": "Non Controlling Interest",
+    "aliases": [
+      "non controlling interest",
+      "total non controlling interest",
+      "reported non controlling interest",
+      "non controlling interest amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "surplus_on_revaluation_of_assets": {
+    "display_name": "Surplus On Revaluation Of Assets",
+    "aliases": [
+      "surplus on revaluation of assets",
+      "total surplus on revaluation of assets",
+      "reported surplus on revaluation of assets",
+      "surplus on revaluation of assets amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "total_debt": {
+    "display_name": "Total Debt",
+    "aliases": [
+      "total debt",
+      "total total debt",
+      "reported total debt",
+      "total debt amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "net_assets": {
+    "display_name": "Net Assets",
+    "aliases": [
+      "net assets",
+      "total net assets",
+      "reported net assets",
+      "net assets amount"
+    ],
+    "category": "balance_sheet"
+  },
+  "book_value_per_share": {
+    "display_name": "Book Value Per Share",
+    "aliases": [
+      "bvps",
+      "break-up value per share",
+      "net assets per share",
+      "book value per share",
+      "total book value per share",
+      "reported book value per share",
+      "capital structure ratios - net assets per share rupees",
+      "net assets per share rupees"
+    ],
+    "category": "balance_sheet"
+  },
+  "operating_cash_flow": {
+    "display_name": "Operating Cash Flow",
+    "aliases": [
+      "cash flow from operating activities",
+      "net cash generated from operations",
+      "cash generated from operating activities",
+      "operating cash flow",
+      "total operating cash flow",
+      "reported operating cash flow",
+      "net cash from operating activities",
+      "et cash generated from operating activities",
+      "et cash gener ated from operating activities",
+      "et cash gen erat ed from operating activities",
+      "net cash generated from operating activities"
+    ],
+    "category": "cash_flow"
+  },
+  "investing_cash_flow": {
+    "display_name": "Investing Cash Flow",
+    "aliases": [
+      "cash flow from investing activities",
+      "net cash used in investing activities",
+      "cash generated from investing activities",
+      "investing cash flow",
+      "total investing cash flow",
+      "reported investing cash flow"
+    ],
+    "category": "cash_flow"
+  },
+  "financing_cash_flow": {
+    "display_name": "Financing Cash Flow",
+    "aliases": [
+      "cash flow from financing activities",
+      "net cash used in financing activities",
+      "cash generated from financing activities",
+      "financing cash flow",
+      "total financing cash flow",
+      "reported financing cash flow",
+      "net cash outflow inflow from financing activities"
+    ],
+    "category": "cash_flow"
+  },
+  "free_cash_flow": {
+    "display_name": "Free Cash Flow",
+    "aliases": [
+      "fcf",
+      "operating cash flow less capex",
+      "cash flow after capital expenditure",
+      "free cash flow",
+      "total free cash flow",
+      "reported free cash flow"
+    ],
+    "category": "cash_flow"
+  },
+  "cash_generated_from_operations": {
+    "display_name": "Cash Generated From Operations",
+    "aliases": [
+      "cash generated from operations",
+      "total cash generated from operations",
+      "reported cash generated from operations",
+      "cash generated from operations amount",
+      "ash generated from operations",
+      "cash generated f rom operations",
+      "ash genera ted f rom operations",
+      "cash genera ted f rom operations"
+    ],
+    "category": "cash_flow"
+  },
+  "cash_used_in_operations": {
+    "display_name": "Cash Used In Operations",
+    "aliases": [
+      "cash used in operations",
+      "total cash used in operations",
+      "reported cash used in operations",
+      "cash used in operations amount"
+    ],
+    "category": "cash_flow"
+  },
+  "working_capital_changes": {
+    "display_name": "Working Capital Changes",
+    "aliases": [
+      "working capital changes",
+      "total working capital changes",
+      "reported working capital changes",
+      "working capital changes amount"
+    ],
+    "category": "cash_flow"
+  },
+  "income_taxes_paid": {
+    "display_name": "Income Taxes Paid",
+    "aliases": [
+      "income taxes paid",
+      "total income taxes paid",
+      "reported income taxes paid",
+      "income taxes paid amount"
+    ],
+    "category": "cash_flow"
+  },
+  "finance_cost_paid": {
+    "display_name": "Finance Cost Paid",
+    "aliases": [
+      "finance cost paid",
+      "total finance cost paid",
+      "reported finance cost paid",
+      "finance cost paid amount"
+    ],
+    "category": "cash_flow"
+  },
+  "dividends_paid": {
+    "display_name": "Dividends Paid",
+    "aliases": [
+      "dividends paid",
+      "total dividends paid",
+      "reported dividends paid",
+      "dividends paid amount",
+      "Dividend to shareholders"
+    ],
+    "category": "cash_flow"
+  },
+  "proceeds_from_sale_of_ppe": {
+    "display_name": "Proceeds From Sale Of Ppe",
+    "aliases": [
+      "proceeds from sale of ppe",
+      "total proceeds from sale of ppe",
+      "reported proceeds from sale of ppe",
+      "proceeds from sale of ppe amount"
+    ],
+    "category": "cash_flow"
+  },
+  "capital_expenditure": {
+    "display_name": "Capital Expenditure",
+    "aliases": [
+      "capex",
+      "capital additions",
+      "additions to property plant and equipment",
+      "capital expenditure",
+      "total capital expenditure",
+      "reported capital expenditure"
+    ],
+    "category": "cash_flow"
+  },
+  "purchase_of_property_plant_equipment": {
+    "display_name": "Purchase Of Property Plant Equipment",
+    "aliases": [
+      "purchase of property plant equipment",
+      "total purchase of property plant equipment",
+      "reported purchase of property plant equipment",
+      "purchase of property plant equipment amount"
+    ],
+    "category": "cash_flow"
+  },
+  "purchase_of_intangibles": {
+    "display_name": "Purchase Of Intangibles",
+    "aliases": [
+      "purchase of intangibles",
+      "total purchase of intangibles",
+      "reported purchase of intangibles",
+      "purchase of intangibles amount"
+    ],
+    "category": "cash_flow"
+  },
+  "investment_purchases": {
+    "display_name": "Investment Purchases",
+    "aliases": [
+      "investment purchases",
+      "total investment purchases",
+      "reported investment purchases",
+      "investment purchases amount"
+    ],
+    "category": "cash_flow"
+  },
+  "investment_disposals": {
+    "display_name": "Investment Disposals",
+    "aliases": [
+      "investment disposals",
+      "total investment disposals",
+      "reported investment disposals",
+      "investment disposals amount"
+    ],
+    "category": "cash_flow"
+  },
+  "proceeds_from_borrowings": {
+    "display_name": "Proceeds From Borrowings",
+    "aliases": [
+      "proceeds from borrowings",
+      "total proceeds from borrowings",
+      "reported proceeds from borrowings",
+      "proceeds from borrowings amount"
+    ],
+    "category": "cash_flow"
+  },
+  "repayment_of_borrowings": {
+    "display_name": "Repayment Of Borrowings",
+    "aliases": [
+      "repayment of borrowings",
+      "total repayment of borrowings",
+      "reported repayment of borrowings",
+      "repayment of borrowings amount"
+    ],
+    "category": "cash_flow"
+  },
+  "lease_payments": {
+    "display_name": "Lease Payments",
+    "aliases": [
+      "lease payments",
+      "total lease payments",
+      "reported lease payments",
+      "lease payments amount"
+    ],
+    "category": "cash_flow"
+  },
+  "net_increase_decrease_in_cash": {
+    "display_name": "Net Increase Decrease In Cash",
+    "aliases": [
+      "net increase decrease in cash",
+      "total net increase decrease in cash",
+      "reported net increase decrease in cash",
+      "net increase decrease in cash amount",
+      "(Decrease) /Increase in Cash and Bank Balance"
+    ],
+    "category": "cash_flow"
+  },
+  "cash_at_beginning_of_period": {
+    "display_name": "Cash At Beginning Of Period",
+    "aliases": [
+      "cash at beginning of period",
+      "total cash at beginning of period",
+      "reported cash at beginning of period",
+      "cash at beginning of period amount",
+      "ash and cash e quivalents at the b eginning of the year",
+      "ash and cash eq uivalents at the beginning of the year",
+      "cash and cash e quivalents at the b eginning of the year",
+      "cash and cash equivalent at the beginning of the year",
+      "cash and cash equivalents at the beginning of the year",
+      "cash and cash equivalent at the beginning of the",
+      "cash and cash equivalents at the beginning of the"
+    ],
+    "category": "cash_flow"
+  },
+  "cash_at_end_of_period": {
+    "display_name": "Cash At End Of Period",
+    "aliases": [
+      "cash at end of period",
+      "total cash at end of period",
+      "reported cash at end of period",
+      "cash at end of period amount",
+      "ash and cash e quivalents at the e nd of the year",
+      "ash and cash eq uivalents at the e nd of the year",
+      "cash and cash e quivalents at the e nd of the year",
+      "cash and cash equivalent at the end of the year",
+      "cash and cash equivalents at the end of the year",
+      "cash and cash equivalent at the end of the",
+      "cash and cash equivalents at the end of the"
+    ],
+    "category": "cash_flow"
+  },
+  "operating_cash_flow_before_working_capital_changes": {
+    "display_name": "Operating Cash Flow Before Working Capital Changes",
+    "aliases": [
+      "operating cash flow before working capital changes",
+      "total operating cash flow before working capital changes",
+      "reported operating cash flow before working capital changes",
+      "operating cash flow before working capital changes amount"
+    ],
+    "category": "cash_flow"
+  },
+  "long_term_deposits_paid": {
+    "display_name": "Long Term Deposits Paid",
+    "aliases": [
+      "long term deposits paid",
+      "total long term deposits paid",
+      "reported long term deposits paid",
+      "long term deposits paid amount"
+    ],
+    "category": "cash_flow"
+  },
+  "short_term_investments_made": {
+    "display_name": "Short Term Investments Made",
+    "aliases": [
+      "short term investments made",
+      "total short term investments made",
+      "reported short term investments made",
+      "short term investments made amount"
+    ],
+    "category": "cash_flow"
+  },
+  "effect_of_exchange_rate_changes_on_cash": {
+    "display_name": "Effect Of Exchange Rate Changes On Cash",
+    "aliases": [
+      "effect of exchange rate changes on cash",
+      "total effect of exchange rate changes on cash",
+      "reported effect of exchange rate changes on cash",
+      "effect of exchange rate changes on cash amount"
+    ],
+    "category": "cash_flow"
+  },
+  "dividend_income_received": {
+    "display_name": "Dividend Income Received",
+    "aliases": [
+      "dividend income received",
+      "total dividend income received",
+      "reported dividend income received",
+      "dividend income received amount"
+    ],
+    "category": "cash_flow"
+  },
+  "interest_income_received": {
+    "display_name": "Interest Income Received",
+    "aliases": [
+      "interest income received",
+      "total interest income received",
+      "reported interest income received",
+      "interest income received amount",
+      "Income from deposits with Islamic banks",
+      "Income receive d from short-term investments",
+      "Income received from short-term investments"
+    ],
+    "category": "cash_flow"
+  },
+  "working_capital": {
+    "display_name": "Working Capital",
+    "aliases": [
+      "working capital",
+      "total working capital",
+      "reported working capital",
+      "working capital amount"
+    ],
+    "category": "working_capital"
+  },
+  "net_working_capital": {
+    "display_name": "Net Working Capital",
+    "aliases": [
+      "net working capital",
+      "total net working capital",
+      "reported net working capital",
+      "net working capital amount"
+    ],
+    "category": "working_capital"
+  },
+  "days_sales_outstanding": {
+    "display_name": "Days Sales Outstanding",
+    "aliases": [
+      "dso",
+      "receivable days",
+      "debtors days",
+      "days sales outstanding",
+      "total days sales outstanding",
+      "reported days sales outstanding",
+      "no of days in receivables",
+      "no. of days in receivables days"
+    ],
+    "category": "working_capital"
+  },
+  "days_payable_outstanding": {
+    "display_name": "Days Payable Outstanding",
+    "aliases": [
+      "dpo",
+      "payable days",
+      "creditor days",
+      "days payable outstanding",
+      "total days payable outstanding",
+      "reported days payable outstanding",
+      "no of days in payables",
+      "no. of days in payables days"
+    ],
+    "category": "working_capital"
+  },
+  "days_inventory_outstanding": {
+    "display_name": "Days Inventory Outstanding",
+    "aliases": [
+      "dio",
+      "inventory days",
+      "days inventory outstanding",
+      "total days inventory outstanding",
+      "reported days inventory outstanding",
+      "no of days in inventory",
+      "no. of days in inventory days"
+    ],
+    "category": "working_capital"
+  },
+  "cash_conversion_cycle": {
+    "display_name": "Cash Conversion Cycle",
+    "aliases": [
+      "cash conversion cycle",
+      "total cash conversion cycle",
+      "reported cash conversion cycle",
+      "cash conversion cycle amount"
+    ],
+    "category": "working_capital"
+  },
+  "inventory_turnover": {
+    "display_name": "Inventory Turnover",
+    "aliases": [
+      "inventory turnover",
+      "total inventory turnover",
+      "reported inventory turnover",
+      "inventory turnover amount",
+      "activity turnover ratios - inventory turnover times",
+      "inventory turnover times"
+    ],
+    "category": "working_capital"
+  },
+  "receivables_turnover": {
+    "display_name": "Receivables Turnover",
+    "aliases": [
+      "receivables turnover",
+      "total receivables turnover",
+      "reported receivables turnover",
+      "receivables turnover amount",
+      "activity turnover ratios - debtor turnover times",
+      "debtor turnover times"
+    ],
+    "category": "working_capital"
+  },
+  "payables_turnover": {
+    "display_name": "Payables Turnover",
+    "aliases": [
+      "payables turnover",
+      "total payables turnover",
+      "reported payables turnover",
+      "payables turnover amount",
+      "activity turnover ratios - creditor turnover times",
+      "creditor turnover times"
+    ],
+    "category": "working_capital"
+  },
+  "current_assets_to_sales": {
+    "display_name": "Current Assets To Sales",
+    "aliases": [
+      "current assets to sales",
+      "total current assets to sales",
+      "reported current assets to sales",
+      "current assets to sales amount"
+    ],
+    "category": "working_capital"
+  },
+  "current_liabilities_to_sales": {
+    "display_name": "Current Liabilities To Sales",
+    "aliases": [
+      "current liabilities to sales",
+      "total current liabilities to sales",
+      "reported current liabilities to sales",
+      "current liabilities to sales amount"
+    ],
+    "category": "working_capital"
+  },
+  "trade_receivables_days": {
+    "display_name": "Trade Receivables Days",
+    "aliases": [
+      "trade receivables days",
+      "total trade receivables days",
+      "reported trade receivables days",
+      "trade receivables days amount"
+    ],
+    "category": "working_capital"
+  },
+  "trade_payables_days": {
+    "display_name": "Trade Payables Days",
+    "aliases": [
+      "trade payables days",
+      "total trade payables days",
+      "reported trade payables days",
+      "trade payables days amount"
+    ],
+    "category": "working_capital"
+  },
+  "stock_days": {
+    "display_name": "Stock Days",
+    "aliases": [
+      "stock days",
+      "total stock days",
+      "reported stock days",
+      "stock days amount"
+    ],
+    "category": "working_capital"
+  },
+  "operating_cycle": {
+    "display_name": "Operating Cycle",
+    "aliases": [
+      "operating cycle",
+      "total operating cycle",
+      "reported operating cycle",
+      "operating cycle amount",
+      "operating cycle days"
+    ],
+    "category": "working_capital"
+  },
+  "gross_margin": {
+    "display_name": "Gross Margin",
+    "aliases": [
+      "gross profit margin",
+      "gross margin percentage",
+      "gross profit ratio",
+      "gross margin",
+      "total gross margin",
+      "reported gross margin",
+      "gross profit to sales percent",
+      "gross profit to sales",
+      "profitability ratios - gross profit to sales percent",
+      "GP as % of Net",
+      "gross profit as percent of net sales"
+    ],
+    "category": "profitability_ratios"
+  },
+  "ebitda_margin": {
+    "display_name": "EBITDA Margin",
+    "aliases": [
+      "ebitda percentage",
+      "ebitda to sales",
+      "operating cash earnings margin",
+      "ebitda margin",
+      "total ebitda margin",
+      "reported ebitda margin",
+      "ebitda to sales percent",
+      "profitability ratios - ebitda to sales percent"
+    ],
+    "category": "profitability_ratios"
+  },
+  "ebit_margin": {
+    "display_name": "EBIT Margin",
+    "aliases": [
+      "ebit margin",
+      "total ebit margin",
+      "reported ebit margin",
+      "ebit margin amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "operating_margin": {
+    "display_name": "Operating Margin",
+    "aliases": [
+      "operating margin",
+      "total operating margin",
+      "reported operating margin",
+      "operating margin amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "net_margin": {
+    "display_name": "Net Margin",
+    "aliases": [
+      "net profit margin",
+      "profit after tax margin",
+      "pat margin",
+      "net margin",
+      "total net margin",
+      "reported net margin",
+      "net profit after tax to sales percent",
+      "net profit after tax to sales",
+      "profitability ratios - net profit after tax to sales percent"
+    ],
+    "category": "profitability_ratios"
+  },
+  "pretax_margin": {
+    "display_name": "Pretax Margin",
+    "aliases": [
+      "pretax margin",
+      "total pretax margin",
+      "reported pretax margin",
+      "pretax margin amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "return_on_assets": {
+    "display_name": "Return On Assets",
+    "aliases": [
+      "roa",
+      "profit on assets",
+      "net income to assets",
+      "return on assets",
+      "total return on assets",
+      "reported return on assets"
+    ],
+    "category": "profitability_ratios"
+  },
+  "return_on_equity": {
+    "display_name": "Return On Equity",
+    "aliases": [
+      "roe",
+      "profit on equity",
+      "net income to shareholders equity",
+      "return on equity",
+      "total return on equity",
+      "reported return on equity",
+      "profitability ratios - return on equity percent",
+      "return on equity percent"
+    ],
+    "category": "profitability_ratios"
+  },
+  "return_on_invested_capital": {
+    "display_name": "Return On Invested Capital",
+    "aliases": [
+      "roic",
+      "return on invested funds",
+      "nopat to invested capital",
+      "return on invested capital",
+      "total return on invested capital",
+      "reported return on invested capital"
+    ],
+    "category": "profitability_ratios"
+  },
+  "return_on_capital_employed": {
+    "display_name": "Return On Capital Employed",
+    "aliases": [
+      "return on capital employed",
+      "total return on capital employed",
+      "reported return on capital employed",
+      "return on capital employed amount",
+      "profitability ratios - return on capital employed percent",
+      "return on capital employed percent"
+    ],
+    "category": "profitability_ratios"
+  },
+  "operating_cash_flow_margin": {
+    "display_name": "Operating Cash Flow Margin",
+    "aliases": [
+      "operating cash flow margin",
+      "total operating cash flow margin",
+      "reported operating cash flow margin",
+      "operating cash flow margin amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "free_cash_flow_margin": {
+    "display_name": "Free Cash Flow Margin",
+    "aliases": [
+      "free cash flow margin",
+      "total free cash flow margin",
+      "reported free cash flow margin",
+      "free cash flow margin amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "effective_tax_rate": {
+    "display_name": "Effective Tax Rate",
+    "aliases": [
+      "effective tax rate",
+      "total effective tax rate",
+      "reported effective tax rate",
+      "effective tax rate amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "finance_cost_to_sales": {
+    "display_name": "Finance Cost To Sales",
+    "aliases": [
+      "finance cost to sales",
+      "total finance cost to sales",
+      "reported finance cost to sales",
+      "finance cost to sales amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "selling_expense_ratio": {
+    "display_name": "Selling Expense Ratio",
+    "aliases": [
+      "selling expense ratio",
+      "total selling expense ratio",
+      "reported selling expense ratio",
+      "selling expense ratio amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "admin_expense_ratio": {
+    "display_name": "Admin Expense Ratio",
+    "aliases": [
+      "admin expense ratio",
+      "total admin expense ratio",
+      "reported admin expense ratio",
+      "admin expense ratio amount"
+    ],
+    "category": "profitability_ratios"
+  },
+  "current_ratio": {
+    "display_name": "Current Ratio",
+    "aliases": [
+      "current assets to current liabilities",
+      "liquidity ratio",
+      "working capital ratio",
+      "current ratio",
+      "total current ratio",
+      "reported current ratio",
+      "liquidity ratios - current ratio times",
+      "current ratio times"
+    ],
+    "category": "liquidity_ratios"
+  },
+  "quick_ratio": {
+    "display_name": "Quick Ratio",
+    "aliases": [
+      "acid test ratio",
+      "quick assets ratio",
+      "liquid ratio",
+      "quick ratio",
+      "total quick ratio",
+      "reported quick ratio",
+      "quick/acid test ratio",
+      "liquidity ratios - quick/acid test ratio times",
+      "quick/acid test ratio times"
+    ],
+    "category": "liquidity_ratios"
+  },
+  "cash_ratio": {
+    "display_name": "Cash Ratio",
+    "aliases": [
+      "cash ratio",
+      "total cash ratio",
+      "reported cash ratio",
+      "cash ratio amount",
+      "cash to current liabilities times",
+      "liquidity ratios - cash to current liabilities times"
+    ],
+    "category": "liquidity_ratios"
+  },
+  "debt_to_equity": {
+    "display_name": "Debt To Equity",
+    "aliases": [
+      "debt equity ratio",
+      "gearing ratio",
+      "borrowings to equity",
+      "debt to equity",
+      "total debt to equity",
+      "reported debt to equity",
+      "debt to equity ratio as per book value",
+      "debt to equity ratio as per market value"
+    ],
+    "category": "leverage_ratios"
+  },
+  "debt_to_assets": {
+    "display_name": "Debt To Assets",
+    "aliases": [
+      "debt to assets",
+      "total debt to assets",
+      "reported debt to assets",
+      "debt to assets amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "net_debt_to_ebitda": {
+    "display_name": "Net Debt To EBITDA",
+    "aliases": [
+      "net debt to ebitda",
+      "total net debt to ebitda",
+      "reported net debt to ebitda",
+      "net debt to ebitda amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "interest_coverage": {
+    "display_name": "Interest Coverage",
+    "aliases": [
+      "finance cost coverage",
+      "ebit to finance cost",
+      "interest cover",
+      "interest coverage",
+      "total interest coverage",
+      "reported interest coverage",
+      "interest coverage ratio times",
+      "capital structure ratios - interest coverage ratio times"
+    ],
+    "category": "leverage_ratios"
+  },
+  "ebitda_interest_coverage": {
+    "display_name": "EBITDA Interest Coverage",
+    "aliases": [
+      "ebitda interest coverage",
+      "total ebitda interest coverage",
+      "reported ebitda interest coverage",
+      "ebitda interest coverage amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "debt_service_coverage_ratio": {
+    "display_name": "Debt Service Coverage Ratio",
+    "aliases": [
+      "debt service coverage ratio",
+      "total debt service coverage ratio",
+      "reported debt service coverage ratio",
+      "debt service coverage ratio amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "debt_to_capital": {
+    "display_name": "Debt To Capital",
+    "aliases": [
+      "debt to capital",
+      "total debt to capital",
+      "reported debt to capital",
+      "debt to capital amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "net_debt_to_equity": {
+    "display_name": "Net Debt To Equity",
+    "aliases": [
+      "net debt to equity",
+      "total net debt to equity",
+      "reported net debt to equity",
+      "net debt to equity amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "total_liabilities_to_equity": {
+    "display_name": "Total Liabilities To Equity",
+    "aliases": [
+      "total liabilities to equity",
+      "total total liabilities to equity",
+      "reported total liabilities to equity",
+      "total liabilities to equity amount"
+    ],
+    "category": "leverage_ratios"
+  },
+  "asset_turnover": {
+    "display_name": "Asset Turnover",
+    "aliases": [
+      "asset turnover",
+      "total asset turnover",
+      "reported asset turnover",
+      "asset turnover amount",
+      "activity turnover ratios - total assets turnover times",
+      "total assets turnover times"
+    ],
+    "category": "efficiency_ratios"
+  },
+  "fixed_asset_turnover": {
+    "display_name": "Fixed Asset Turnover",
+    "aliases": [
+      "fixed asset turnover",
+      "total fixed asset turnover",
+      "reported fixed asset turnover",
+      "fixed asset turnover amount",
+      "activity turnover ratios - fixed assets turnover times",
+      "fixed assets turnover times"
+    ],
+    "category": "efficiency_ratios"
+  },
+  "equity_multiplier": {
+    "display_name": "Equity Multiplier",
+    "aliases": [
+      "equity multiplier",
+      "total equity multiplier",
+      "reported equity multiplier",
+      "equity multiplier amount"
+    ],
+    "category": "efficiency_ratios"
+  },
+  "inventory_to_sales": {
+    "display_name": "Inventory To Sales",
+    "aliases": [
+      "inventory to sales",
+      "total inventory to sales",
+      "reported inventory to sales",
+      "inventory to sales amount"
+    ],
+    "category": "efficiency_ratios"
+  },
+  "receivables_to_sales": {
+    "display_name": "Receivables To Sales",
+    "aliases": [
+      "receivables to sales",
+      "total receivables to sales",
+      "reported receivables to sales",
+      "receivables to sales amount"
+    ],
+    "category": "efficiency_ratios"
+  },
+  "capex_to_sales": {
+    "display_name": "Capex To Sales",
+    "aliases": [
+      "capex to sales",
+      "total capex to sales",
+      "reported capex to sales",
+      "capex to sales amount"
+    ],
+    "category": "efficiency_ratios"
+  },
+  "earnings_yield": {
+    "display_name": "Earnings Yield",
+    "aliases": [
+      "earnings yield",
+      "total earnings yield",
+      "reported earnings yield",
+      "earnings yield amount"
+    ],
+    "category": "market_metrics"
+  },
+  "price_to_earnings": {
+    "display_name": "Price To Earnings",
+    "aliases": [
+      "p/e",
+      "pe ratio",
+      "price earnings ratio",
+      "price to earnings",
+      "total price to earnings",
+      "reported price to earnings",
+      "price / earning ratio after tax times",
+      "price earning ratio after tax",
+      "investment valuation ratios - price / earning ratio after tax times"
+    ],
+    "category": "market_metrics"
+  },
+  "price_to_book": {
+    "display_name": "Price To Book",
+    "aliases": [
+      "p/b",
+      "pb ratio",
+      "market price to book value",
+      "price to book",
+      "total price to book",
+      "reported price to book",
+      "price to book ratio percent",
+      "investment valuation ratios - price to book ratio percent"
+    ],
+    "category": "market_metrics"
+  },
+  "price_to_sales": {
+    "display_name": "Price To Sales",
+    "aliases": [
+      "price to sales",
+      "total price to sales",
+      "reported price to sales",
+      "price to sales amount"
+    ],
+    "category": "market_metrics"
+  },
+  "enterprise_value": {
+    "display_name": "Enterprise Value",
+    "aliases": [
+      "enterprise value",
+      "total enterprise value",
+      "reported enterprise value",
+      "enterprise value amount"
+    ],
+    "category": "market_metrics"
+  },
+  "enterprise_value_to_ebitda": {
+    "display_name": "Enterprise Value To EBITDA",
+    "aliases": [
+      "ev/ebitda",
+      "ev ebitda multiple",
+      "enterprise value ebitda",
+      "enterprise value to ebitda",
+      "total enterprise value to ebitda",
+      "reported enterprise value to ebitda"
+    ],
+    "category": "market_metrics"
+  },
+  "enterprise_value_to_sales": {
+    "display_name": "Enterprise Value To Sales",
+    "aliases": [
+      "enterprise value to sales",
+      "total enterprise value to sales",
+      "reported enterprise value to sales",
+      "enterprise value to sales amount"
+    ],
+    "category": "market_metrics"
+  },
+  "market_capitalization": {
+    "display_name": "Market Capitalization",
+    "aliases": [
+      "market capitalization",
+      "total market capitalization",
+      "reported market capitalization",
+      "market capitalization amount"
+    ],
+    "category": "market_metrics"
+  },
+  "share_price": {
+    "display_name": "Share Price",
+    "aliases": [
+      "share price",
+      "total share price",
+      "reported share price",
+      "share price amount"
+    ],
+    "category": "market_metrics"
+  },
+  "free_float": {
+    "display_name": "Free Float",
+    "aliases": [
+      "free float",
+      "total free float",
+      "reported free float",
+      "free float amount"
+    ],
+    "category": "market_metrics"
+  },
+  "dividend_payout_ratio": {
+    "display_name": "Dividend Payout Ratio",
+    "aliases": [
+      "dividend payout ratio",
+      "total dividend payout ratio",
+      "reported dividend payout ratio",
+      "dividend payout ratio amount",
+      "dividend payout ratio percent",
+      "investment valuation ratios - dividend payout ratio percent"
+    ],
+    "category": "dividend_metrics"
+  },
+  "dividend_yield": {
+    "display_name": "Dividend Yield",
+    "aliases": [
+      "cash dividend yield",
+      "yield on share",
+      "dividend per share to market price",
+      "dividend yield",
+      "total dividend yield",
+      "reported dividend yield",
+      "dividend yield percent",
+      "investment valuation ratios - dividend yield percent"
+    ],
+    "category": "dividend_metrics"
+  },
+  "dividend_per_share": {
+    "display_name": "Dividend Per Share",
+    "aliases": [
+      "dps",
+      "cash dividend per share",
+      "dividend rupees per share",
+      "dividend per share",
+      "total dividend per share",
+      "reported dividend per share",
+      "cash dividend per share rupees",
+      "investment valuation ratios - cash dividend per share rupees"
+    ],
+    "category": "dividend_metrics"
+  },
+  "bonus_shares": {
+    "display_name": "Bonus Shares",
+    "aliases": [
+      "bonus shares",
+      "total bonus shares",
+      "reported bonus shares",
+      "bonus shares amount"
+    ],
+    "category": "dividend_metrics"
+  },
+  "gross_debt": {
+    "display_name": "Gross Debt",
+    "aliases": [
+      "gross debt",
+      "total gross debt",
+      "reported gross debt",
+      "gross debt amount"
+    ],
+    "category": "capital_structure"
+  },
+  "net_debt": {
+    "display_name": "Net Debt",
+    "aliases": [
+      "gross debt less cash",
+      "borrowings net of cash",
+      "net borrowings",
+      "net debt",
+      "total net debt",
+      "reported net debt"
+    ],
+    "category": "capital_structure"
+  },
+  "short_term_debt": {
+    "display_name": "Short Term Debt",
+    "aliases": [
+      "short term debt",
+      "total short term debt",
+      "reported short term debt",
+      "short term debt amount"
+    ],
+    "category": "capital_structure"
+  },
+  "secured_debt": {
+    "display_name": "Secured Debt",
+    "aliases": [
+      "secured debt",
+      "total secured debt",
+      "reported secured debt",
+      "secured debt amount"
+    ],
+    "category": "capital_structure"
+  },
+  "unsecured_debt": {
+    "display_name": "Unsecured Debt",
+    "aliases": [
+      "unsecured debt",
+      "total unsecured debt",
+      "reported unsecured debt",
+      "unsecured debt amount"
+    ],
+    "category": "capital_structure"
+  },
+  "sukuk": {
+    "display_name": "Sukuk",
+    "aliases": [
+      "sukuk certificates",
+      "islamic bonds",
+      "sukuk financing",
+      "sukuk",
+      "total sukuk",
+      "reported sukuk"
+    ],
+    "category": "capital_structure"
+  },
+  "term_finance_certificates": {
+    "display_name": "Term Finance Certificates",
+    "aliases": [
+      "term finance certificates",
+      "total term finance certificates",
+      "reported term finance certificates",
+      "term finance certificates amount"
+    ],
+    "category": "capital_structure"
+  },
+  "musharaka_financing": {
+    "display_name": "Musharaka Financing",
+    "aliases": [
+      "musharaka",
+      "islamic musharaka facility",
+      "participatory financing",
+      "musharaka financing",
+      "total musharaka financing",
+      "reported musharaka financing"
+    ],
+    "category": "capital_structure"
+  },
+  "diminishing_musharaka": {
+    "display_name": "Diminishing Musharaka",
+    "aliases": [
+      "diminishing musharaka financing",
+      "islamic mortgage financing",
+      "dm facility",
+      "diminishing musharaka",
+      "total diminishing musharaka",
+      "reported diminishing musharaka"
+    ],
+    "category": "capital_structure"
+  },
+  "ijarah_financing": {
+    "display_name": "Ijarah Financing",
+    "aliases": [
+      "ijarah",
+      "islamic lease financing",
+      "ijarah facility",
+      "ijarah financing",
+      "total ijarah financing",
+      "reported ijarah financing"
+    ],
+    "category": "capital_structure"
+  },
+  "debt_maturity_current": {
+    "display_name": "Debt Maturity Current",
+    "aliases": [
+      "debt maturity current",
+      "total debt maturity current",
+      "reported debt maturity current",
+      "debt maturity current amount"
+    ],
+    "category": "capital_structure"
+  },
+  "debt_maturity_non_current": {
+    "display_name": "Debt Maturity Non Current",
+    "aliases": [
+      "debt maturity non current",
+      "total debt maturity non current",
+      "reported debt maturity non current",
+      "debt maturity non current amount"
+    ],
+    "category": "capital_structure"
+  },
+  "weighted_average_borrowing_rate": {
+    "display_name": "Weighted Average Borrowing Rate",
+    "aliases": [
+      "weighted average borrowing rate",
+      "total weighted average borrowing rate",
+      "reported weighted average borrowing rate",
+      "weighted average borrowing rate amount",
+      "weighted average cost of debt percent",
+      "capital structure ratios - weighted average cost of debt percent"
+    ],
+    "category": "capital_structure"
+  },
+  "floating_rate_debt": {
+    "display_name": "Floating Rate Debt",
+    "aliases": [
+      "floating rate debt",
+      "total floating rate debt",
+      "reported floating rate debt",
+      "floating rate debt amount"
+    ],
+    "category": "capital_structure"
+  },
+  "fixed_rate_debt": {
+    "display_name": "Fixed Rate Debt",
+    "aliases": [
+      "fixed rate debt",
+      "total fixed rate debt",
+      "reported fixed rate debt",
+      "fixed rate debt amount"
+    ],
+    "category": "capital_structure"
+  },
+  "debt_covenants": {
+    "display_name": "Debt Covenants",
+    "aliases": [
+      "debt covenants",
+      "total debt covenants",
+      "reported debt covenants",
+      "debt covenants amount"
+    ],
+    "category": "capital_structure"
+  },
+  "revenue_growth": {
+    "display_name": "Revenue Growth",
+    "aliases": [
+      "sales growth",
+      "turnover growth",
+      "growth in revenue",
+      "revenue growth",
+      "total revenue growth",
+      "reported revenue growth"
+    ],
+    "category": "growth_metrics"
+  },
+  "gross_profit_growth": {
+    "display_name": "Gross Profit Growth",
+    "aliases": [
+      "gross profit growth",
+      "total gross profit growth",
+      "reported gross profit growth",
+      "gross profit growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "ebitda_growth": {
+    "display_name": "EBITDA Growth",
+    "aliases": [
+      "growth in ebitda",
+      "operating cash earnings growth",
+      "ebitda increase",
+      "ebitda growth",
+      "total ebitda growth",
+      "reported ebitda growth"
+    ],
+    "category": "growth_metrics"
+  },
+  "ebit_growth": {
+    "display_name": "EBIT Growth",
+    "aliases": [
+      "ebit growth",
+      "total ebit growth",
+      "reported ebit growth",
+      "ebit growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "operating_profit_growth": {
+    "display_name": "Operating Profit Growth",
+    "aliases": [
+      "operating profit growth",
+      "total operating profit growth",
+      "reported operating profit growth",
+      "operating profit growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "net_income_growth": {
+    "display_name": "Net Income Growth",
+    "aliases": [
+      "net income growth",
+      "total net income growth",
+      "reported net income growth",
+      "net income growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "earnings_per_share_growth": {
+    "display_name": "Earnings Per Share Growth",
+    "aliases": [
+      "eps growth",
+      "growth in eps",
+      "earnings per share increase",
+      "earnings per share growth",
+      "total earnings per share growth",
+      "reported earnings per share growth"
+    ],
+    "category": "growth_metrics"
+  },
+  "asset_growth": {
+    "display_name": "Asset Growth",
+    "aliases": [
+      "asset growth",
+      "total asset growth",
+      "reported asset growth",
+      "asset growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "equity_growth": {
+    "display_name": "Equity Growth",
+    "aliases": [
+      "equity growth",
+      "total equity growth",
+      "reported equity growth",
+      "equity growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "debt_growth": {
+    "display_name": "Debt Growth",
+    "aliases": [
+      "debt growth",
+      "total debt growth",
+      "reported debt growth",
+      "debt growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "cash_growth": {
+    "display_name": "Cash Growth",
+    "aliases": [
+      "cash growth",
+      "total cash growth",
+      "reported cash growth",
+      "cash growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "inventory_growth": {
+    "display_name": "Inventory Growth",
+    "aliases": [
+      "inventory growth",
+      "total inventory growth",
+      "reported inventory growth",
+      "inventory growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "receivables_growth": {
+    "display_name": "Receivables Growth",
+    "aliases": [
+      "receivables growth",
+      "total receivables growth",
+      "reported receivables growth",
+      "receivables growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "operating_cash_flow_growth": {
+    "display_name": "Operating Cash Flow Growth",
+    "aliases": [
+      "operating cash flow growth",
+      "total operating cash flow growth",
+      "reported operating cash flow growth",
+      "operating cash flow growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "free_cash_flow_growth": {
+    "display_name": "Free Cash Flow Growth",
+    "aliases": [
+      "free cash flow growth",
+      "total free cash flow growth",
+      "reported free cash flow growth",
+      "free cash flow growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "dividend_growth": {
+    "display_name": "Dividend Growth",
+    "aliases": [
+      "dividend growth",
+      "total dividend growth",
+      "reported dividend growth",
+      "dividend growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "sales_volume_growth": {
+    "display_name": "Sales Volume Growth",
+    "aliases": [
+      "sales volume growth",
+      "total sales volume growth",
+      "reported sales volume growth",
+      "sales volume growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "export_sales_growth": {
+    "display_name": "Export Sales Growth",
+    "aliases": [
+      "export sales growth",
+      "total export sales growth",
+      "reported export sales growth",
+      "export sales growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "capex_growth": {
+    "display_name": "Capex Growth",
+    "aliases": [
+      "capex growth",
+      "total capex growth",
+      "reported capex growth",
+      "capex growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "book_value_growth": {
+    "display_name": "Book Value Growth",
+    "aliases": [
+      "book value growth",
+      "total book value growth",
+      "reported book value growth",
+      "book value growth amount"
+    ],
+    "category": "growth_metrics"
+  },
+  "inflation_rate": {
+    "display_name": "Inflation Rate",
+    "aliases": [
+      "cpi inflation",
+      "consumer price inflation",
+      "inflation assumption",
+      "inflation rate",
+      "total inflation rate",
+      "reported inflation rate"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "exchange_rate": {
+    "display_name": "Exchange Rate",
+    "aliases": [
+      "exchange rate",
+      "total exchange rate",
+      "reported exchange rate",
+      "exchange rate amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "pkr_usd_exchange_rate": {
+    "display_name": "PKR/USD Exchange Rate",
+    "aliases": [
+      "rupee dollar parity",
+      "usd pkr exchange rate",
+      "pkr per usd",
+      "pkr/usd exchange rate",
+      "total pkr usd exchange rate"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "interest_rate": {
+    "display_name": "Interest Rate",
+    "aliases": [
+      "interest rate",
+      "total interest rate",
+      "reported interest rate",
+      "interest rate amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "policy_rate": {
+    "display_name": "Policy Rate",
+    "aliases": [
+      "sbp policy rate",
+      "monetary policy rate",
+      "benchmark policy rate",
+      "policy rate",
+      "total policy rate",
+      "reported policy rate"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "kibor_rate": {
+    "display_name": "KIBOR Rate",
+    "aliases": [
+      "kibor",
+      "karachi interbank offered rate",
+      "three month kibor",
+      "kibor rate",
+      "total kibor rate",
+      "reported kibor rate"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "commodity_prices": {
+    "display_name": "Commodity Prices",
+    "aliases": [
+      "commodity prices",
+      "total commodity prices",
+      "reported commodity prices",
+      "commodity prices amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "oil_price": {
+    "display_name": "Oil Price",
+    "aliases": [
+      "oil price",
+      "total oil price",
+      "reported oil price",
+      "oil price amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "coal_price": {
+    "display_name": "Coal Price",
+    "aliases": [
+      "richards bay coal price",
+      "imported coal price",
+      "afghan coal price",
+      "coal price",
+      "total coal price",
+      "reported coal price"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "gas_price": {
+    "display_name": "Gas Price",
+    "aliases": [
+      "gas price",
+      "total gas price",
+      "reported gas price",
+      "gas price amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "cotton_price": {
+    "display_name": "Cotton Price",
+    "aliases": [
+      "phutti price",
+      "raw cotton price",
+      "cotton rate",
+      "cotton price",
+      "total cotton price",
+      "reported cotton price"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "steel_price": {
+    "display_name": "Steel Price",
+    "aliases": [
+      "steel price",
+      "total steel price",
+      "reported steel price",
+      "steel price amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "freight_rates": {
+    "display_name": "Freight Rates",
+    "aliases": [
+      "shipping rates",
+      "ocean freight",
+      "logistics cost",
+      "freight rates",
+      "total freight rates",
+      "reported freight rates"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "electricity_tariff": {
+    "display_name": "Electricity Tariff",
+    "aliases": [
+      "electricity tariff",
+      "total electricity tariff",
+      "reported electricity tariff",
+      "electricity tariff amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "gas_tariff": {
+    "display_name": "Gas Tariff",
+    "aliases": [
+      "gas tariff",
+      "total gas tariff",
+      "reported gas tariff",
+      "gas tariff amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "wage_inflation": {
+    "display_name": "Wage Inflation",
+    "aliases": [
+      "wage inflation",
+      "total wage inflation",
+      "reported wage inflation",
+      "wage inflation amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "tax_rate_assumption": {
+    "display_name": "Tax Rate Assumption",
+    "aliases": [
+      "tax rate assumption",
+      "total tax rate assumption",
+      "reported tax rate assumption",
+      "tax rate assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "capacity_utilization_assumption": {
+    "display_name": "Capacity Utilization Assumption",
+    "aliases": [
+      "capacity utilization assumption",
+      "total capacity utilization assumption",
+      "reported capacity utilization assumption",
+      "capacity utilization assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "sales_volume_assumption": {
+    "display_name": "Sales Volume Assumption",
+    "aliases": [
+      "sales volume assumption",
+      "total sales volume assumption",
+      "reported sales volume assumption",
+      "sales volume assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "price_increase_assumption": {
+    "display_name": "Price Increase Assumption",
+    "aliases": [
+      "price increase assumption",
+      "total price increase assumption",
+      "reported price increase assumption",
+      "price increase assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "raw_material_price_assumption": {
+    "display_name": "Raw Material Price Assumption",
+    "aliases": [
+      "raw material price assumption",
+      "total raw material price assumption",
+      "reported raw material price assumption",
+      "raw material price assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "export_price_assumption": {
+    "display_name": "Export Price Assumption",
+    "aliases": [
+      "export price assumption",
+      "total export price assumption",
+      "reported export price assumption",
+      "export price assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "import_duty_assumption": {
+    "display_name": "Import Duty Assumption",
+    "aliases": [
+      "import duty assumption",
+      "total import duty assumption",
+      "reported import duty assumption",
+      "import duty assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "carbon_price": {
+    "display_name": "Carbon Price",
+    "aliases": [
+      "carbon price",
+      "total carbon price",
+      "reported carbon price",
+      "carbon price amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "working_capital_days_assumption": {
+    "display_name": "Working Capital Days Assumption",
+    "aliases": [
+      "working capital days assumption",
+      "total working capital days assumption",
+      "reported working capital days assumption",
+      "working capital days assumption amount"
+    ],
+    "category": "forecast_assumptions"
+  },
+  "cement_dispatches": {
+    "display_name": "Cement Dispatches",
+    "aliases": [
+      "total dispatches",
+      "cement sales volume",
+      "dispatch volume",
+      "cement dispatches",
+      "total cement dispatches",
+      "reported cement dispatches"
+    ],
+    "category": "cement_sector"
+  },
+  "local_cement_dispatches": {
+    "display_name": "Local Cement Dispatches",
+    "aliases": [
+      "domestic dispatches",
+      "local sales volume",
+      "domestic cement sales",
+      "local cement dispatches",
+      "total local cement dispatches",
+      "reported local cement dispatches"
+    ],
+    "category": "cement_sector"
+  },
+  "export_cement_dispatches": {
+    "display_name": "Export Cement Dispatches",
+    "aliases": [
+      "export dispatches",
+      "cement exports",
+      "export sales volume",
+      "export cement dispatches",
+      "total export cement dispatches",
+      "reported export cement dispatches"
+    ],
+    "category": "cement_sector"
+  },
+  "clinker_production": {
+    "display_name": "Clinker Production",
+    "aliases": [
+      "clinker output",
+      "clinker manufactured",
+      "clinker produced",
+      "clinker production",
+      "total clinker production",
+      "reported clinker production"
+    ],
+    "category": "cement_sector"
+  },
+  "cement_capacity": {
+    "display_name": "Cement Capacity",
+    "aliases": [
+      "cement capacity",
+      "total cement capacity",
+      "reported cement capacity",
+      "cement capacity amount"
+    ],
+    "category": "cement_sector"
+  },
+  "cement_capacity_utilization": {
+    "display_name": "Cement Capacity Utilization",
+    "aliases": [
+      "cement capacity utilization",
+      "total cement capacity utilization",
+      "reported cement capacity utilization",
+      "cement capacity utilization amount"
+    ],
+    "category": "cement_sector"
+  },
+  "retention_price": {
+    "display_name": "Retention Price",
+    "aliases": [
+      "retention price",
+      "total retention price",
+      "reported retention price",
+      "retention price amount"
+    ],
+    "category": "cement_sector"
+  },
+  "coal_consumption": {
+    "display_name": "Coal Consumption",
+    "aliases": [
+      "coal consumption",
+      "total coal consumption",
+      "reported coal consumption",
+      "coal consumption amount"
+    ],
+    "category": "cement_sector"
+  },
+  "waste_heat_recovery_generation": {
+    "display_name": "Waste Heat Recovery Generation",
+    "aliases": [
+      "whr generation",
+      "waste heat recovery power",
+      "whr electricity",
+      "waste heat recovery generation",
+      "total waste heat recovery generation",
+      "reported waste heat recovery generation"
+    ],
+    "category": "cement_sector"
+  },
+  "cement_bag_price": {
+    "display_name": "Cement Bag Price",
+    "aliases": [
+      "cement bag price",
+      "total cement bag price",
+      "reported cement bag price",
+      "cement bag price amount"
+    ],
+    "category": "cement_sector"
+  },
+  "vehicle_units_sold": {
+    "display_name": "Vehicle Units Sold",
+    "aliases": [
+      "units sold",
+      "sales volume units",
+      "vehicle sales",
+      "vehicle units sold",
+      "total vehicle units sold",
+      "reported vehicle units sold"
+    ],
+    "category": "automobile_sector"
+  },
+  "vehicle_production_units": {
+    "display_name": "Vehicle Production Units",
+    "aliases": [
+      "vehicle production units",
+      "total vehicle production units",
+      "reported vehicle production units",
+      "vehicle production units amount"
+    ],
+    "category": "automobile_sector"
+  },
+  "ckd_kits_imported": {
+    "display_name": "Ckd Kits Imported",
+    "aliases": [
+      "ckd imports",
+      "completely knocked down kits",
+      "imported kits",
+      "ckd kits imported",
+      "total ckd kits imported",
+      "reported ckd kits imported"
+    ],
+    "category": "automobile_sector"
+  },
+  "localization_rate": {
+    "display_name": "Localization Rate",
+    "aliases": [
+      "local content",
+      "localisation level",
+      "parts localization",
+      "localization rate",
+      "total localization rate",
+      "reported localization rate"
+    ],
+    "category": "automobile_sector"
+  },
+  "dealer_network_count": {
+    "display_name": "Dealer Network Count",
+    "aliases": [
+      "dealer network count",
+      "total dealer network count",
+      "reported dealer network count",
+      "dealer network count amount"
+    ],
+    "category": "automobile_sector"
+  },
+  "automobile_capacity_utilization": {
+    "display_name": "Automobile Capacity Utilization",
+    "aliases": [
+      "automobile capacity utilization",
+      "total automobile capacity utilization",
+      "reported automobile capacity utilization",
+      "automobile capacity utilization amount"
+    ],
+    "category": "automobile_sector"
+  },
+  "average_selling_price_vehicle": {
+    "display_name": "Average Selling Price Vehicle",
+    "aliases": [
+      "average selling price vehicle",
+      "total average selling price vehicle",
+      "reported average selling price vehicle",
+      "average selling price vehicle amount"
+    ],
+    "category": "automobile_sector"
+  },
+  "warranty_claims": {
+    "display_name": "Warranty Claims",
+    "aliases": [
+      "warranty claims",
+      "total warranty claims",
+      "reported warranty claims",
+      "warranty claims amount"
+    ],
+    "category": "automobile_sector"
+  },
+  "spindles_installed": {
+    "display_name": "Spindles Installed",
+    "aliases": [
+      "number of spindles",
+      "installed spindles",
+      "spinning capacity",
+      "spindles installed",
+      "total spindles installed",
+      "reported spindles installed"
+    ],
+    "category": "textile_sector"
+  },
+  "looms_installed": {
+    "display_name": "Looms Installed",
+    "aliases": [
+      "looms installed",
+      "total looms installed",
+      "reported looms installed",
+      "looms installed amount"
+    ],
+    "category": "textile_sector"
+  },
+  "yarn_production": {
+    "display_name": "Yarn Production",
+    "aliases": [
+      "yarn production",
+      "total yarn production",
+      "reported yarn production",
+      "yarn production amount"
+    ],
+    "category": "textile_sector"
+  },
+  "fabric_production": {
+    "display_name": "Fabric Production",
+    "aliases": [
+      "fabric production",
+      "total fabric production",
+      "reported fabric production",
+      "fabric production amount"
+    ],
+    "category": "textile_sector"
+  },
+  "textile_export_sales": {
+    "display_name": "Textile Export Sales",
+    "aliases": [
+      "export sales",
+      "foreign sales",
+      "textile exports",
+      "textile export sales",
+      "total textile export sales",
+      "reported textile export sales"
+    ],
+    "category": "textile_sector"
+  },
+  "cotton_consumption": {
+    "display_name": "Cotton Consumption",
+    "aliases": [
+      "cotton consumption",
+      "total cotton consumption",
+      "reported cotton consumption",
+      "cotton consumption amount"
+    ],
+    "category": "textile_sector"
+  },
+  "textile_capacity_utilization": {
+    "display_name": "Textile Capacity Utilization",
+    "aliases": [
+      "textile capacity utilization",
+      "total textile capacity utilization",
+      "reported textile capacity utilization",
+      "textile capacity utilization amount"
+    ],
+    "category": "textile_sector"
+  },
+  "energy_cost_per_unit_textile": {
+    "display_name": "Energy Cost Per Unit Textile",
+    "aliases": [
+      "energy cost per unit textile",
+      "total energy cost per unit textile",
+      "reported energy cost per unit textile",
+      "energy cost per unit textile amount"
+    ],
+    "category": "textile_sector"
+  },
+  "customer_deposits": {
+    "display_name": "Customer Deposits",
+    "aliases": [
+      "deposits",
+      "total deposits",
+      "customer deposits balance",
+      "customer deposits",
+      "total customer deposits",
+      "reported customer deposits"
+    ],
+    "category": "banking_sector"
+  },
+  "gross_advances": {
+    "display_name": "Gross Advances",
+    "aliases": [
+      "advances",
+      "gross loans",
+      "loan portfolio",
+      "gross advances",
+      "total gross advances",
+      "reported gross advances"
+    ],
+    "category": "banking_sector"
+  },
+  "net_advances": {
+    "display_name": "Net Advances",
+    "aliases": [
+      "net advances",
+      "total net advances",
+      "reported net advances",
+      "net advances amount"
+    ],
+    "category": "banking_sector"
+  },
+  "non_performing_loans": {
+    "display_name": "Non Performing Loans",
+    "aliases": [
+      "npls",
+      "classified advances",
+      "infected portfolio",
+      "non performing loans",
+      "total non performing loans",
+      "reported non performing loans"
+    ],
+    "category": "banking_sector"
+  },
+  "npl_ratio": {
+    "display_name": "NPL Ratio",
+    "aliases": [
+      "npl ratio",
+      "total npl ratio",
+      "reported npl ratio",
+      "npl ratio amount"
+    ],
+    "category": "banking_sector"
+  },
+  "coverage_ratio": {
+    "display_name": "Coverage Ratio",
+    "aliases": [
+      "coverage ratio",
+      "total coverage ratio",
+      "reported coverage ratio",
+      "coverage ratio amount"
+    ],
+    "category": "banking_sector"
+  },
+  "net_interest_margin": {
+    "display_name": "Net Interest Margin",
+    "aliases": [
+      "nim",
+      "spread ratio",
+      "net mark-up margin",
+      "net interest margin",
+      "total net interest margin",
+      "reported net interest margin"
+    ],
+    "category": "banking_sector"
+  },
+  "net_markup_income": {
+    "display_name": "Net Markup Income",
+    "aliases": [
+      "net mark-up income",
+      "net interest income",
+      "markup earned net",
+      "net markup income",
+      "total net markup income",
+      "reported net markup income"
+    ],
+    "category": "banking_sector"
+  },
+  "fee_commission_income": {
+    "display_name": "Fee Commission Income",
+    "aliases": [
+      "fee commission income",
+      "total fee commission income",
+      "reported fee commission income",
+      "fee commission income amount"
+    ],
+    "category": "banking_sector"
+  },
+  "capital_adequacy_ratio": {
+    "display_name": "Capital Adequacy Ratio",
+    "aliases": [
+      "car",
+      "capital ratio",
+      "basel capital adequacy",
+      "capital adequacy ratio",
+      "total capital adequacy ratio",
+      "reported capital adequacy ratio"
+    ],
+    "category": "banking_sector"
+  },
+  "casa_ratio": {
+    "display_name": "CASA Ratio",
+    "aliases": [
+      "casa ratio",
+      "total casa ratio",
+      "reported casa ratio",
+      "casa ratio amount"
+    ],
+    "category": "banking_sector"
+  },
+  "cost_to_income_ratio": {
+    "display_name": "Cost To Income Ratio",
+    "aliases": [
+      "cost to income ratio",
+      "total cost to income ratio",
+      "reported cost to income ratio",
+      "cost to income ratio amount"
+    ],
+    "category": "banking_sector"
+  },
+  "urea_production": {
+    "display_name": "Urea Production",
+    "aliases": [
+      "urea production",
+      "total urea production",
+      "reported urea production",
+      "urea production amount"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "urea_offtake": {
+    "display_name": "Urea Offtake",
+    "aliases": [
+      "urea sales volume",
+      "urea dispatches",
+      "urea offtake volume",
+      "urea offtake",
+      "total urea offtake",
+      "reported urea offtake"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "dap_offtake": {
+    "display_name": "Dap Offtake",
+    "aliases": [
+      "dap offtake",
+      "total dap offtake",
+      "reported dap offtake",
+      "dap offtake amount"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "fertilizer_capacity_utilization": {
+    "display_name": "Fertilizer Capacity Utilization",
+    "aliases": [
+      "fertilizer capacity utilization",
+      "total fertilizer capacity utilization",
+      "reported fertilizer capacity utilization",
+      "fertilizer capacity utilization amount"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "feedstock_gas_price": {
+    "display_name": "Feedstock Gas Price",
+    "aliases": [
+      "feedstock gas price",
+      "total feedstock gas price",
+      "reported feedstock gas price",
+      "feedstock gas price amount"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "gas_infrastructure_development_cess": {
+    "display_name": "GIDC",
+    "aliases": [
+      "gidc",
+      "gas infrastructure development cess",
+      "gidc payable",
+      "gidc expense",
+      "total gas infrastructure development cess",
+      "reported gas infrastructure development cess"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "ammonia_production": {
+    "display_name": "Ammonia Production",
+    "aliases": [
+      "ammonia production",
+      "total ammonia production",
+      "reported ammonia production",
+      "ammonia production amount"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "fertilizer_subsidy": {
+    "display_name": "Fertilizer Subsidy",
+    "aliases": [
+      "fertilizer subsidy",
+      "total fertilizer subsidy",
+      "reported fertilizer subsidy",
+      "fertilizer subsidy amount"
+    ],
+    "category": "fertilizer_sector"
+  },
+  "electricity_generation": {
+    "display_name": "Electricity Generation",
+    "aliases": [
+      "units generated",
+      "energy generated",
+      "electricity generation",
+      "total electricity generation",
+      "reported electricity generation"
+    ],
+    "category": "power_sector"
+  },
+  "net_electrical_output": {
+    "display_name": "Net Electrical Output",
+    "aliases": [
+      "net electrical output",
+      "total net electrical output",
+      "reported net electrical output",
+      "net electrical output amount"
+    ],
+    "category": "power_sector"
+  },
+  "capacity_factor": {
+    "display_name": "Capacity Factor",
+    "aliases": [
+      "plant capacity factor",
+      "load factor",
+      "generation capacity factor",
+      "capacity factor",
+      "total capacity factor",
+      "reported capacity factor"
+    ],
+    "category": "power_sector"
+  },
+  "availability_factor": {
+    "display_name": "Availability Factor",
+    "aliases": [
+      "availability factor",
+      "total availability factor",
+      "reported availability factor",
+      "availability factor amount"
+    ],
+    "category": "power_sector"
+  },
+  "heat_rate": {
+    "display_name": "Heat Rate",
+    "aliases": [
+      "heat rate",
+      "total heat rate",
+      "reported heat rate",
+      "heat rate amount"
+    ],
+    "category": "power_sector"
+  },
+  "tariff_rate": {
+    "display_name": "Tariff Rate",
+    "aliases": [
+      "tariff rate",
+      "total tariff rate",
+      "reported tariff rate",
+      "tariff rate amount"
+    ],
+    "category": "power_sector"
+  },
+  "capacity_payments": {
+    "display_name": "Capacity Payments",
+    "aliases": [
+      "capacity payments",
+      "total capacity payments",
+      "reported capacity payments",
+      "capacity payments amount"
+    ],
+    "category": "power_sector"
+  },
+  "circular_debt_receivables": {
+    "display_name": "Circular Debt Receivables",
+    "aliases": [
+      "power sector receivables",
+      "receivable from cp pa",
+      "circular debt",
+      "circular debt receivables",
+      "total circular debt receivables",
+      "reported circular debt receivables"
+    ],
+    "category": "power_sector"
+  },
+  "oil_production": {
+    "display_name": "Oil Production",
+    "aliases": [
+      "crude oil production",
+      "oil output",
+      "barrels produced",
+      "oil production",
+      "total oil production",
+      "reported oil production"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "gas_production": {
+    "display_name": "Gas Production",
+    "aliases": [
+      "natural gas production",
+      "gas output",
+      "mmcfd produced",
+      "gas production",
+      "total gas production",
+      "reported gas production"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "oil_reserves": {
+    "display_name": "Oil Reserves",
+    "aliases": [
+      "oil reserves",
+      "total oil reserves",
+      "reported oil reserves",
+      "oil reserves amount"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "gas_reserves": {
+    "display_name": "Gas Reserves",
+    "aliases": [
+      "gas reserves",
+      "total gas reserves",
+      "reported gas reserves",
+      "gas reserves amount"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "exploration_expense": {
+    "display_name": "Exploration Expense",
+    "aliases": [
+      "exploration expense",
+      "total exploration expense",
+      "reported exploration expense",
+      "exploration expense amount"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "lifting_cost": {
+    "display_name": "Lifting Cost",
+    "aliases": [
+      "lifting cost",
+      "total lifting cost",
+      "reported lifting cost",
+      "lifting cost amount"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "wells_drilled": {
+    "display_name": "Wells Drilled",
+    "aliases": [
+      "wells drilled",
+      "total wells drilled",
+      "reported wells drilled",
+      "wells drilled amount"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "refinery_throughput": {
+    "display_name": "Refinery Throughput",
+    "aliases": [
+      "crude throughput",
+      "refinery intake",
+      "barrels processed",
+      "refinery throughput",
+      "total refinery throughput",
+      "reported refinery throughput"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "gross_refining_margin": {
+    "display_name": "Gross Refining Margin",
+    "aliases": [
+      "grm",
+      "refining margin",
+      "gross refinery margin",
+      "gross refining margin",
+      "total gross refining margin",
+      "reported gross refining margin"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "reserve_replacement_ratio": {
+    "display_name": "Reserve Replacement Ratio",
+    "aliases": [
+      "reserve replacement ratio",
+      "total reserve replacement ratio",
+      "reported reserve replacement ratio",
+      "reserve replacement ratio amount"
+    ],
+    "category": "oil_gas_sector"
+  },
+  "annual_recurring_revenue": {
+    "display_name": "Annual Recurring Revenue",
+    "aliases": [
+      "arr",
+      "recurring revenue annualized",
+      "annual subscription revenue",
+      "annual recurring revenue",
+      "total annual recurring revenue",
+      "reported annual recurring revenue"
+    ],
+    "category": "technology_sector"
+  },
+  "monthly_recurring_revenue": {
+    "display_name": "Monthly Recurring Revenue",
+    "aliases": [
+      "mrr",
+      "monthly subscription revenue",
+      "recurring revenue monthly",
+      "monthly recurring revenue",
+      "total monthly recurring revenue",
+      "reported monthly recurring revenue"
+    ],
+    "category": "technology_sector"
+  },
+  "average_revenue_per_user": {
+    "display_name": "Average Revenue Per User",
+    "aliases": [
+      "arpu",
+      "average revenue per customer",
+      "revenue per user",
+      "average revenue per user",
+      "total average revenue per user",
+      "reported average revenue per user"
+    ],
+    "category": "technology_sector"
+  },
+  "customer_acquisition_cost": {
+    "display_name": "Customer Acquisition Cost",
+    "aliases": [
+      "cac",
+      "cost to acquire customer",
+      "customer acquisition spend",
+      "customer acquisition cost",
+      "total customer acquisition cost",
+      "reported customer acquisition cost"
+    ],
+    "category": "technology_sector"
+  },
+  "lifetime_value": {
+    "display_name": "Lifetime Value",
+    "aliases": [
+      "ltv",
+      "customer lifetime value",
+      "clv",
+      "lifetime value",
+      "total lifetime value",
+      "reported lifetime value"
+    ],
+    "category": "technology_sector"
+  },
+  "churn_rate": {
+    "display_name": "Churn Rate",
+    "aliases": [
+      "churn rate",
+      "total churn rate",
+      "reported churn rate",
+      "churn rate amount"
+    ],
+    "category": "technology_sector"
+  },
+  "gross_merchandise_value": {
+    "display_name": "Gross Merchandise Value",
+    "aliases": [
+      "gmv",
+      "gross transaction value",
+      "platform transaction value",
+      "gross merchandise value",
+      "total gross merchandise value",
+      "reported gross merchandise value"
+    ],
+    "category": "technology_sector"
+  },
+  "active_users": {
+    "display_name": "Active Users",
+    "aliases": [
+      "active users",
+      "total active users",
+      "reported active users",
+      "active users amount"
+    ],
+    "category": "technology_sector"
+  },
+  "cloud_hosting_cost": {
+    "display_name": "Cloud Hosting Cost",
+    "aliases": [
+      "cloud hosting cost",
+      "total cloud hosting cost",
+      "reported cloud hosting cost",
+      "cloud hosting cost amount"
+    ],
+    "category": "technology_sector"
+  },
+  "research_development_headcount": {
+    "display_name": "Research Development Headcount",
+    "aliases": [
+      "research development headcount",
+      "total research development headcount",
+      "reported research development headcount",
+      "research development headcount amount"
+    ],
+    "category": "technology_sector"
+  },
+  "carbon_emissions": {
+    "display_name": "Carbon Emissions",
+    "aliases": [
+      "ghg emissions",
+      "co2 emissions",
+      "greenhouse gas emissions",
+      "carbon emissions",
+      "total carbon emissions",
+      "reported carbon emissions"
+    ],
+    "category": "esg_metrics"
+  },
+  "scope_1_emissions": {
+    "display_name": "Scope 1 Emissions",
+    "aliases": [
+      "scope 1 emissions",
+      "total scope 1 emissions",
+      "reported scope 1 emissions",
+      "scope 1 emissions amount"
+    ],
+    "category": "esg_metrics"
+  },
+  "scope_2_emissions": {
+    "display_name": "Scope 2 Emissions",
+    "aliases": [
+      "scope 2 emissions",
+      "total scope 2 emissions",
+      "reported scope 2 emissions",
+      "scope 2 emissions amount"
+    ],
+    "category": "esg_metrics"
+  },
+  "renewable_energy_usage": {
+    "display_name": "Renewable Energy Usage",
+    "aliases": [
+      "renewable energy usage",
+      "total renewable energy usage",
+      "reported renewable energy usage",
+      "renewable energy usage amount"
+    ],
+    "category": "esg_metrics"
+  },
+  "water_consumption": {
+    "display_name": "Water Consumption",
+    "aliases": [
+      "water consumption",
+      "total water consumption",
+      "reported water consumption",
+      "water consumption amount"
+    ],
+    "category": "esg_metrics"
+  },
+  "lost_time_injury_frequency_rate": {
+    "display_name": "Lost Time Injury Frequency Rate",
+    "aliases": [
+      "ltifr",
+      "lost time injury rate",
+      "safety frequency rate",
+      "lost time injury frequency rate",
+      "total lost time injury frequency rate",
+      "reported lost time injury frequency rate"
+    ],
+    "category": "esg_metrics"
+  },
+  "other_comprehensive_income": {
+    "display_name": "Other Comprehensive Income",
+    "aliases": [
+      "other comprehensive income",
+      "other comprehensive income amount",
+      "reported other comprehensive income"
+    ],
+    "category": "income_statement"
+  },
+  "total_equity_and_liabilities": {
+    "display_name": "Total Equity And Liabilities",
+    "aliases": [
+      "total equity and liabilities",
+      "total equity liabilities",
+      "equity and liabilities total",
+      "OTAL EQUITY AND LIABILITIES"
+    ],
+    "category": "balance_sheet"
+  },
+  "share_capital_and_reserves": {
+    "display_name": "Share Capital And Reserves",
+    "aliases": [
+      "share capital and reserves",
+      "capital and reserves"
+    ],
+    "category": "balance_sheet"
+  },
+  "deferred_liabilities": {
+    "display_name": "Deferred Liabilities",
+    "aliases": [
+      "deferred liabilities",
+      "deferred liability",
+      "total deferred liabilities"
+    ],
+    "category": "balance_sheet"
+  },
+  "long_term_advances": {
+    "display_name": "Long Term Advances",
+    "aliases": [
+      "long term advance",
+      "long term advances"
+    ],
+    "category": "balance_sheet"
+  },
+  "long_term_deposits_and_deferred_liabilities": {
+    "display_name": "Long Term Deposits And Deferred Liabilities",
+    "aliases": [
+      "long term deposits and deferred liabilities",
+      "long term deposits and other liabilities"
+    ],
+    "category": "balance_sheet"
+  },
+  "levy": {
+    "display_name": "Levy",
+    "aliases": [
+      "levy",
+      "tax levy",
+      "government levy"
+    ],
+    "category": "income_statement"
+  },
+  "market_value_per_share": {
+    "display_name": "Market Value Per Share",
+    "aliases": [
+      "market value per share",
+      "market value per share as on 30th june",
+      "investment valuation ratios - market value per share as on 30th june rupees"
+    ],
+    "category": "market_metrics"
+  },
+  "share_price_year_high": {
+    "display_name": "Share Price Year High",
+    "aliases": [
+      "year high close",
+      "year high close rupees",
+      "investment valuation ratios - year high close rupees"
+    ],
+    "category": "market_metrics"
+  },
+  "share_price_year_low": {
+    "display_name": "Share Price Year Low",
+    "aliases": [
+      "year low close",
+      "year low close rupees",
+      "investment valuation ratios - year low close rupees"
+    ],
+    "category": "market_metrics"
+  },
+  "financial_leverage_ratio": {
+    "display_name": "Financial Leverage Ratio",
+    "aliases": [
+      "financial leverage ratio",
+      "financial leverage ratio times",
+      "capital structure ratios - financial leverage ratio times"
+    ],
+    "category": "leverage_ratios"
+  },
+  "operating_leverage": {
+    "display_name": "Operating Leverage",
+    "aliases": [
+      "operating leverage",
+      "operating leverage percent",
+      "profitability ratios - operating leverage percent"
+    ],
+    "category": "leverage_ratios"
+  },
+  "cash_flow_coverage_ratio": {
+    "display_name": "Cash Flow Coverage Ratio",
+    "aliases": [
+      "cash flow coverage ratio",
+      "cash flow coverage ratio times",
+      "liquidity ratios - cash flow coverage ratio times"
+    ],
+    "category": "liquidity_ratios"
+  },
+  "cash_flow_from_operations_to_sales": {
+    "display_name": "Cash Flow From Operations To Sales",
+    "aliases": [
+      "cash flow from operations to sales",
+      "cash flow from operations to sales times",
+      "liquidity ratios - cash flow from operations to sales times"
+    ],
+    "category": "liquidity_ratios"
+  },
+  "cash_flow_to_capital_expenditures": {
+    "display_name": "Cash Flow To Capital Expenditures",
+    "aliases": [
+      "cash flow to capital expenditures",
+      "cash flow to capital expenditures times",
+      "liquidity ratios - cash flow to capital expenditures times"
+    ],
+    "category": "liquidity_ratios"
+  },
+  "operating_cost_to_sales": {
+    "display_name": "Operating Cost To Sales",
+    "aliases": [
+      "operating cost to sales",
+      "operating cost to sales percent",
+      "profitability ratios - operating cost to sales percent"
+    ],
+    "category": "profitability_ratios"
+  },
+  "profit_before_tax_margin": {
+    "display_name": "Profit Before Tax Margin",
+    "aliases": [
+      "profit before tax to sales",
+      "profit before tax to sales percent",
+      "profitability ratios - profit before tax to sales percent"
+    ],
+    "category": "profitability_ratios"
+  },
+  "production_per_employee": {
+    "display_name": "Production Per Employee",
+    "aliases": [
+      "production per employee",
+      "production per employee mt",
+      "employee productivity ratios - production per employee mt"
+    ],
+    "category": "employee_metrics"
+  },
+  "revenue_per_employee": {
+    "display_name": "Revenue Per Employee",
+    "aliases": [
+      "revenue per employee",
+      "revenue per employee rupees in mn",
+      "employee productivity ratios - revenue per employee rupees in mn"
+    ],
+    "category": "employee_metrics"
+  },
+  "staff_turnover_ratio": {
+    "display_name": "Staff Turnover Ratio",
+    "aliases": [
+      "staff turnover ratio",
+      "staff turnover ratio times",
+      "employee productivity ratios - staff turnover ratio times"
+    ],
+    "category": "employee_metrics"
+  },
+  "managerial_remuneration": {
+    "display_name": "Managerial Remuneration",
+    "aliases": [
+      "managerial remuneration",
+      "particulars - managerial remuneration",
+      "directors remuneration",
+      "aggregate amounts charged - managerial remuneration",
+      "Aggre gate amo unts char g - Managerial remuneration",
+      "charge for defined benefit - managerial remuneration inc",
+      "Charge for defined benefit - Managerial remuneration i nc"
+    ],
+    "category": "employee_metrics"
+  },
+  "employee_count": {
+    "display_name": "Employee Count",
+    "aliases": [
+      "number of persons",
+      "number of employees",
+      "employees as at june 30",
+      "Other benefits - Number of persons",
+      "Other b enefits - Number of persons",
+      "Charge for defined benefit - Number of persons"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_obligation": {
+    "display_name": "Defined Benefit Obligation",
+    "aliases": [
+      "defined benefit obligation",
+      "present value of defined benefit obligation",
+      "charge for defined benefit obligation",
+      "benefit obligation",
+      "benefit obligations",
+      "benefit obligati on",
+      "benefit obligati ons",
+      "present value of obligation",
+      "executives gratuity fund benefit obligation",
+      "executives gratu ity fund benefit obligation",
+      "non executives gratuity fund benefit obligation",
+      "non executives gratuity fund benefit obligations",
+      "non executives gratuity fu nd benefit obligations"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_expense": {
+    "display_name": "Defined Benefit Expense",
+    "aliases": [
+      "defined benefit expense",
+      "charge for defined benefit",
+      "defined benefit charge",
+      "defined benefit plan",
+      "employees defined benefit plan",
+      "employees defined benefit expense",
+      "staff retirement benefit expense"
+    ],
+    "category": "employee_metrics"
+  },
+  "loans_to_employees": {
+    "display_name": "Loans To Employees",
+    "aliases": [
+      "loans to employees",
+      "employee loans",
+      "advances to employees"
+    ],
+    "category": "employee_metrics"
+  },
+  "ordinary_shares": {
+    "display_name": "Ordinary Shares",
+    "aliases": [
+      "ordinary shares",
+      "ordinary shares of pkr 10 each",
+      "ordinary shares of pkr 2 each",
+      "Ordinary shares of P KR 2/– each",
+      "Ordinary shares of PK R 2/- each",
+      "Authorised capital - Ordinary shares of P KR 2/– each",
+      "Authorised capital - Ordinary shares of PK R 2/- each"
+    ],
+    "category": "share_capital"
+  },
+  "capital_redemption_reserve": {
+    "display_name": "Capital Redemption Reserve",
+    "aliases": [
+      "capital redemption reserve",
+      "capital redemption reserves",
+      "capital redemption reserve amount"
+    ],
+    "category": "share_capital"
+  },
+  "unclaimed_dividend": {
+    "display_name": "Unclaimed Dividend",
+    "aliases": [
+      "unclaimed dividend",
+      "unclaimed dividends",
+      "unclaimed dividend payable"
+    ],
+    "category": "dividend_metrics"
+  },
+  "plant_availability": {
+    "display_name": "Plant Availability",
+    "aliases": [
+      "plant availability",
+      "% of plant availability",
+      "non-financial ratios - % of plant availability"
+    ],
+    "category": "sector_specific_cement"
+  },
+  "spares_inventory_to_total_assets": {
+    "display_name": "Spares Inventory To Total Assets",
+    "aliases": [
+      "spares inventory as % of total assets",
+      "spares inventory as percent of total assets",
+      "non-financial ratios - spares inventory as % of total assets"
+    ],
+    "category": "sector_specific_cement"
+  },
+  "maintenance_cost_to_operating_expenses": {
+    "display_name": "Maintenance Cost To Operating Expenses",
+    "aliases": [
+      "maintenance cost as % of operating expenses",
+      "maintenance cost as percent of operating expenses",
+      "non-financial ratios - maintenance cost as % of operating expenses"
+    ],
+    "category": "sector_specific_cement"
+  },
+  "current_assets_excluding_cash_and_cash_equivalents": {
+    "display_name": "Current Assets Excluding Cash And Cash Equivalents",
+    "aliases": [
+      "current assets excluding cash and cash equivalents",
+      "current assets excluding cash equivalents",
+      "current assets excluding cash and bank balances",
+      "Current assets exc luding cash and cash equivalents"
+    ],
+    "category": "balance_sheet"
+  },
+  "break_up_value_per_share_without_surplus": {
+    "display_name": "Break Up Value Per Share Without Surplus",
+    "aliases": [
+      "investment valuation ratios - i without surplus on revaluation of property rupees",
+      "without surplus on revaluation of property rupees",
+      "break-up value per share without surplus"
+    ],
+    "category": "market_metrics"
+  },
+  "break_up_value_per_share_with_surplus": {
+    "display_name": "Break Up Value Per Share With Surplus",
+    "aliases": [
+      "investment valuation ratios - ii with surplus on revaluation of ppe including all rupees",
+      "with surplus on revaluation of ppe including all rupees",
+      "break-up value per share with surplus"
+    ],
+    "category": "market_metrics"
+  },
+  "break_up_value_per_share_with_related_party_fair_value": {
+    "display_name": "Break Up Value Per Share With Related Party Fair Value",
+    "aliases": [
+      "investment valuation ratios - iii including investment in related party at fair rupees",
+      "including investment in related party at fair rupees",
+      "break-up value per share including investment in related party at fair value"
+    ],
+    "category": "market_metrics"
+  },
+  "chief_executive_remuneration": {
+    "display_name": "Chief Executive Remuneration",
+    "aliases": [
+      "chief executive remuneration",
+      "remuneration of chief executive",
+      "remuneration of chief execu - managerial remuneration",
+      "remuneration of chief ex ecu - managerial remuneration"
+    ],
+    "category": "employee_metrics"
+  },
+  "fair_value_of_plan_assets": {
+    "display_name": "Fair Value Of Plan Assets",
+    "aliases": [
+      "fair value of plan assets",
+      "defined benefit - fair value of plan assets",
+      "pension gratuity - fair value of plan assets",
+      "plan assets",
+      "fair value of plan asset",
+      "fair value of plan assets at"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_net_liability_asset": {
+    "display_name": "Defined Benefit Net Liability Asset",
+    "aliases": [
+      "historical information funded plans - net liability asset",
+      "Historical in formation funded plans - Net liability / (asset)",
+      "net liability asset funded plans",
+      "net defined benefit liability asset",
+      "net defined benefit liability",
+      "defined benefit liability",
+      "defined benefit asset",
+      "defined benefit plan surplus",
+      "executives gratuity fund surplus",
+      "executives gratu ity fund surplus",
+      "employees gratuity fund surplus"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_government_bonds": {
+    "display_name": "Defined Benefit Government Bonds",
+    "aliases": [
+      "Pension Grat uity - Government bonds",
+      "pension gratuity - government bonds"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_plan_shares": {
+    "display_name": "Defined Benefit Plan Shares",
+    "aliases": [
+      "Pension Grat uity - Shares",
+      "pension gratuity - shares"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_cash_term_deposits": {
+    "display_name": "Defined Benefit Cash And Term Deposits",
+    "aliases": [
+      "Pension Grat uity - Cash and term deposits",
+      "pension gratuity - cash and term deposits"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_plan_assets_total": {
+    "display_name": "Defined Benefit Plan Assets Total",
+    "aliases": [
+      "Pension Grat uity - Total",
+      "pension gratuity - total"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_benefits_paid": {
+    "display_name": "Defined Benefit Benefits Paid",
+    "aliases": [
+      "benefits paid",
+      "staff gratuity paid",
+      "Staff gratuity p aid",
+      "benefit payments",
+      "benefits paid by plan",
+      "payments made by plan"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_current_service_cost": {
+    "display_name": "Defined Benefit Current Service Cost",
+    "aliases": [
+      "defined benefit current service cost",
+      "staff retirement benefit current service cost",
+      "Current service cost",
+      "service cost",
+      "current service cost recognized",
+      "staff retirement benefit service cost"
+    ],
+    "category": "employee_metrics"
+  },
+  "share_of_net_assets": {
+    "display_name": "Share Of Net Assets",
+    "aliases": [
+      "the group share of net assets",
+      "the group s share of net assets",
+      "the group s share of net assets 50",
+      "net assets 100"
+    ],
+    "category": "investment_disclosures"
+  },
+  "share_of_net_profit": {
+    "display_name": "Share Of Net Profit",
+    "aliases": [
+      "the group share of net profit",
+      "the group s share of net profit",
+      "the group s share of net profit 50",
+      "share of profit joint ventures and associates",
+      "Net profit (100%",
+      "Note 2025 2024 - Net profit (100%"
+    ],
+    "category": "investment_disclosures"
+  },
+  "share_of_net_loss": {
+    "display_name": "Share Of Net Loss",
+    "aliases": [
+      "net loss 100",
+      "share of net loss"
+    ],
+    "category": "investment_disclosures"
+  },
+  "capital_spares": {
+    "display_name": "Capital Spares",
+    "aliases": [
+      "capital spares",
+      "Capital spare s"
+    ],
+    "category": "balance_sheet"
+  },
+  "customer_relationships": {
+    "display_name": "Customer Relationships",
+    "aliases": [
+      "customer relationships",
+      "customer relationship",
+      "customer relation ships",
+      "customer relation ship"
+    ],
+    "category": "intangible_assets"
+  },
+  "distribution_relationships": {
+    "display_name": "Distribution Relationships",
+    "aliases": [
+      "distribution relationships",
+      "distribution relationship",
+      "distribution relation ships",
+      "distribution relatio nship"
+    ],
+    "category": "intangible_assets"
+  },
+  "principal_relationships": {
+    "display_name": "Principal Relationships",
+    "aliases": [
+      "principal relationships",
+      "principal relationship",
+      "principal relationsh ips",
+      "principal relation ship"
+    ],
+    "category": "intangible_assets"
+  },
+  "product_rights": {
+    "display_name": "Product Rights",
+    "aliases": [
+      "product rights",
+      "product right"
+    ],
+    "category": "intangible_assets"
+  },
+  "software_and_licenses": {
+    "display_name": "Software And Licenses",
+    "aliases": [
+      "software and licenses",
+      "software and license",
+      "software and licen se",
+      "software license",
+      "software licences"
+    ],
+    "category": "intangible_assets"
+  },
+  "defined_benefit_interest_cost": {
+    "display_name": "Defined Benefit Interest Cost",
+    "aliases": [
+      "interest cost",
+      "defined benefit interest cost",
+      "employee benefit interest cost",
+      "staff retirement benefit interest cost",
+      "finance cost on defined benefit obligation",
+      "interest cost on defined benefit obligation",
+      "interest cost on benefit obligation"
+    ],
+    "category": "employee_metrics"
+  },
+  "house_rent_allowance": {
+    "display_name": "House Rent Allowance",
+    "aliases": [
+      "house rent",
+      "house rent allowance"
+    ],
+    "category": "employee_metrics"
+  },
+  "medical_expenses": {
+    "display_name": "Medical Expenses",
+    "aliases": [
+      "medical expenses",
+      "medical expense",
+      "medical allowance"
+    ],
+    "category": "employee_metrics"
+  },
+  "utilities_expense": {
+    "display_name": "Utilities Expense",
+    "aliases": [
+      "utilities",
+      "utility expenses",
+      "utilities expense"
+    ],
+    "category": "income_statement"
+  },
+  "reimbursable_expenses": {
+    "display_name": "Reimbursable Expenses",
+    "aliases": [
+      "reimbursable expenses",
+      "reimbursable expense",
+      "other reimbursable expenses",
+      "other reimbursa ble expenses"
+    ],
+    "category": "employee_metrics"
+  },
+  "insurance_expense": {
+    "display_name": "Insurance Expense",
+    "aliases": [
+      "insurance",
+      "insurance expense",
+      "insurance expenses",
+      "insurance cost",
+      "insurance charges"
+    ],
+    "category": "income_statement"
+  },
+  "vehicle_running_and_maintenance": {
+    "display_name": "Vehicle Running And Maintenance",
+    "aliases": [
+      "vehicle running and maintenance",
+      "vehicle running maintenance",
+      "vehicle running and mainten ance",
+      "vehicle maintenance",
+      "vehicle running expenses",
+      "vehicle operating expenses"
+    ],
+    "category": "income_statement"
+  },
+  "communication_expense": {
+    "display_name": "Communication Expense",
+    "aliases": [
+      "communication",
+      "communication expense",
+      "communication expenses",
+      "telephone and communication",
+      "postage telephone and communication",
+      "communication cost"
+    ],
+    "category": "income_statement"
+  },
+  "rent_rates_and_taxes": {
+    "display_name": "Rent Rates And Taxes",
+    "aliases": [
+      "rent rates and taxes",
+      "rent rates taxes",
+      "rent and rates",
+      "rates and taxes",
+      "rent expense and rates"
+    ],
+    "category": "income_statement"
+  },
+  "travelling_and_conveyance": {
+    "display_name": "Travelling And Conveyance",
+    "aliases": [
+      "travelling and conveyance",
+      "traveling and conveyance",
+      "travel and conveyance",
+      "travelling and conve yance",
+      "travelling expenses",
+      "travel expenses"
+    ],
+    "category": "income_statement"
+  },
+  "printing_and_stationery": {
+    "display_name": "Printing And Stationery",
+    "aliases": [
+      "printing and stationery",
+      "printing stationery",
+      "printing and statione ry",
+      "stationery and printing",
+      "stationery expense",
+      "printing expenses"
+    ],
+    "category": "income_statement"
+  },
+  "repairs_and_maintenance": {
+    "display_name": "Repairs And Maintenance",
+    "aliases": [
+      "repairs and maintenance",
+      "repair and maintenance",
+      "repairs maintenance",
+      "repairs and mainten ance",
+      "maintenance and repairs",
+      "repair expense"
+    ],
+    "category": "income_statement"
+  },
+  "security_services": {
+    "display_name": "Security Services",
+    "aliases": [
+      "security services",
+      "security expenses",
+      "security expense",
+      "security service charges",
+      "security charges"
+    ],
+    "category": "income_statement"
+  },
+  "contract_services": {
+    "display_name": "Contract Services",
+    "aliases": [
+      "contract services",
+      "contract service",
+      "contract service expense",
+      "contracted services",
+      "contract labour",
+      "contract labor",
+      "contract services cost"
+    ],
+    "category": "income_statement"
+  },
+  "fuel_and_power": {
+    "display_name": "Fuel And Power",
+    "aliases": [
+      "fuel and power",
+      "fuel power",
+      "power and fuel",
+      "fuel and power expense",
+      "power fuel and utilities"
+    ],
+    "category": "income_statement"
+  },
+  "legal_professional_charges": {
+    "display_name": "Legal Professional Charges",
+    "aliases": [
+      "legal and professional charges",
+      "legal and professional expenses",
+      "professional charges",
+      "legal expenses",
+      "professional fee"
+    ],
+    "category": "income_statement"
+  },
+  "auditors_remuneration": {
+    "display_name": "Auditors Remuneration",
+    "aliases": [
+      "auditors remuneration",
+      "auditor remuneration",
+      "auditors fee",
+      "audit fee",
+      "audit fees"
+    ],
+    "category": "income_statement"
+  },
+  "bank_charges": {
+    "display_name": "Bank Charges",
+    "aliases": [
+      "bank charges",
+      "bank commission",
+      "bank charges and commission",
+      "bank service charges"
+    ],
+    "category": "income_statement"
+  },
+  "advertisement_and_promotion": {
+    "display_name": "Advertisement And Promotion",
+    "aliases": [
+      "advertisement and promotion",
+      "advertising and promotion",
+      "advertisement expenses",
+      "advertising expenses",
+      "sales promotion expenses"
+    ],
+    "category": "income_statement"
+  },
+  "defined_benefit_interest_income_plan_assets": {
+    "display_name": "Defined Benefit Interest Income On Plan Assets",
+    "aliases": [
+      "interest income on plan assets",
+      "interest income on plan asset",
+      "return on plan assets",
+      "expected return on plan assets",
+      "interest income from plan assets"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_actuarial_gain_loss": {
+    "display_name": "Defined Benefit Actuarial Gain Loss",
+    "aliases": [
+      "actuarial gain loss",
+      "actuarial gains losses",
+      "remeasurement gain loss on defined benefit plan",
+      "remeasurement loss on employees defined benefit plan",
+      "remeasurement gain on employees defined benefit plan",
+      "remeasurement loss of post retirement benefit obligation",
+      "re measurement loss of post retirement benefit obligation"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_experience_adjustments_obligation": {
+    "display_name": "Defined Benefit Experience Adjustments Obligation",
+    "aliases": [
+      "experience adjustments on plan obligations",
+      "experience adjustments on obligation",
+      "experience adjustments on plan obligations gain loss",
+      "experience adjustm ents on pla n obligations gain loss",
+      "experience adjustm ents on pla n obligations",
+      "experience adjustm ents on plan obligations",
+      "actuarial losses gains from experience adjustments on obligations"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_experience_adjustments_assets": {
+    "display_name": "Defined Benefit Experience Adjustments Assets",
+    "aliases": [
+      "experience adjustments on plan assets",
+      "experience adjustments on plan assets gain loss",
+      "experience adjustm ents on pla n assets gain loss",
+      "experience adjustm ents on pla n assets",
+      "actuarial losses gains from experience adjustments on assets"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_financial_assumption_gain_loss": {
+    "display_name": "Defined Benefit Financial Assumption Gain Loss",
+    "aliases": [
+      "actuarial losses gains from changes in financial assumptions",
+      "actuarial losses gains from chang es in financial assumptions",
+      "changes in financial assumptions",
+      "financial assumptions gain loss",
+      "actuarial gain loss from financial assumptions"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_benefit_experience_adjustments": {
+    "display_name": "Defined Benefit Experience Adjustments",
+    "aliases": [
+      "experience adjustments",
+      "experience adjustm ents",
+      "actuarial losses gains from experience adjustments"
+    ],
+    "category": "employee_metrics"
+  },
+  "defined_contribution_plan_provident_fund": {
+    "display_name": "Defined Contribution Plan Provident Fund",
+    "aliases": [
+      "defined contribution plan provident fund",
+      "provident fund contribution",
+      "contribution to provident fund",
+      "contribution to provident"
+    ],
+    "category": "employee_metrics"
+  },
+  "compensated_absences_provision": {
+    "display_name": "Compensated Absences Provision",
+    "aliases": [
+      "provision for compensated absences",
+      "provision for compen sated absences",
+      "compensated absences",
+      "compensated absences provision",
+      "provision for leave encashment"
+    ],
+    "category": "employee_metrics"
+  },
+  "cost_of_living_allowance": {
+    "display_name": "Cost Of Living Allowance",
+    "aliases": [
+      "cost of living allowance",
+      "cost of living all owance",
+      "cola allowance"
+    ],
+    "category": "employee_metrics"
+  },
+  "bonus_compensation": {
+    "display_name": "Bonus Compensation",
+    "aliases": [
+      "staff bonus",
+      "employee bonus",
+      "remuneration bonus",
+      "chief executive bonus",
+      "ch ief executive bonus",
+      "bonus compensation"
+    ],
+    "category": "employee_metrics"
+  },
+  "gratuity_fund": {
+    "display_name": "Gratuity Fund",
+    "aliases": [
+      "gratuity fund",
+      "staff gratuity fund",
+      "employees gratuity fund",
+      "executives gratuity fund",
+      "non executives gratuity fund",
+      "fund and gratuity funds",
+      "fund and grat uity funds"
+    ],
+    "category": "employee_metrics"
+  },
+  "accrued_liabilities": {
+    "display_name": "Accrued Liabilities",
+    "aliases": [
+      "accrued liabilities",
+      "TRADE AND OTHER PAYABLES - Accrued liabilities"
+    ],
+    "category": "balance_sheet"
+  },
+  "retention_money": {
+    "display_name": "Retention Money",
+    "aliases": [
+      "retention money",
+      "TRADE AND OTHER PAYABLES - Retention money",
+      "TRADE AND OTHER PAYABLES - Retention mo ney"
+    ],
+    "category": "balance_sheet"
+  },
+  "government_levies_payable": {
+    "display_name": "Government Levies Payable",
+    "aliases": [
+      "government levies",
+      "TRADE AND OTHER PAYABLES - government levies",
+      "sales tax excise and other government levies"
+    ],
+    "category": "balance_sheet"
+  }
+}
