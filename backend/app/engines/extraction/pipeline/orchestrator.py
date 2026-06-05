@@ -82,6 +82,12 @@ def process_documents(
             company_result.company, company_result.fiscal_years, output_path, len(plan.writes),
         )
         out = ExtractionOutput(output_path=output_path, company=company_result, mode="template", plan=plan)
+        # P4: audit ledger + non-production flag (withheld values = failed tie-out).
+        from app.engines.extraction.pipeline.template_map import _tieout  # noqa
+        from app.engines.extraction.services.validation import append_ledger_sheet, template_ledger
+        ledger_rows = template_ledger(plan)
+        append_ledger_sheet(output_path, ledger_rows)
+        production_fail = len(plan.withheld)
     else:
         write_company_workbook(company_result, output_path)
         logger.info(
@@ -89,6 +95,11 @@ def process_documents(
             company_result.company, company_result.fiscal_years, output_path, len(company_result.tables),
         )
         out = ExtractionOutput(output_path=output_path, company=company_result, mode="no_template")
+        # P4 / C3: validate no-template key metrics against audited face truth.
+        from app.engines.extraction.pipeline.template_map import _tieout
+        from app.engines.extraction.services.validation import append_ledger_sheet, no_template_ledger
+        ledger_rows, production_fail = no_template_ledger(company_result, _tieout)
+        append_ledger_sheet(output_path, ledger_rows)
 
     dumper.json("00_run_summary", {
         "company": company_result.company, "mode": out.mode,
@@ -96,7 +107,16 @@ def process_documents(
         "source_reports": company_result.source_reports, "tables": len(company_result.tables),
         "writes": len(out.plan.writes) if out.plan else None,
         "unmatched_template_labels": len(out.plan.unmatched_template_labels) if out.plan else None,
+        "withheld": len(out.plan.withheld) if out.plan else 0,
+        "quarantined_lines": len(company_result.rejected_lines),
+        "validation_failures": production_fail,
+        # A run with any failed face-statement tie-out is flagged non-production so
+        # it isn't shipped silently. See the 'Validation Ledger' sheet.
+        "production_ready": production_fail == 0,
     })
+    if production_fail:
+        logger.warning("Run is NON-PRODUCTION: %d key value(s) failed face-statement tie-out "
+                       "(see 'Validation Ledger' sheet)", production_fail)
     return out
 
 

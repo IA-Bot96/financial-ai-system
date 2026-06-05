@@ -59,3 +59,33 @@ class SourceRef(BaseModel):
     report_year: Optional[int] = None
     pages: list[int] = Field(default_factory=list, description="1-based pages the data spans")
     section: Optional[str] = Field(None, description="Section/heading title")
+    table_id: Optional[str] = Field(None, description="Stable id of the source table, e.g. 'file:p12:0'")
+    table_title: Optional[str] = Field(None, description="Title/heading of the source table, if any")
+
+
+# --- statement polarity (P3): the eval-free signal for cross-statement bleed ---
+# Maps a statement type to its side of the books. Used to reject e.g. a cash
+# (asset) line landing in a share-capital (equity) row.
+_POLARITY: dict[StatementType, str] = {
+    StatementType.non_current_assets: "asset",
+    StatementType.current_assets: "asset",
+    StatementType.non_current_liabilities: "liability",
+    StatementType.current_liabilities: "liability",
+    StatementType.share_capital_reserves: "equity",
+    StatementType.equity_changes: "equity",
+    StatementType.revenue: "income",
+    StatementType.other_income: "income",
+    StatementType.cost_of_sales: "expense",
+    StatementType.operating_expenses: "expense",
+    StatementType.finance_cost: "expense",
+    StatementType.taxation: "expense",
+}
+
+
+def polarity(statement_type: StatementType, section: Optional[str] = None) -> Optional[str]:
+    """'asset' | 'liability' | 'equity' | 'income' | 'expense' | None.
+
+    Returns None for mixed/face statements (balance_sheet, income_statement, …)
+    and for unknown types — a None polarity never blocks a match (we only reject
+    on a *confident* conflict)."""
+    return _POLARITY.get(statement_type)

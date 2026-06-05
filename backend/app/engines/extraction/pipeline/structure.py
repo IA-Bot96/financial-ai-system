@@ -106,7 +106,8 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
             )
         )
 
-    return FinancialTable(
+    from app.engines.extraction.services.face_truth import infer_table_role
+    ft = FinancialTable(
         statement_type=raw.statement_type,
         title=raw.title,
         currency=raw.currency,
@@ -116,6 +117,8 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
         line_items=line_items,
         source=raw.source,
     )
+    ft.table_role = infer_table_role(ft)  # C2/P3 (rule-based path)
+    return ft
 
 
 def structure_tables(table_set: TableSet, gpt=None) -> list[FinancialTable]:

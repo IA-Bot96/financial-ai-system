@@ -88,6 +88,7 @@ def gpt_structure_grid(raw, gpt) -> FinancialTable | None:
         logger.warning("GPT grid structuring failed for %s: %s", raw.table_id, exc)
         return None
 
+    from app.engines.extraction.services.face_truth import infer_table_role
     for table in result.tables:
         if not table.line_items:
             continue
@@ -96,6 +97,7 @@ def gpt_structure_grid(raw, gpt) -> FinancialTable | None:
         if not table.years:
             table.years = sorted({v.year for li in table.line_items for v in li.values if v.year})
         _resolve_canonicals(table, resolver)
+        table.table_role = table.table_role or infer_table_role(table)  # C2/P3
         return table
     return None
 
@@ -165,19 +167,22 @@ def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = Fa
 
     # Post-process in deterministic page order (cheap; keeps output stable).
     out: list[FinancialTable] = []
+    from app.engines.extraction.services.face_truth import infer_table_role
     for page, result in sorted(results, key=lambda pr: pr[0].page):
         if result is None:
             continue
-        for table in result.tables:
+        for seq, table in enumerate(result.tables):
             if not table.line_items:
                 continue
             table.source = SourceRef(
                 report_file=doc.file_name, report_year=doc.report_year, pages=[page.page],
+                table_id=f"{doc.file_name}:p{page.page}:{seq}", table_title=table.title or None,
             )
             table.consolidated = context.get(page.page)
             if not table.years:
                 table.years = sorted({v.year for li in table.line_items for v in li.values if v.year})
             _resolve_canonicals(table, resolver)
+            table.table_role = table.table_role or infer_table_role(table)  # C2/P3
             out.append(table)
 
     logger.info("GPT extracted %d financial table(s) from %d page(s) in %s",

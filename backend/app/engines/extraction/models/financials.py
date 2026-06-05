@@ -15,6 +15,8 @@ class LineItemValue(BaseModel):
     source_report_year: Optional[int] = Field(
         None, description="Which report this value was sourced from (multi-year resolution)"
     )
+    # Value-level provenance (carried through the multi-year merge for lineage).
+    source: Optional[SourceRef] = Field(None, description="Report/page/table this value came from")
 
 
 class LineItem(BaseModel):
@@ -57,6 +59,11 @@ class LineItem(BaseModel):
     # Resolved against the canonical metric registry (None if no confident match).
     canonical_metric: Optional[str] = Field(None, description="Canonical metric key")
     canonical_category: Optional[str] = Field(None, description="Registry category")
+    # Scoped-resolution outcome (P2). 'ok' = canonical trusted; 'no_confident_metric'
+    # = kept but uncanonical; 'quarantined' = confidently incompatible -> excluded
+    # from merge/output and recorded in the rejected-line audit.
+    resolution: Optional[Literal["ok", "no_confident_metric", "quarantined"]] = Field(None)
+    quarantine_reason: Optional[str] = Field(None)
 
 
 class FinancialTable(BaseModel):
@@ -66,6 +73,10 @@ class FinancialTable(BaseModel):
     unit_scale: Optional[str] = Field(None, description="e.g. 'thousands', 'millions'")
     # None = unknown; True = consolidated; False = unconsolidated/separate.
     consolidated: Optional[bool] = None
+    # Where this table sits in the report hierarchy (P3/#12). 'primary' = an audited
+    # face statement (the source of truth); 'note' = a breakdown note; 'analytical'
+    # = ratios/six-year-summary/percentage tables (never truth).
+    table_role: Optional[Literal["primary", "note", "analytical"]] = Field(None)
     years: list[int] = Field(default_factory=list)
     line_items: list[LineItem] = Field(default_factory=list)
     source: Optional[SourceRef] = None

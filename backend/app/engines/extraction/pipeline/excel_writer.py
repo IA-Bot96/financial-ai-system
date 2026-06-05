@@ -16,6 +16,10 @@ from app.engines.extraction.models.company import CompanyResult
 from app.engines.extraction.models.financials import FinancialTable
 from app.engines.extraction.models.insight import INSIGHT_COLUMNS, Insight
 from app.engines.extraction.services import styles as S
+from app.engines.extraction.services.face_truth import (
+    KEY_METRICS as _KEY_METRICS,
+    tieout as _face_tieout,
+)
 
 logger = get_logger(__name__)
 
@@ -45,7 +49,7 @@ def _table_title(table: FinancialTable) -> str:
     return base
 
 
-def _write_table(ws, table: FinancialTable) -> None:
+def _write_table(ws, table: FinancialTable, face: dict | None = None) -> None:
     years = sorted(table.years or sorted({v.year for li in table.line_items for v in li.values if v.year}))
     ncols = 1 + len(years)
     last = get_column_letter(ncols)
@@ -97,10 +101,21 @@ def _write_table(ws, table: FinancialTable) -> None:
         elif section:
             a.fill = S.SECTION_FILL
 
+        cm = li.canonical_metric
         for i, year in enumerate(years, start=2):
             vc = ws.cell(row, i)
             vc.number_format, vc.alignment = S.NUMBER_FORMAT, S.RIGHT
             value = by_year.get(year)
+            # P4/C3: withhold a key-metric value in-place when it contradicts the
+            # audited face truth — leave the cell blank with a comment, and drop it
+            # from the formula pass so it can't feed a subtotal.
+            if value is not None and face and cm in _KEY_METRICS:
+                truth_pair = face.get((cm, year))
+                if truth_pair is not None and not _face_tieout(value, truth_pair[0]):
+                    from openpyxl.comments import Comment
+                    vc.comment = Comment(f"withheld: {value:,.0f} vs audited {truth_pair[0]:,.0f}", "validation")
+                    by_year[year] = None
+                    value = None
             if value is not None:
                 vc.value = value
             vc.font = S.TOTAL_FONT if total else S.VALUE_FONT
@@ -287,15 +302,19 @@ def write_workbook(
     insights: list[Insight],
     insights_review: list[Insight],
     output_path: str | Path,
+    face: dict | None = None,
 ) -> Path:
-    """No-template output: one styled sheet per table + Insights / Insights Review."""
+    """No-template output: one styled sheet per table + Insights / Insights Review.
+
+    `face` (P1 TrustedFaceIndex) enables in-place withholding of key-metric values
+    that contradict the audited statements."""
     from openpyxl import Workbook
 
     wb = Workbook()
     wb.remove(wb.active)
     used: set[str] = set()
     for table in tables:
-        _write_table(wb.create_sheet(_sheet_name(_table_title(table), used)), table)
+        _write_table(wb.create_sheet(_sheet_name(_table_title(table), used)), table, face)
 
     write_insights_sheet(wb.create_sheet("Insights"), insights)
     if insights_review:
@@ -309,7 +328,9 @@ def write_workbook(
 
 
 def write_company_workbook(company: CompanyResult, output_path: str | Path) -> Path:
-    return write_workbook(company.tables, company.insights, company.insights_review, output_path)
+    from app.engines.extraction.services.face_truth import build_face_truth
+    return write_workbook(company.tables, company.insights, company.insights_review,
+                          output_path, face=build_face_truth(company.tables))
 
 
 def append_insights_sheets(

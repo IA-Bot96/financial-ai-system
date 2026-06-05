@@ -25,9 +25,92 @@ from app.engines.extraction.models.common import StatementType
 from app.engines.extraction.models.company import CompanyResult
 from app.engines.extraction.models.mapping import CellWrite, MappingPlan
 from app.engines.extraction.services.classifier import TableClassifier
-from app.engines.extraction.services.metric_resolver import spaced
+from app.engines.extraction.services.metric_resolver import get_resolver, spaced
 
 logger = get_logger(__name__)
+
+from app.engines.extraction.services.face_truth import (  # noqa: E402
+    CROSS_FAMILY_OK as _CROSS_FAMILY_OK,
+    KEY_METRICS as _KEY_METRICS,
+    tieout as _tieout,
+)
+
+# Sheet families where a wrong value is high-impact (equity/solvency). On these,
+# a candidate must be CONFIRMED same-polarity — "block when unsure" (#5).
+_HIGH_RISK_FAMILIES = {StatementType.share_capital_reserves, StatementType.equity_changes}
+
+# Curated metric -> polarity, for cases where the line's home type is a mixed face
+# table (polarity None) and there's no other signal.
+_EQUITY_METRICS = frozenset({
+    "share_capital", "paid_up_capital", "issued_capital", "reserves", "capital_reserves",
+    "revenue_reserves", "general_reserve", "retained_earnings", "unappropriated_profit",
+    "equity", "total_equity_and_liabilities", "bonus_shares", "fair_value_reserve",
+    "surplus_on_revaluation",
+})
+_ASSET_METRICS = frozenset({
+    "cash_and_cash_equivalents", "cash_and_bank_balances", "cash_in_hand", "trade_debts",
+    "trade_receivables", "stock_in_trade", "stores_spares_loose_tools", "property_plant_equipment",
+    "operating_fixed_assets", "long_term_investments", "short_term_investments", "intangible_assets",
+    "loans_and_advances", "total_assets", "current_assets", "non_current_assets",
+})
+_LIABILITY_METRICS = frozenset({
+    "trade_payables", "short_term_borrowings", "long_term_financing", "lease_liabilities",
+    "contract_liabilities", "accrued_liabilities", "total_liabilities", "current_liabilities",
+    "non_current_liabilities", "unclaimed_dividend",
+})
+
+
+def _metric_polarity(metric: str | None) -> str | None:
+    if not metric:
+        return None
+    if metric in _EQUITY_METRICS:
+        return "equity"
+    if metric in _ASSET_METRICS:
+        return "asset"
+    if metric in _LIABILITY_METRICS:
+        return "liability"
+    return None
+
+
+# Sheet titles are explicit in these templates; the classifier often returns None
+# for them, so derive polarity from the title as the reliable signal.
+_TITLE_POLARITY = (
+    ("share capital", "equity"), ("reserves", "equity"), ("equity", "equity"),
+    ("liabilit", "liability"),
+    ("non-current asset", "asset"), ("current asset", "asset"), ("asset", "asset"),
+    ("other income", "income"), ("revenue", "income"),
+    ("cost of sales", "expense"), ("finance cost", "expense"),
+    ("levy", "expense"), ("taxation", "expense"), ("expense", "expense"),
+)
+
+
+def _sheet_polarity_from_title(title: str) -> str | None:
+    t = (title or "").lower()
+    for kw, pol in _TITLE_POLARITY:
+        if kw in t:
+            return pol
+    return None
+
+# (label, family, section) -> metric.  Context is part of the key (a label can
+# resolve differently per sheet family / section).
+_ROW_METRIC_CACHE: dict[tuple[str, object, str], str | None] = {}
+
+
+def _row_metric(label: str, family: object = None, section: str = "") -> str | None:
+    """Resolve a template row label to a canonical metric, scoped by sheet family
+    and section (cached by the full context tuple, so one sheet's decision can't
+    leak into another). Returns None when the label doesn't confidently resolve."""
+    key = (label, family, section or "")
+    if key not in _ROW_METRIC_CACHE:
+        m = get_resolver().resolve(label)
+        _ROW_METRIC_CACHE[key] = m.canonical_key if m else None
+    return _ROW_METRIC_CACHE[key]
+
+
+def _build_face_truth(company: CompanyResult) -> dict[tuple[str, int], float]:
+    """{(metric, year): value} from PRIMARY face statements (P1, value only)."""
+    from app.engines.extraction.services.face_truth import build_face_truth
+    return {k: val for k, (val, _src) in build_face_truth(company.tables).items()}
 
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 # Generic section words shared across sections (don't distinguish Local vs Export).
@@ -187,19 +270,29 @@ def _build_candidates(company: CompanyResult):
     for table in company.tables:
         tables_by_type[table.statement_type].append(table)
 
-    by_type: dict[StatementType, list[tuple[str, str, object]]] = {}
-    pooled: list[tuple[str, str, object]] = []
+    by_type: dict[StatementType, list[tuple[str, str, object, object]]] = {}
+    pooled: list[tuple[str, str, object, object]] = []
+    from app.engines.extraction.services.face_truth import table_role_of
     for st, tables in tables_by_type.items():
+        # P2: never offer analytical (ratio / six-year-summary / %) lines as mapping
+        # candidates — they pollute matches and aren't audited values.
+        tables = [t for t in tables if table_role_of(t) != "analytical"]
         preferred = [t for t in tables if t.consolidated is not True]  # False or None
         chosen = preferred or tables  # fall back to consolidated if that's all we have
-        bucket: list[tuple[str, str, object]] = []
+        bucket: list[tuple[str, str, object, object]] = []
         for table in chosen:
             for li in table.line_items:
-                entry = (_match_norm(li.label), spaced(li.section or ""), li)
+                # carry the line's HOME statement type (4th field) for the polarity guard
+                entry = (_match_norm(li.label), spaced(li.section or ""), li, table.statement_type)
                 bucket.append(entry)
                 pooled.append(entry)
         by_type[st] = bucket
     return by_type, pooled
+
+
+def _looks_total(label: str) -> bool:
+    low = (label or "").strip().lower()
+    return low.startswith(("total", "gross ", "net ", "subtotal", "operating profit", "profit "))
 
 
 def _section_overlap(template_section_norm: str, cand_section_norm: str) -> int:
@@ -207,17 +300,43 @@ def _section_overlap(template_section_norm: str, cand_section_norm: str) -> int:
     return len(_significant_tokens(template_section_norm) & _significant_tokens(cand_section_norm))
 
 
-def _best_candidate(template_label: str, template_section: str, candidates, threshold: float):
+def _best_candidate(template_label: str, template_section: str, candidates, threshold: float,
+                    row_metric: str | None = None, sheet_polarity: str | None = None,
+                    template_is_total: bool = False, strict_polarity: bool = False):
     """Best extracted line for a template row by LABEL (recall-first), with the
     section used only as a tie-breaker. Conflicts where one extracted line is
-    claimed by two template rows are resolved globally in `build_plan` (a line maps
-    to at most one sheet, its home-type sheet preferred).
+    claimed by two template rows are resolved globally in `build_plan`.
+
+    Guards reject a high-label-score-but-wrong candidate:
+      * role guard (#7) — a `total`/`subtotal` line is rejected only for a LEAF
+        template row (total->leaf); total->total is allowed. Role is inferred from
+        the candidate label when the `role` field is absent;
+      * metric-agreement (#2) — confident-but-different canonical metric -> reject;
+      * polarity guard (#5) — when both the sheet and the candidate have a known
+        side (asset/liability/equity/income/expense) that conflicts, reject (e.g.
+        a cash/asset line for a share-capital/equity row), unless the metric is a
+        known cross-family one (deferred tax, depreciation, …).
     """
     from rapidfuzz import fuzz
 
+    from app.engines.extraction.models.common import polarity as _polarity
+
     q_label, q_section = _match_norm(template_label), spaced(template_section)
     best, best_label_score, best_combined = None, 0.0, -1.0
-    for cand_label, cand_section, line in candidates:
+    for cand_label, cand_section, line, home_type in candidates:
+        cand_role = (getattr(line, "role", None) or "").lower()
+        cand_is_total = cand_role in {"total", "subtotal"} or (not cand_role and _looks_total(line.label))
+        if cand_is_total and not template_is_total:
+            continue  # total->leaf rejected; total->total allowed
+        cm = getattr(line, "canonical_metric", None)
+        if row_metric and cm and cm != row_metric:
+            continue  # different concept (e.g. cash vs share capital) -> reject
+        if sheet_polarity and cm not in _CROSS_FAMILY_OK:
+            cand_pol = _polarity(home_type, getattr(line, "section", None)) or _metric_polarity(cm)
+            if cand_pol and cand_pol != sheet_polarity:
+                continue  # cross-statement polarity conflict -> reject
+            if strict_polarity and cand_pol != sheet_polarity:
+                continue  # high-risk sheet: require a CONFIRMED same-polarity candidate
         label_score = fuzz.token_set_ratio(q_label, cand_label)
         if label_score < threshold:
             continue
@@ -237,6 +356,7 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
     threshold = settings.template_match_threshold * 100
     classifier = TableClassifier()
     by_type, pooled = _build_candidates(company)
+    face = _build_face_truth(company)   # audited primary-face truth (P1)
 
     wb = openpyxl.load_workbook(template_path, data_only=False)
     plan = MappingPlan()
@@ -255,6 +375,10 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
 
             plan.sheets_processed.append(ws.title)
             st = _sheet_statement_type(ws, header_row, classifier)
+            from app.engines.extraction.models.common import polarity as _polarity
+            title_pol = _sheet_polarity_from_title(ws.title)
+            sheet_polarity = (_polarity(st) if st else None) or title_pol
+            strict_polarity = (st in _HIGH_RISK_FAMILIES) or (title_pol == "equity")
             # Tier 1: the sheet's own statement type (precision-first).
             own = by_type.get(st) or []
             # Tier 2: widen to the statement family (face + sibling breakdowns) so a
@@ -281,17 +405,42 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                 # Own type first; only widen to the family when the sheet's own type
                 # has no candidate. The global dedup below routes each extracted line
                 # to a single best (home-type) sheet, so widened matches can't bleed.
-                line, score = _best_candidate(lbl, template_section, own, threshold)
+                rm = _row_metric(lbl, st, template_section)
+                is_total = _looks_total(lbl)
+                line, score = _best_candidate(lbl, template_section, own, threshold, row_metric=rm,
+                                              sheet_polarity=sheet_polarity, template_is_total=is_total,
+                                              strict_polarity=strict_polarity)
                 own_tier = line is not None
                 if line is None:
-                    line, score = _best_candidate(lbl, template_section, widened, threshold)
+                    line, score = _best_candidate(lbl, template_section, widened, threshold, row_metric=rm,
+                                                  sheet_polarity=sheet_polarity, template_is_total=is_total,
+                                                  strict_polarity=strict_polarity)
                 if line is None:
+                    # #4 statement-total fallback: a writable, empty TOTAL row that
+                    # resolves to a headline metric is filled from the audited face
+                    # truth (kills finance-cost / tax / OCI zeros). Only canonical
+                    # totals — never note subsections (M1).
+                    if is_total and rm in _KEY_METRICS:
+                        filled = False
+                        for col, year in writable.items():
+                            tv = face.get((rm, year))
+                            if tv is None:
+                                continue
+                            plan.writes.append(CellWrite(
+                                sheet=ws.title, coordinate=ws.cell(r, col).coordinate,
+                                year=year, value=tv, template_label=lbl,
+                                matched_label=f"[face:{rm}]", confidence=1.0,
+                                note="fallback:face_total",
+                            ))
+                            filled = True
+                        if filled:
+                            continue
                     plan.unmatched_template_labels.append(lbl)
                     continue
                 matches.append({
                     "ws": ws, "row": r, "writable": writable, "lbl": lbl,
                     "template_section": template_section, "line": line,
-                    "score": score, "own_tier": own_tier,
+                    "score": score, "own_tier": own_tier, "row_metric": rm,
                 })
 
         # Pass 2: GLOBAL conflict resolution — one extracted line maps to at most one
@@ -314,28 +463,54 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                 if m is not winner:
                     plan.unmatched_template_labels.append(m["lbl"])
 
-        # Write the surviving matches.
+        # Write the surviving matches, gated by a statement-level tie-out: a value
+        # placed in a headline-total row must reconcile to the audited face
+        # statement, or it is WITHHELD (recorded for audit, never written).
         for m in winners:
-            by_year = {v.year: v for v in m["line"].values}
+            line = m["line"]
+            # Validate against the metric the ROW is supposed to hold (falling back to
+            # the matched line's metric) — so a value landing in the wrong total row is
+            # checked against what that row should be, not against the line it matched.
+            key_metric = m["row_metric"] or getattr(line, "canonical_metric", None)
+            by_year = {v.year: v for v in line.values}
             for col, year in m["writable"].items():
                 v = by_year.get(year)
                 if v is None or v.value is None:
                     continue
-                plan.writes.append(CellWrite(
+                value = v.value
+                truth = face.get((key_metric, year)) if key_metric in _KEY_METRICS else None
+                # #6 sign normalization (face rows only): if the magnitude matches the
+                # audited value but the SIGN is flipped, correct it to the face sign
+                # (turns a recoverable sign error into a correct value, not a withhold).
+                note = None
+                if truth is not None and value and truth and (value > 0) != (truth > 0) \
+                        and _tieout(abs(value), abs(truth)):
+                    value, note = abs(value) * (1 if truth > 0 else -1), "sign:aligned_to_face"
+                cw = CellWrite(
                     sheet=m["ws"].title,
                     coordinate=m["ws"].cell(m["row"], col).coordinate,
-                    year=year, value=v.value, template_label=m["lbl"],
-                    matched_label=m["line"].label, confidence=m["score"] / 100.0,
-                    source_report_year=v.source_report_year,
-                ))
+                    year=year, value=value, template_label=m["lbl"],
+                    matched_label=line.label, confidence=m["score"] / 100.0,
+                    source_report_year=v.source_report_year, note=note,
+                )
+                if truth is not None and not _tieout(value, truth):
+                    cw.note = f"withheld:tieout({key_metric} face={truth})"
+                    plan.withheld.append(cw)
+                else:
+                    plan.writes.append(cw)
     finally:
         wb.close()
 
     logger.info(
-        "Template plan: %d writes across %d sheet(s); %d skipped, %d unmatched labels",
+        "Template plan: %d writes across %d sheet(s); %d skipped, %d unmatched, %d withheld (tie-out)",
         len(plan.writes), len(plan.sheets_processed), len(plan.sheets_skipped),
-        len(plan.unmatched_template_labels),
+        len(plan.unmatched_template_labels), len(plan.withheld),
     )
+    if plan.withheld:
+        for cw in plan.withheld[:10]:
+            logger.warning("  WITHHELD %s!%s %s=%s (%s) — %s",
+                           cw.sheet, cw.coordinate, cw.template_label, cw.value,
+                           cw.matched_label, cw.note)
     return plan
 
 

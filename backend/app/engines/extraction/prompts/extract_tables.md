@@ -22,6 +22,10 @@ report into strict JSON. Rules:
     a minus sign). Null/false if it already adds or is printed negative "(...)".
 - Set `statement_type` to one of: {allowed_types}. Use "other" only if it is a
   financial table that fits none.
+- Set `table_role`: "primary" for an audited PRIMARY/face statement (statement of
+  financial position, statement of profit or loss, cash flow, changes in equity);
+  "note" for a breakdown/disclosure note; "analytical" for ratio / six-year-summary
+  / percentage / horizontal-vertical-analysis tables.
 - The text may be noisy OCR with garbled spacing; reconstruct the intended rows
   and numbers, but do NOT output years that aren't real fiscal years.
 - Preserve granularity: emit EVERY labeled leaf row as its own line item. Do NOT

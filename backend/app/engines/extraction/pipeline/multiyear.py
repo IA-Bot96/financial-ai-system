@@ -17,9 +17,10 @@ from __future__ import annotations
 
 from app.core.logging import get_logger
 from app.engines.extraction.models.common import StatementType
-from app.engines.extraction.models.company import CompanyResult
+from app.engines.extraction.models.company import CompanyResult, RejectedLine
 from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
 from app.engines.extraction.models.result import DocumentResult
+from app.engines.extraction.services.face_truth import confidently_incompatible, infer_table_role
 from app.engines.extraction.services.metric_resolver import squash
 
 logger = get_logger(__name__)
@@ -71,6 +72,7 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
     # choice is a template concern (handled in template_map), not here — so the
     # no-template output keeps BOTH sets.
     #   group -> {key -> meta};  (group, key) -> {report_year -> {data_year -> value}}
+    rejected: list[RejectedLine] = []   # P2 quarantine audit
     groups: dict[tuple, dict[str, dict]] = {}
     group_info: dict[tuple, tuple] = {}
     values_index: dict[tuple, dict[int, dict[int, LineItemValue]]] = {}
@@ -85,6 +87,19 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
             group_info.setdefault(gkey, (table.title, table.currency, table.unit_scale))
             km = groups.setdefault(gkey, {})
             for li in table.line_items:
+                # P2 quarantine: drop lines confidently incompatible with their home
+                # statement (e.g. a cost_of_sales/income line inside a balance table)
+                # — recorded for audit, excluded from merge/output. This also means
+                # the `_line_key` squash fallback can't re-admit them.
+                if confidently_incompatible(li, table.statement_type):
+                    rejected.append(RejectedLine(
+                        label=li.label, statement_type=table.statement_type,
+                        canonical_metric=li.canonical_metric, canonical_category=li.canonical_category,
+                        reason=f"metric {li.canonical_metric!r} ({li.canonical_category}) incompatible "
+                               f"with home {table.statement_type.value}",
+                        source=table.source,
+                    ))
+                    continue
                 base = _line_key(li)
                 if not base:
                     continue
@@ -103,6 +118,8 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                 rmap = values_index.setdefault((gkey, key), {}).setdefault(ry, {})
                 for v in li.values:
                     if v.year is not None and _year_ok(v.year):
+                        if v.source is None:        # carry value-level provenance (C1)
+                            v.source = table.source
                         rmap.setdefault(v.year, v)
 
     data_years = sorted({
@@ -125,6 +142,7 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                 src = idx[best][year]
                 values.append(LineItemValue(
                     year=year, value=src.value, raw=src.raw, source_report_year=best,
+                    source=src.source,
                 ))
                 present_years.add(year)
             if values:
@@ -136,17 +154,19 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                     values=values,
                 ))
         title, currency, unit = group_info.get(gkey, ("", None, None))
-        merged.append(FinancialTable(
+        mt = FinancialTable(
             statement_type=st, title=title, currency=currency, unit_scale=unit,
             consolidated=consolidated, years=sorted(present_years), line_items=items,
-        ))
+        )
+        mt.table_role = infer_table_role(mt)   # primary | note | analytical (P3/#12)
+        merged.append(mt)
 
     insights = [i for res in results for i in res.insights]
     review = [i for res in results for i in res.insights_review]
 
     logger.info(
-        "Multi-year resolution: company=%r, %d reports, years %s, %d merged tables",
-        company, len(results), data_years, len(merged),
+        "Multi-year resolution: company=%r, %d reports, years %s, %d merged tables, %d quarantined",
+        company, len(results), data_years, len(merged), len(rejected),
     )
     return CompanyResult(
         company=company,
@@ -155,4 +175,5 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
         tables=merged,
         insights=insights,
         insights_review=review,
+        rejected_lines=rejected,
     )

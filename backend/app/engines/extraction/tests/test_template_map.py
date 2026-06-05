@@ -9,7 +9,7 @@ from app.engines.extraction.models.common import StatementType
 from app.engines.extraction.models.company import CompanyResult
 from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
 from app.engines.extraction.pipeline.template_map import (
-    _match_norm, _related_types, apply_plan, build_plan,
+    _best_candidate, _match_norm, _related_types, apply_plan, build_plan,
 )
 
 
@@ -176,6 +176,85 @@ def test_global_dedup_writes_shared_line_to_one_sheet_only(tmp_path):
     sheets_with_shared = {w.sheet for w in plan.writes if w.matched_label == "Shared item"}
     assert len(sheets_with_shared) == 1            # written to exactly one sheet, not both
     assert "Shared item" in plan.unmatched_template_labels  # the losing sheet's row recorded
+
+
+# --- validation gate: semantic guards + tie-out ---
+
+def test_metric_agreement_guard_rejects_wrong_concept():
+    # A 'cash in hand' line must not fill a row whose metric is share capital.
+    line = LineItem(label="Cash in hand", canonical_metric="cash_in_hand",
+                    values=[LineItemValue(year=2025, value=2343.0)])
+    cands = [(_match_norm("Cash in hand"), "", line, StatementType.current_assets)]
+    best, _ = _best_candidate("Cash in hand", "", cands, 50.0, row_metric="share_capital")
+    assert best is None                              # confident-but-different metric -> rejected
+    best2, _ = _best_candidate("Cash in hand", "", cands, 50.0, row_metric=None)
+    assert best2 is line                             # no row metric -> allowed (recall preserved)
+
+
+def test_role_guard_rejects_total_into_leaf_but_allows_total_into_total():
+    line = LineItem(label="Total revenue", role="total",
+                    values=[LineItemValue(year=2025, value=999.0)])
+    cands = [(_match_norm("Total revenue"), "", line, StatementType.income_statement)]
+    # leaf template row -> total candidate rejected
+    assert _best_candidate("Total revenue", "", cands, 50.0, template_is_total=False)[0] is None
+    # total template row -> total candidate allowed (#7 fix)
+    assert _best_candidate("Total revenue", "", cands, 50.0, template_is_total=True)[0] is line
+
+
+def test_polarity_guard_rejects_cross_side_match():
+    # An asset line (current_assets) must not fill an equity-polarity sheet row.
+    line = LineItem(label="Cash in hand", values=[LineItemValue(year=2025, value=2343.0)])
+    cands = [(_match_norm("Cash in hand"), "", line, StatementType.current_assets)]
+    best, _ = _best_candidate("Cash in hand", "", cands, 50.0, sheet_polarity="equity")
+    assert best is None                              # asset vs equity -> rejected (no metric needed)
+    best2, _ = _best_candidate("Cash in hand", "", cands, 50.0, sheet_polarity="asset")
+    assert best2 is line                             # same side -> allowed
+
+
+def _tieout_template(path: Path) -> None:
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "PL1 - Revenue"
+    ws["A1"] = "Revenue note"
+    ws["A3"], ws["B3"], ws["C3"] = "Particulars", 2024, 2025   # needs >=2 year columns
+    ws["A4"] = "Revenue from contracts"     # leaf to fill
+    ws["A5"] = "Filler row"
+    wb.save(path)
+
+
+def test_tieout_gate_withholds_value_contradicting_face_statement(tmp_path):
+    tpl = tmp_path / "t.xlsx"; _tieout_template(tpl)
+    company = CompanyResult(company="A", fiscal_years=[2024, 2025], tables=[
+        # Audited truth (label deliberately distinct so it doesn't compete for the row).
+        FinancialTable(statement_type=StatementType.income_statement, title="P&L",
+            line_items=[LineItem(label="Turnover net", canonical_metric="revenue",
+                values=[LineItemValue(year=2025, value=1000.0)])]),
+        # Breakdown line the template row matches — its 2025 value contradicts truth.
+        FinancialTable(statement_type=StatementType.revenue, title="Revenue",
+            line_items=[LineItem(label="Revenue from contracts", canonical_metric="revenue",
+                values=[LineItemValue(year=2025, value=9999.0)])]),
+    ])
+    plan = build_plan(company, tpl)
+    assert all(w.value != 9999.0 for w in plan.writes)                    # not shipped
+    assert any(w.value == 9999.0 and "tieout" in (w.note or "") for w in plan.withheld)
+
+
+def test_no_template_ledger_flags_face_mismatch():
+    # P4/C3: a no-template key-metric line that contradicts the audited face truth
+    # is flagged MISMATCH and counted (run becomes non-production).
+    from app.engines.extraction.pipeline.template_map import _tieout
+    from app.engines.extraction.services.validation import no_template_ledger
+    company = CompanyResult(company="A", fiscal_years=[2025], tables=[
+        FinancialTable(statement_type=StatementType.income_statement,
+                       title="Statement of Profit or Loss",  # -> primary face
+                       line_items=[LineItem(label="Revenue", canonical_metric="revenue",
+                           values=[LineItemValue(year=2025, value=1000.0)])]),
+        FinancialTable(statement_type=StatementType.revenue, title="Revenue note",  # -> note
+                       line_items=[LineItem(label="Revenue from contracts", canonical_metric="revenue",
+                           values=[LineItemValue(year=2025, value=9999.0)])]),
+    ])
+    rows, fails = no_template_ledger(company, _tieout)
+    assert fails >= 1
+    assert any(r.status == "MISMATCH" and r.value == 9999.0 for r in rows)
+    assert any(r.status == "ok" and r.value == 1000.0 for r in rows)
 
 
 _LUCKY = Path(r"C:\AI Financial Intelligence\data\lucky-template.xlsx")

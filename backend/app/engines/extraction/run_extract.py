@@ -42,6 +42,12 @@ def main() -> None:
         print(f"Cells filled: {len(result.plan.writes)}; sheets: {result.plan.sheets_processed}")
         if result.plan.unmatched_template_labels:
             print(f"Unmatched template labels: {len(result.plan.unmatched_template_labels)}")
+        if result.plan.withheld:
+            print(f"WITHHELD (failed face tie-out): {len(result.plan.withheld)}  -> NON-PRODUCTION")
+            for w in result.plan.withheld[:10]:
+                print(f"   {w.sheet}!{w.coordinate} {w.template_label!r} = {w.value}  [{w.note}]")
+        else:
+            print("Validation: all populated key metrics tie out to audited face statements.")
 
 
 if __name__ == "__main__":
