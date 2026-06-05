@@ -160,18 +160,25 @@ def _is_currency_scale(table: FinancialTable) -> bool:
 
 
 def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tuple[float, object]]:
-    """{(canonical_metric, year): (value, source)} from PRIMARY face statements only.
+    """{(canonical_metric, year): (value, source)} from face statements, primary-first.
 
-    Ranking when several primary candidates exist for the same (metric, year):
-    newest report wins; ties broken by larger magnitude (avoids picking a stray
-    rounding/zero). A per-metric magnitude-outlier filter drops values that are
-    >2 orders of magnitude from the metric's median across years (kills ratios
-    like PAT=10.2 that slipped into a face-typed table)."""
-    # Collect every primary-face candidate.
-    cand: dict[tuple[str, int], list[tuple[float, int, object]]] = {}
+    Candidates are collected from primary (tier 0) AND note (tier 1) tables; analytical
+    /ratio tables are excluded entirely. For each (metric, year) a PRIMARY value always
+    wins; a NOTE value is used only as a FALLBACK when no primary candidate exists for
+    that pair (e.g. the oldest comparative year, whose primary statement extracted
+    poorly but whose disaggregation notes still carry the real total).
+
+    Within the chosen tier: newest report wins; ties broken by closeness to the metric's
+    median (never larger magnitude — that would bless an extra-digit error). The
+    magnitude-outlier filter's median is anchored to PRIMARY values so a mis-tagged note
+    partial can't shift the reference."""
+    # Collect primary + note candidates, tagged by tier (0=primary, 1=note).
+    cand: dict[tuple[str, int], list[tuple[float, int, object, int]]] = {}
     for t in tables:
-        if table_role_of(t) != "primary" or not _is_currency_scale(t):
+        role = table_role_of(t)
+        if role == "analytical" or not _is_currency_scale(t):
             continue
+        tier = 0 if role == "primary" else 1
         for li in t.line_items:
             cm = _METRIC_ALIASES.get(li.canonical_metric, li.canonical_metric)
             if not cm:
@@ -179,15 +186,19 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
             for v in li.values:
                 if v.year and v.value is not None:
                     ry = v.source_report_year or (t.source.report_year if t.source else 0) or 0
-                    cand.setdefault((cm, v.year), []).append((v.value, ry, v.source or t.source))
+                    cand.setdefault((cm, v.year), []).append((v.value, ry, v.source or t.source, tier))
 
-    # Per-metric magnitude reference: median of |value| over ALL candidates of that
-    # metric (every year/report). Includes zeros — a legitimately-zero metric must
-    # not be dropped from the median.
-    by_metric: dict[str, list[float]] = {}
+    # Per-metric magnitude reference: median of |value|. Anchored to PRIMARY candidates
+    # when the metric has any (so note partials don't move it); else fall back to all.
+    # Includes zeros — a legitimately-zero metric must not be dropped from the median.
+    prim_abs: dict[str, list[float]] = {}
+    all_abs: dict[str, list[float]] = {}
     for (cm, _y), lst in cand.items():
-        by_metric.setdefault(cm, []).extend(abs(c[0]) for c in lst)
-    median_abs = {cm: statistics.median(vals) for cm, vals in by_metric.items() if vals}
+        for c in lst:
+            all_abs.setdefault(cm, []).append(abs(c[0]))
+            if c[3] == 0:
+                prim_abs.setdefault(cm, []).append(abs(c[0]))
+    median_abs = {cm: statistics.median(prim_abs.get(cm) or vals) for cm, vals in all_abs.items() if vals}
 
     truth: dict[tuple[str, int], tuple[float, object]] = {}
     for (cm, year), lst in cand.items():
@@ -200,8 +211,10 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
         else:
             plausible = list(lst)
         chosen = plausible or lst
-        # Newest report wins; then prefer the value CLOSEST to the metric's median
-        # (never "larger magnitude" — that would bless an extra-digit error).
-        value, _ry, src = max(chosen, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
+        # Primary (tier 0) always beats a note fallback (tier 1) for the same pair.
+        best_tier = min(c[3] for c in chosen)
+        tiered = [c for c in chosen if c[3] == best_tier]
+        # Newest report wins; then prefer the value CLOSEST to the metric's median.
+        value, _ry, src, _tier = max(tiered, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
         truth[(cm, year)] = (value, src)
     return truth

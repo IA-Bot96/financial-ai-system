@@ -34,6 +34,38 @@ _SIGNALS = (
 _MONEY_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+\b")
 
 
+# Bottom-line totals that only a PRIMARY face statement carries (a note/narrative
+# page does not). A page with one of these is NEVER skipped by skip_consolidated, even
+# when the (heuristic, carry-forward) consolidated context flagged it: dropping a
+# standalone primary statement is catastrophic (no face truth), whereas re-extracting a
+# consolidated one only costs a GPT call. `build_face_truth` doesn't filter by the
+# consolidated flag, so a recovered statement still supplies truth.
+_PRIMARY_STMT_RE = re.compile(
+    r"profit for the year|total assets|total equity and liabilities|"
+    r"total equity & liabilities|profit before tax(?:ation)?|net cash (?:generated|used)",
+    re.I,
+)
+
+
+def _looks_primary_statement(text: str) -> bool:
+    return bool(_PRIMARY_STMT_RE.search(text or ""))
+
+
+def _candidate_pages(doc: IngestedDoc, context: dict, region_start: int,
+                     skip_consolidated: bool, min_money: int, dense_digits: int) -> list:
+    """Financial pages to send to GPT. On template runs the consolidated set is skipped
+    to halve calls — EXCEPT pages carrying a primary face-statement total, which are
+    always kept (the consolidated context is a fragile heuristic; never let it drop a
+    standalone primary statement)."""
+    return [
+        p for p in doc.pages
+        if p.page >= region_start
+        and _is_financial_page(p.text, min_money, dense_digits)
+        and not (skip_consolidated and context.get(p.page) is True
+                 and not _looks_primary_statement(p.text))
+    ]
+
+
 def _is_financial_page(text: str, min_money: int, dense_digits: int) -> bool:
     """Tight gate: a real financial table = a strong signal AND either many
     comma-grouped figures, or (for OCR pages that lose commas) a very digit-dense
@@ -129,12 +161,15 @@ def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = Fa
     context = consolidated_context_by_page(doc)
     region_start = _financial_region_start(doc)
 
-    candidates = [
-        p for p in doc.pages
-        if p.page >= region_start
-        and _is_financial_page(p.text, settings.gpt_table_min_money, settings.gpt_table_dense_digits)
-        and not (skip_consolidated and context.get(p.page) is True)
-    ]
+    candidates = _candidate_pages(
+        doc, context, region_start, skip_consolidated,
+        settings.gpt_table_min_money, settings.gpt_table_dense_digits,
+    )
+    kept_primary = sum(1 for p in candidates
+                       if skip_consolidated and context.get(p.page) is True)
+    if kept_primary:
+        logger.info("Kept %d consolidated-flagged page(s) that carry a primary-statement "
+                    "total (not skipped) in %s", kept_primary, doc.file_name)
     if len(candidates) > settings.gpt_table_max_pages:
         dropped = [p.page for p in candidates[settings.gpt_table_max_pages:]]
         # Disclose EXACTLY which pages are skipped — a capped page that held a needed

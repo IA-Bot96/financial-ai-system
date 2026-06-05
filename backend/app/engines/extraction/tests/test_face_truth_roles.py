@@ -107,6 +107,60 @@ def test_note_with_only_subtotal_not_promoted():
     assert infer_table_role(t) == "note"
 
 
+def _income(title, role_metrics, unit="thousands"):
+    return FinancialTable(statement_type=StatementType.income_statement, title=title,
+                          unit_scale=unit,
+                          line_items=[LineItem(label=lbl, canonical_metric=cm,
+                                               canonical_category="income_statement",
+                                               values=[LineItemValue(year=y, value=val)])
+                                      for (lbl, cm, y, val) in role_metrics])
+
+
+def test_note_fills_year_with_no_primary_candidate():
+    # Primary income statement covers 2022-2024; the oldest comparative 2021 survives
+    # only in a disaggregation NOTE -> note fills it as a fallback.
+    primary = FinancialTable(statement_type=StatementType.income_statement,
+                             title="Statement of Profit or Loss",
+                             line_items=[LineItem(label="Revenue", canonical_metric="revenue",
+                                 canonical_category="income_statement",
+                                 values=[LineItemValue(year=2022, value=53000.0),
+                                         LineItemValue(year=2023, value=44000.0),
+                                         LineItemValue(year=2024, value=91000.0)])])
+    note = FinancialTable(statement_type=StatementType.revenue,   # sub-type -> note role
+                          title="Revenue from contracts with customers",
+                          line_items=[LineItem(label="Revenue", canonical_metric="revenue",
+                              canonical_category="income_statement",
+                              values=[LineItemValue(year=2021, value=44930.0)])])
+    truth = build_face_truth([primary, note])
+    assert truth[("revenue", 2021)][0] == 44930.0      # filled from the note
+    assert truth[("revenue", 2024)][0] == 91000.0      # primary unaffected
+
+
+def test_primary_beats_note_for_same_year():
+    primary = FinancialTable(statement_type=StatementType.income_statement,
+                             title="Statement of Profit or Loss",
+                             line_items=[LineItem(label="Revenue", canonical_metric="revenue",
+                                 canonical_category="income_statement",
+                                 values=[LineItemValue(year=2024, value=91000.0)])])
+    note = FinancialTable(statement_type=StatementType.revenue, title="Revenue note",
+                          line_items=[LineItem(label="Revenue", canonical_metric="revenue",
+                              canonical_category="income_statement",
+                              values=[LineItemValue(year=2024, value=88000.0)])])
+    truth = build_face_truth([primary, note])
+    assert truth[("revenue", 2024)][0] == 91000.0      # primary wins, note ignored
+
+
+def test_analytical_never_supplies_truth_even_as_fallback():
+    # gross_profit exists ONLY in a six-year summary -> must NOT become truth.
+    summary = FinancialTable(statement_type=StatementType.financial_highlights,
+                             title="Six Years at a Glance", unit_scale="thousands",
+                             line_items=[LineItem(label="Gross profit", canonical_metric="gross_profit",
+                                 canonical_category="income_statement",
+                                 values=[LineItemValue(year=2021, value=9271.0)])])
+    truth = build_face_truth([summary])
+    assert ("gross_profit", 2021) not in truth
+
+
 def test_share_capital_and_reserves_aliases_to_equity():
     # "Share capital and reserves" is the total-equity line -> supplies `equity` truth
     # (closes the years where the line is named that way rather than "Total equity").
