@@ -56,11 +56,21 @@ def _financial_region_start(doc: IngestedDoc) -> int:
 
 
 def _resolve_canonicals(table: FinancialTable, resolver) -> None:
+    """Resolve each line to a canonical metric — SCOPED by the table's statement
+    family (P2). A label that resolves to a metric in a different family than its
+    home table (e.g. a 'Cost of sales' allocation row inside a PP&E note) is
+    DEMOTED to no_confident_metric rather than mis-tagged as the headline metric."""
+    from app.engines.extraction.services.face_truth import confidently_incompatible
     for li in table.line_items:
         match = resolver.resolve(li.label)
-        if match:
-            li.canonical_metric = match.canonical_key
-            li.canonical_category = match.category
+        if not match:
+            continue
+        li.canonical_metric = match.canonical_key
+        li.canonical_category = match.category
+        if confidently_incompatible(li, table.statement_type):
+            li.canonical_metric = None
+            li.canonical_category = None
+            li.resolution = "no_confident_metric"
 
 
 def gpt_structure_grid(raw, gpt) -> FinancialTable | None:
@@ -126,8 +136,15 @@ def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = Fa
         and not (skip_consolidated and context.get(p.page) is True)
     ]
     if len(candidates) > settings.gpt_table_max_pages:
-        logger.warning("Capping GPT table extraction at %d of %d financial pages in %s",
-                       settings.gpt_table_max_pages, len(candidates), doc.file_name)
+        dropped = [p.page for p in candidates[settings.gpt_table_max_pages:]]
+        # Disclose EXACTLY which pages are skipped — a capped page that held a needed
+        # statement/restated note would otherwise look like an extraction gap, not a
+        # cap. (Surfaced so the run is auditable; raise gpt_table_max_pages to include.)
+        logger.warning(
+            "PAGE CAP HIT in %s: extracting %d of %d financial pages; SKIPPING pages %s "
+            "(data on these pages will be absent — raise gpt_table_max_pages to include).",
+            doc.file_name, settings.gpt_table_max_pages, len(candidates), dropped,
+        )
         candidates = candidates[: settings.gpt_table_max_pages]
 
     total = len(candidates)

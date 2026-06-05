@@ -97,13 +97,19 @@ _ROW_METRIC_CACHE: dict[tuple[str, object, str], str | None] = {}
 
 
 def _row_metric(label: str, family: object = None, section: str = "") -> str | None:
-    """Resolve a template row label to a canonical metric, scoped by sheet family
-    and section (cached by the full context tuple, so one sheet's decision can't
-    leak into another). Returns None when the label doesn't confidently resolve."""
+    """Resolve a template row label to a canonical metric, SCOPED by the sheet's
+    statement type (P2): a metric confidently belonging to a different statement
+    family than the sheet is demoted to None. Cached by the full context tuple so
+    one sheet's decision can't leak into another."""
+    from app.engines.extraction.services.face_truth import metric_incompatible
     key = (label, family, section or "")
     if key not in _ROW_METRIC_CACHE:
         m = get_resolver().resolve(label)
-        _ROW_METRIC_CACHE[key] = m.canonical_key if m else None
+        if m and isinstance(family, StatementType) and \
+                metric_incompatible(m.canonical_key, m.category, family):
+            _ROW_METRIC_CACHE[key] = None        # scoped-out: wrong family for this sheet
+        else:
+            _ROW_METRIC_CACHE[key] = m.canonical_key if m else None
     return _ROW_METRIC_CACHE[key]
 
 
@@ -371,6 +377,7 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                 continue
             if _empty_fraction(ws, year_cols, header_row) < settings.template_min_empty_fraction:
                 plan.sheets_skipped.append(ws.title)  # computed/output sheet
+                plan.formula_sheets.append(ws.title)  # ...and it IS an output statement
                 continue
 
             plan.sheets_processed.append(ws.title)
@@ -416,11 +423,13 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                                                   sheet_polarity=sheet_polarity, template_is_total=is_total,
                                                   strict_polarity=strict_polarity)
                 if line is None:
-                    # #4 statement-total fallback: a writable, empty TOTAL row that
-                    # resolves to a headline metric is filled from the audited face
-                    # truth (kills finance-cost / tax / OCI zeros). Only canonical
-                    # totals — never note subsections (M1).
-                    if is_total and rm in _KEY_METRICS:
+                    # #4 statement-total fallback: a writable, empty row that resolves
+                    # to a HEADLINE metric is filled from the audited face truth (kills
+                    # finance-cost / tax / OCI zeros). The key-metric resolution is the
+                    # signal it's a statement-level line — labels like "Finance cost" or
+                    # "Taxation" need not be prefixed "Total" (M1: key metrics only, so
+                    # note subsections — which don't resolve to a key metric — are safe).
+                    if rm in _KEY_METRICS:
                         filled = False
                         for col, year in writable.items():
                             tv = face.get((rm, year))
@@ -473,25 +482,22 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
             # checked against what that row should be, not against the line it matched.
             key_metric = m["row_metric"] or getattr(line, "canonical_metric", None)
             by_year = {v.year: v for v in line.values}
+            # #6: NO sign-flipping here. Template writable rows are note/breakdown
+            # sheets that keep their own positive-magnitude convention; aligning their
+            # sign to the face value (a different convention) would be wrong. A genuine
+            # sign conflict instead fails tie-out and is withheld (safe).
             for col, year in m["writable"].items():
                 v = by_year.get(year)
                 if v is None or v.value is None:
                     continue
                 value = v.value
                 truth = face.get((key_metric, year)) if key_metric in _KEY_METRICS else None
-                # #6 sign normalization (face rows only): if the magnitude matches the
-                # audited value but the SIGN is flipped, correct it to the face sign
-                # (turns a recoverable sign error into a correct value, not a withhold).
-                note = None
-                if truth is not None and value and truth and (value > 0) != (truth > 0) \
-                        and _tieout(abs(value), abs(truth)):
-                    value, note = abs(value) * (1 if truth > 0 else -1), "sign:aligned_to_face"
                 cw = CellWrite(
                     sheet=m["ws"].title,
                     coordinate=m["ws"].cell(m["row"], col).coordinate,
                     year=year, value=value, template_label=m["lbl"],
                     matched_label=line.label, confidence=m["score"] / 100.0,
-                    source_report_year=v.source_report_year, note=note,
+                    source_report_year=v.source_report_year, source=v.source,
                 )
                 if truth is not None and not _tieout(value, truth):
                     cw.note = f"withheld:tieout({key_metric} face={truth})"
@@ -514,14 +520,37 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
     return plan
 
 
-def apply_plan(plan: MappingPlan, template_path: str | Path, output_path: str | Path) -> Path:
-    """Write the plan into a copy of the template (formulas/forecast untouched)."""
+def apply_plan(plan: MappingPlan, template_path: str | Path, output_path: str | Path,
+               company: str | None = None) -> Path:
+    """Write the plan into a copy of the template (formulas/forecast untouched).
+
+    Also replaces static "Source: …" label cells with a DYNAMIC reference naming
+    the report years actually used on that sheet (traceability #9 / MIL-OCR-014)."""
     import openpyxl
+
+    # report years actually used per sheet (from each write's source).
+    years_by_sheet: dict[str, set[int]] = {}
+    for w in plan.writes:
+        ry = w.source_report_year
+        if ry:
+            years_by_sheet.setdefault(w.sheet, set()).add(ry)
 
     wb = openpyxl.load_workbook(template_path, data_only=False)
     try:
         for w in plan.writes:
             wb[w.sheet][w.coordinate] = w.value
+        # rewrite static "Source:" labels with the real per-sheet source years.
+        co = company or "the company"
+        for ws in wb.worksheets:
+            yrs = sorted(years_by_sheet.get(ws.title, []))
+            if not yrs:
+                continue
+            label = f"Source: {co} Annual Reports {yrs[0]}-{yrs[-1]}" if len(yrs) > 1 \
+                else f"Source: {co} Annual Report {yrs[0]}"
+            for row in ws.iter_rows():
+                for c in row:
+                    if isinstance(c.value, str) and c.value.lower().startswith("source:"):
+                        c.value = label
         wb.save(output_path)
     finally:
         wb.close()

@@ -42,7 +42,9 @@ class Settings(BaseSettings):
 
     # --- GPT-assisted table extraction (robust on scanned/complex pages) ---
     use_gpt_table_extraction: bool = True
-    gpt_table_max_pages: int = 80           # safety cap on pages sent to GPT per report
+    gpt_table_max_pages: int = 130          # safety cap on pages/report; >= the ~90
+                                            # financial pages of a scanned report so the
+                                            # cap doesn't silently drop statement pages
     gpt_table_min_money: int = 6            # page needs >= this many comma-grouped figures
     gpt_table_dense_digits: int = 120       # OCR fallback: very digit-dense page (commas lost)
     gpt_table_workers: int = 8              # concurrent page-extraction GPT calls (1 = sequential)

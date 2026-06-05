@@ -200,6 +200,8 @@ def detect_tables(
                     report_year=doc.report_year,
                     pages=pt.pages,
                     section=pt.section_title or None,
+                    table_id=f"{doc.file_name}:p{pt.pages[0] if pt.pages else 0}:t{idx}",
+                    table_title=(pt.section_title or (header[0] if header else None)),
                 ),
             )
         )

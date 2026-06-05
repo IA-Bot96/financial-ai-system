@@ -11,6 +11,7 @@ without real PDFs or a live GPT.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +53,12 @@ class ExtractionOutput(BaseModel):
     company: CompanyResult
     mode: str                      # "template" | "no_template"
     plan: Optional[MappingPlan] = None
+    # Observability (#8): validation outcome surfaced to callers / API / manifest.
+    production_ready: bool = True
+    validation_failures: int = 0
+    withheld: int = 0
+    quarantined: int = 0
+    manifest_path: Optional[str] = None
 
 
 def process_documents(
@@ -75,19 +82,30 @@ def process_documents(
 
         plan = build_plan(company_result, template_path)
         dumper.json("05_mapping_plan", plan)
-        apply_plan(plan, template_path, output_path)
+        apply_plan(plan, template_path, output_path, company=company_result.company)
         append_insights_sheets(output_path, company_result.insights, company_result.insights_review)
         logger.info(
             "Template workbook written: company=%r years=%s -> %s (%d writes)",
             company_result.company, company_result.fiscal_years, output_path, len(plan.writes),
         )
         out = ExtractionOutput(output_path=output_path, company=company_result, mode="template", plan=plan)
-        # P4: audit ledger + non-production flag (withheld values = failed tie-out).
-        from app.engines.extraction.pipeline.template_map import _tieout  # noqa
-        from app.engines.extraction.services.validation import append_ledger_sheet, template_ledger
-        ledger_rows = template_ledger(plan)
+        # P4: audit ledger + non-production flag. Combines (a) leaf-level withholds
+        # from the plan and (b) the #1 computed-formula tie-out, which evaluates the
+        # written workbook's output/subtotal formulas against the audited face truth.
+        from app.engines.extraction.pipeline.template_map import _tieout
+        from app.engines.extraction.services.validation import (
+            append_ledger_sheet, computed_output_ledger, template_ledger, write_source_ledger,
+        )
+        # Sign sensitivity: output statements (the formula/computed sheets) and any
+        # cross-sheet pull are validated signed; intra-sheet breakdown subtotals by
+        # magnitude. `formula_sheets` is the precise output-sheet set (not dividers).
+        computed_rows, computed_fail, computed_unevaluable = computed_output_ledger(
+            output_path, company_result, _tieout, output_sheets=set(plan.formula_sheets))
+        ledger_rows = template_ledger(plan) + computed_rows
         append_ledger_sheet(output_path, ledger_rows)
-        production_fail = len(plan.withheld)
+        write_source_ledger(output_path, plan)               # traceability (#9)
+        production_fail = len(plan.withheld) + computed_fail
+        unevaluable = computed_unevaluable
     else:
         write_company_workbook(company_result, output_path)
         logger.info(
@@ -100,20 +118,36 @@ def process_documents(
         from app.engines.extraction.services.validation import append_ledger_sheet, no_template_ledger
         ledger_rows, production_fail = no_template_ledger(company_result, _tieout)
         append_ledger_sheet(output_path, ledger_rows)
+        unevaluable = 0
 
-    dumper.json("00_run_summary", {
+    # Observability (#8): populate the result + write a manifest beside the workbook.
+    # A run is production-ready only if every key metric tied out AND none was left
+    # unvalidated (an un-evaluable key formula is a coverage gap, not a silent pass).
+    out.production_ready = (production_fail == 0 and unevaluable == 0)
+    out.validation_failures = production_fail
+    out.withheld = len(out.plan.withheld) if out.plan else 0
+    out.quarantined = len(company_result.rejected_lines)
+    manifest = {
         "company": company_result.company, "mode": out.mode,
         "fiscal_years": company_result.fiscal_years, "output_path": out.output_path,
         "source_reports": company_result.source_reports, "tables": len(company_result.tables),
         "writes": len(out.plan.writes) if out.plan else None,
         "unmatched_template_labels": len(out.plan.unmatched_template_labels) if out.plan else None,
-        "withheld": len(out.plan.withheld) if out.plan else 0,
-        "quarantined_lines": len(company_result.rejected_lines),
+        "withheld": out.withheld,
+        "quarantined_lines": out.quarantined,
         "validation_failures": production_fail,
+        "unevaluable_formulas": unevaluable,
         # A run with any failed face-statement tie-out is flagged non-production so
-        # it isn't shipped silently. See the 'Validation Ledger' sheet.
-        "production_ready": production_fail == 0,
-    })
+        # it isn't shipped silently. See the 'Validation Ledger' / 'Source Ledger' sheets.
+        "production_ready": out.production_ready,
+    }
+    dumper.json("00_run_summary", manifest)
+    try:
+        manifest_path = Path(output_path).with_suffix(".manifest.json")
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        out.manifest_path = str(manifest_path)
+    except Exception as exc:  # noqa: BLE001 — manifest is best-effort, never fail the run
+        logger.warning("Could not write manifest: %s", exc)
     if production_fail:
         logger.warning("Run is NON-PRODUCTION: %d key value(s) failed face-statement tie-out "
                        "(see 'Validation Ledger' sheet)", production_fail)

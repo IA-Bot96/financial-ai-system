@@ -96,13 +96,21 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
             continue
 
         match = resolver.resolve(label)
+        cm = match.canonical_key if match else None
+        cat = match.category if match else None
+        # P2 scoped resolution: demote a metric that's confidently in a different
+        # statement family than this table (parity with the GPT path).
+        from app.engines.extraction.services.face_truth import metric_incompatible
+        if cm and metric_incompatible(cm, cat, raw.statement_type):
+            cm, cat = None, None
         line_items.append(
             LineItem(
                 label=label,
                 section=current_section,
                 values=values,
-                canonical_metric=match.canonical_key if match else None,
-                canonical_category=match.category if match else None,
+                canonical_metric=cm,
+                canonical_category=cat,
+                resolution=("no_confident_metric" if (match and cm is None) else None),
             )
         )
 

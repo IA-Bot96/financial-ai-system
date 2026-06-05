@@ -42,12 +42,13 @@ def main() -> None:
         print(f"Cells filled: {len(result.plan.writes)}; sheets: {result.plan.sheets_processed}")
         if result.plan.unmatched_template_labels:
             print(f"Unmatched template labels: {len(result.plan.unmatched_template_labels)}")
-        if result.plan.withheld:
-            print(f"WITHHELD (failed face tie-out): {len(result.plan.withheld)}  -> NON-PRODUCTION")
-            for w in result.plan.withheld[:10]:
-                print(f"   {w.sheet}!{w.coordinate} {w.template_label!r} = {w.value}  [{w.note}]")
-        else:
-            print("Validation: all populated key metrics tie out to audited face statements.")
+    print(f"Production-ready: {result.production_ready}  "
+          f"(validation failures: {result.validation_failures}, withheld: {result.withheld}, "
+          f"quarantined: {result.quarantined})")
+    if not result.production_ready:
+        print("  -> NON-PRODUCTION: see the 'Validation Ledger' sheet for the failing rows.")
+    if result.manifest_path:
+        print(f"Manifest: {result.manifest_path}")
 
 
 if __name__ == "__main__":

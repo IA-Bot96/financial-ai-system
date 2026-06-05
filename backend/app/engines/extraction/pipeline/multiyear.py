@@ -20,8 +20,14 @@ from app.engines.extraction.models.common import StatementType
 from app.engines.extraction.models.company import CompanyResult, RejectedLine
 from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
 from app.engines.extraction.models.result import DocumentResult
-from app.engines.extraction.services.face_truth import confidently_incompatible, infer_table_role
+from app.engines.extraction.services.face_truth import (
+    confidently_incompatible, infer_table_role, table_role_of,
+)
 from app.engines.extraction.services.metric_resolver import squash
+
+# Source quality for the merge: an audited primary statement beats a note beats an
+# analytical/ratio table when several reports offer the same (metric, year).
+_ROLE_PREF = {"primary": 0, "note": 1, "analytical": 2, None: 1}
 
 logger = get_logger(__name__)
 
@@ -115,12 +121,15 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                     "canonical_metric": li.canonical_metric,
                     "canonical_category": li.canonical_category,
                 })
+                role = table_role_of(table)
                 rmap = values_index.setdefault((gkey, key), {}).setdefault(ry, {})
                 for v in li.values:
                     if v.year is not None and _year_ok(v.year):
                         if v.source is None:        # carry value-level provenance (C1)
                             v.source = table.source
-                        rmap.setdefault(v.year, v)
+                        prev = rmap.get(v.year)     # within a report, prefer the primary source
+                        if prev is None or _ROLE_PREF[role] < _ROLE_PREF[prev[1]]:
+                            rmap[v.year] = (v, role)
 
     data_years = sorted({
         y for idx in values_index.values() for rmap in idx.values() for y in rmap
@@ -135,14 +144,18 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
             idx = values_index.get((gkey, key), {})
             values: list[LineItemValue] = []
             for year in data_years:
-                candidates = [ry for ry, rmap in idx.items() if year in rmap]
-                if not candidates:
+                cands = [(ry, vr[0], vr[1]) for ry, rmap in idx.items()
+                         if (vr := rmap.get(year)) is not None]
+                if not cands:
                     continue
-                best = min(candidates, key=lambda ry: _rank(ry, year))
-                src = idx[best][year]
+                # Drop analytical/ratio sources when a real (primary/note) value exists.
+                non_analytical = [c for c in cands if c[2] != "analytical"]
+                cands = non_analytical or cands
+                # Rank: primary > note > analytical, then newest-report preference.
+                ry, vobj, _role = min(cands, key=lambda c: (_ROLE_PREF[c[2]], _rank(c[0], year)))
                 values.append(LineItemValue(
-                    year=year, value=src.value, raw=src.raw, source_report_year=best,
-                    source=src.source,
+                    year=year, value=vobj.value, raw=vobj.raw, source_report_year=ry,
+                    source=vobj.source,
                 ))
                 present_years.add(year)
             if values:

@@ -1,4 +1,7 @@
 """Tests for Layer 7 orchestration (assembly + output routing)."""
+import json
+from pathlib import Path
+
 import openpyxl
 import pytest
 
@@ -39,6 +42,11 @@ def test_no_template_writes_styled_workbook(tmp_path):
     out = tmp_path / "out.xlsx"
     res = process_documents(results, out)
     assert res.mode == "no_template" and res.plan is None
+    # #8 observability: result carries a validation verdict, and a manifest is written.
+    assert isinstance(res.production_ready, bool)
+    assert res.manifest_path and Path(res.manifest_path).exists()
+    manifest = json.loads(Path(res.manifest_path).read_text(encoding="utf-8"))
+    assert manifest["production_ready"] == res.production_ready
     wb = openpyxl.load_workbook(out)
     assert "Income Statement" in wb.sheetnames and "Insights" in wb.sheetnames
     wb.close()
@@ -72,4 +80,8 @@ def test_template_fills_and_appends_insights(tmp_path):
     assert pl["B5"].value == 50.0 and pl["C5"].value == 60.0   # Local sales filled
     assert pl["B7"].value == "=SUM(B5:B6)"                     # subtotal formula preserved
     assert "Insights" in wb.sheetnames                          # insights appended
+    # #9 traceability: a Source Ledger sheet maps writes to their origin.
+    assert "Source Ledger" in wb.sheetnames
+    # #8 observability: manifest written alongside the workbook.
+    assert res.manifest_path and Path(res.manifest_path).exists()
     wb.close()

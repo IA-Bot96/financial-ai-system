@@ -31,6 +31,12 @@ class Job(BaseModel):
     output_file: Optional[str] = None
     mode: Optional[str] = None
     message: Optional[str] = None
+    # Observability (#8): validation outcome exposed via the job-status API.
+    production_ready: Optional[bool] = None
+    validation_failures: Optional[int] = None
+    withheld: Optional[int] = None
+    quarantined: Optional[int] = None
+    manifest_file: Optional[str] = None
 
 
 _JOBS: dict[str, Job] = {}
@@ -61,6 +67,11 @@ def _run(job: Job, pdf_paths: list[Path], output_path: Path, template_path: Path
         )
         job.output_file = result.output_path
         job.mode = result.mode
+        job.production_ready = result.production_ready
+        job.validation_failures = result.validation_failures
+        job.withheld = result.withheld
+        job.quarantined = result.quarantined
+        job.manifest_file = result.manifest_path
         job.status = JobStatus.done
     except Exception as exc:  # noqa: BLE001
         logger.exception("Job %s failed", job.id)

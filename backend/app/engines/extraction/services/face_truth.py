@@ -62,17 +62,23 @@ def tieout(value: float, truth: float) -> bool:
     return abs(value - truth) <= 1.0 + 0.05 * abs(truth)
 
 
+def metric_incompatible(metric: str | None, category: str | None,
+                        statement_type: StatementType | None) -> bool:
+    """True when `metric` (in `category`) is CONFIDENTLY in a different statement
+    family than `statement_type`. Cross-family metrics and unknown families are
+    exempt (never blocks on a missing signal)."""
+    if not metric or metric in CROSS_FAMILY_OK:
+        return False
+    cat_family = _CATEGORY_FAMILY.get(category or "")
+    home_family = _TYPE_FAMILY.get(statement_type) if statement_type else None
+    return bool(cat_family and home_family and cat_family != home_family)
+
+
 def confidently_incompatible(li: LineItem, statement_type: StatementType) -> bool:
     """P2: True only when the line's canonical metric is CONFIDENTLY in a different
     statement family than its home table (e.g. a `cost_of_sales`/income line inside
-    a balance-sheet table). Low-confidence/ambiguous (no metric) -> NOT quarantined;
-    known cross-family metrics are exempt."""
-    cm = li.canonical_metric
-    if not cm or cm in CROSS_FAMILY_OK:
-        return False
-    cat_family = _CATEGORY_FAMILY.get(li.canonical_category or "")
-    home_family = _TYPE_FAMILY.get(statement_type)
-    return bool(cat_family and home_family and cat_family != home_family)
+    a balance-sheet table)."""
+    return metric_incompatible(li.canonical_metric, li.canonical_category, statement_type)
 
 # Titles that mark an analytical/summary table (never truth, never a note input).
 _ANALYTICAL_RE = re.compile(
@@ -143,21 +149,27 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
                     ry = v.source_report_year or (t.source.report_year if t.source else 0) or 0
                     cand.setdefault((cm, v.year), []).append((v.value, ry, v.source or t.source))
 
-    # Per-metric magnitude sanity: median of |value| across that metric's years.
+    # Per-metric magnitude reference: median of |value| over ALL candidates of that
+    # metric (every year/report). Includes zeros — a legitimately-zero metric must
+    # not be dropped from the median.
     by_metric: dict[str, list[float]] = {}
     for (cm, _y), lst in cand.items():
-        by_metric.setdefault(cm, []).append(max(lst, key=lambda c: c[1])[0])
-    median_abs = {cm: statistics.median([abs(x) for x in vals if x]) if any(vals) else 0.0
-                  for cm, vals in by_metric.items()}
+        by_metric.setdefault(cm, []).extend(abs(c[0]) for c in lst)
+    median_abs = {cm: statistics.median(vals) for cm, vals in by_metric.items() if vals}
 
     truth: dict[tuple[str, int], tuple[float, object]] = {}
     for (cm, year), lst in cand.items():
         med = median_abs.get(cm, 0.0)
-        # Drop outliers >100x off the metric's median (when we have a real median).
-        plausible = [c for c in lst
-                     if not (med > 0 and abs(c[0]) > 0 and (abs(c[0]) / med > 100 or med / max(abs(c[0]), 1e-9) > 100))]
+        # Drop magnitude outliers: an extra-digit OCR error (~10x) must NOT survive,
+        # so the band is tight (8x) — well outside normal year-on-year variation but
+        # inside a digit slip. Only applied when there's a meaningful median.
+        if med > 0:
+            plausible = [c for c in lst if abs(c[0]) and med / 8 <= abs(c[0]) <= med * 8]
+        else:
+            plausible = list(lst)
         chosen = plausible or lst
-        # newest report, then larger magnitude.
-        value, _ry, src = max(chosen, key=lambda c: (c[1], abs(c[0])))
+        # Newest report wins; then prefer the value CLOSEST to the metric's median
+        # (never "larger magnitude" — that would bless an extra-digit error).
+        value, _ry, src = max(chosen, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
         truth[(cm, year)] = (value, src)
     return truth
