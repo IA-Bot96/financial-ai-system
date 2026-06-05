@@ -8,7 +8,9 @@ from app.core.config import get_settings
 from app.engines.extraction.models.common import StatementType
 from app.engines.extraction.models.company import CompanyResult
 from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
-from app.engines.extraction.pipeline.template_map import apply_plan, build_plan
+from app.engines.extraction.pipeline.template_map import (
+    _match_norm, _related_types, apply_plan, build_plan,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +90,55 @@ def test_apply_plan_preserves_formulas_and_writes_values(tmp_path):
     assert pl["D5"].value is None              # forecast column untouched
     assert wb["P&L"]["B5"].value == "='PL1 - Revenue'!B5"  # output sheet untouched
     wb.close()
+
+
+# --- lever 1: statement-family containment ---
+
+def test_related_types_widens_within_family_only():
+    rel = _related_types(StatementType.current_assets)
+    assert StatementType.balance_sheet in rel          # parent face
+    assert StatementType.current_liabilities in rel    # sibling breakdown
+    assert StatementType.revenue not in rel            # different family -> no bleed
+    assert _related_types(None) == set()
+
+
+def _split_company() -> CompanyResult:
+    # "Local sales" lives in the revenue (own) table; "Export sales" only in the
+    # income_statement (parent face) table -> reachable only via family widening.
+    rev = FinancialTable(
+        statement_type=StatementType.revenue, title="Revenue",
+        line_items=[LineItem(label="Local sales", values=[
+            LineItemValue(year=2024, value=50.0), LineItemValue(year=2025, value=60.0)])],
+    )
+    face = FinancialTable(
+        statement_type=StatementType.income_statement, title="Income Statement",
+        line_items=[LineItem(label="Export sales", values=[
+            LineItemValue(year=2024, value=30.0), LineItemValue(year=2025, value=40.0)])],
+    )
+    return CompanyResult(company="Acme", fiscal_years=[2024, 2025], tables=[rev, face])
+
+
+def test_family_widening_maps_line_from_parent_face_table(tmp_path):
+    tpl = tmp_path / "template.xlsx"
+    _make_template(tpl)  # PL1 - Revenue sheet -> classifies to `revenue`
+    plan = build_plan(_split_company(), tpl)
+    cells = {(w.coordinate, w.value) for w in plan.writes}
+    assert ("B5", 50.0) in cells                       # own-type (revenue) match
+    assert ("B6", 30.0) in cells and ("C6", 40.0) in cells  # widened to income_statement face
+
+
+# --- lever 2: abbreviation-aware matching ---
+
+def test_match_norm_expands_corporate_abbreviations():
+    assert _match_norm("Hyundai Nishat Motors (Pvt) Ltd") == \
+        _match_norm("Hyundai Nishat Motors (Private) Limited")
+
+
+def test_abbrev_lifts_fuzzy_match_over_threshold():
+    from rapidfuzz import fuzz
+    a = _match_norm("Dividend from XYZ Co Ltd")
+    b = _match_norm("Dividend from XYZ Company Limited")
+    assert fuzz.token_set_ratio(a, b) >= 82
 
 
 _LUCKY = Path(r"C:\AI Financial Intelligence\data\lucky-template.xlsx")

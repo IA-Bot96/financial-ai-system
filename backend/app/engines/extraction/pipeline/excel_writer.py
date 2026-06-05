@@ -75,10 +75,19 @@ def _write_table(ws, table: FinancialTable) -> None:
         label = (li.label or "").strip()
         if not label:
             continue
-        total = S.is_total_row(label)
-        section = (not total) and S.is_section_header(label)
         by_year = {v.year: v.value for v in li.values}
         has_value = any(by_year.get(y) is not None for y in years)
+        # Prefer the LLM's structural role over the prefix/caps heuristics; fall
+        # back to heuristics when no role was provided (older extractions, rules path).
+        role = (li.role or "").strip().lower()
+        if role in {"leaf", "subtotal", "total", "section_header"}:
+            total = role in {"subtotal", "total"}
+            section = role == "section_header"
+            is_leaf = role == "leaf" and has_value
+        else:
+            total = S.is_total_row(label)
+            section = (not total) and S.is_section_header(label)
+            is_leaf = has_value and not total and not section
 
         a = ws.cell(row, 1, label)
         a.alignment = S.LEFT
@@ -102,9 +111,12 @@ def _write_table(ws, table: FinancialTable) -> None:
 
         row_meta.append({
             "row": row,
+            "norm": _clabel(label),                    # for component resolution
             "is_total": total,
             "is_section": bool(section),
-            "is_leaf": has_value and not total and not section,
+            "is_leaf": is_leaf,
+            "is_contra": bool(li.is_contra),           # subtract this row in its parent
+            "components": [_clabel(c) for c in (li.components or [])] or None,
             "by_year": by_year,          # {year: value} as reported
         })
         row += 1
@@ -129,21 +141,32 @@ def _close(computed: float, reported: float) -> bool:
     return abs(computed - reported) <= 1e-6 + 1e-3 * abs(reported)
 
 
-def _emit(ws, meta: dict, summands: list[dict], years: list[int], op: str) -> bool:
-    """Write a SUM/addition formula for `meta` over `summands`, per year column.
+def _clabel(label: str) -> str:
+    """Normalize a label for component matching (lowercase, alnum-spaced)."""
+    return re.sub(r"[^a-z0-9]+", " ", (label or "").lower()).strip()
 
-    Returns True if at least one year column was formula-ized. Three guards keep
-    this strictly self-validating (a formula is written only when it provably
+
+def _sign(meta: dict) -> int:
+    """+1 normally; -1 for a contra row (deduction/cost stored as a positive)."""
+    return -1 if meta.get("is_contra") else 1
+
+
+def _emit(ws, meta: dict, summands: list[dict], years: list[int], block: bool) -> bool:
+    """Write a formula for `meta` summing `summands` (signed), per year column.
+
+    Returns True if at least one year column was formula-ized. Guards keep this
+    strictly self-validating (a formula is written only when it provably
     reproduces the report's own stated total — never a wrong number):
       * per-year guard — a column is only formula-ized if >=2 summands carry a
-        value that year; otherwise the reported value is kept (no `SUM` of blanks
-        collapsing to 0);
-      * tie-out guard — the formula is emitted only when the report stated a total
-        for that year AND it matches the computed sum. A mismatch (running subtotal
-        like Operating Profit, wrong sign) keeps the reported value;
-      * no-blank-fill — if the report left the total blank for that year (no value
-        to validate against), nothing is emitted, so a mis-grouped sum can never
-        fill a blank cell with a confidently-wrong number.
+        value that year; otherwise the reported value is kept;
+      * tie-out guard — emitted only when the report stated a total for that year
+        AND it matches the SIGNED computed sum (contra rows subtracted). A mismatch
+        (running subtotal, wrong grouping) keeps the reported value;
+      * no-blank-fill — a blank reported total is never back-filled.
+
+    `block=True` lets a contiguous all-positive leaf block render as `SUM(a:b)`;
+    otherwise (mixed signs, or an explicit-component/derived total) it renders as
+    a signed `a+b-c` reference list so contra terms subtract correctly.
     """
     emitted = False
     for i, year in enumerate(years, start=2):
@@ -154,32 +177,63 @@ def _emit(ws, meta: dict, summands: list[dict], years: list[int], op: str) -> bo
         reported = meta["by_year"].get(year)
         if reported is None:
             continue  # no stated total to validate against -> don't fill a blank cell
-        computed = sum(s["by_year"][year] for s in contrib)
+        computed = sum(_sign(s) * s["by_year"][year] for s in contrib)
         if not _close(computed, reported):
             continue  # tie-out mismatch -> keep reported value (safe)
-        if op == "sum":
+        if block and all(_sign(s) == 1 for s in summands):
             rows = [s["row"] for s in summands]   # full leaf block (blanks -> 0 in Excel)
             ref = f"SUM({col}{min(rows)}:{col}{max(rows)})"
-        else:                                     # addition of subtotal/derived rows
-            ref = "+".join(f"{col}{s['row']}" for s in contrib)
+        else:                                     # signed reference list: a+b-c
+            parts = []
+            for j, s in enumerate(contrib):
+                cell, pos = f"{col}{s['row']}", _sign(s) == 1
+                parts.append((cell if pos else f"-{cell}") if j == 0
+                             else (f"+{cell}" if pos else f"-{cell}"))
+            ref = "".join(parts)
         ws.cell(meta["row"], i).value = f"={ref}"
         emitted = True
     return emitted
 
 
+def _resolve_components(comp_norms: list[str], index: dict, total_row: int) -> list[dict] | None:
+    """Resolve a total's declared component labels to their rows in this table.
+
+    Returns the summand rows (>=2, de-duplicated) or None if any component can't be
+    matched — in which case the caller falls back to positional grouping.
+    """
+    out: list[dict] = []
+    for cn in comp_norms:
+        cands = index.get(cn)
+        if not cands:
+            return None
+        above = [m for m in cands if m["row"] < total_row]
+        out.append(max(above, key=lambda m: m["row"]) if above
+                   else min(cands, key=lambda m: abs(m["row"] - total_row)))
+    seen: set[int] = set()
+    uniq = [m for m in out if not (m["row"] in seen or seen.add(m["row"]))]
+    return uniq if len(uniq) >= 2 else None
+
+
 def _apply_formulas(ws, row_meta: list[dict], years: list[int]) -> None:
     """Emit semantic formulas for total rows (no-template path), name-independent.
 
-      1. Subtotal (SUM)   — a total over the contiguous leaf block above it.
-      2/3. Section total  — a total whose block above is other subtotals (and/or a
-           stray leaf) becomes their addition (e.g. TOTAL OPEX = Dist + Admin).
+    For each total/subtotal row:
+      * if the extractor declared explicit `components`, sum exactly those rows
+        (with contra terms subtracted) — this handles running subtotals and nested
+        totals that positional grouping can't; otherwise
+      * positional fallback: a contiguous leaf block above -> `SUM`; a block of
+        subtotals (+ stray leaf) -> signed addition (e.g. TOTAL OPEX = Dist + Admin).
 
-    A single top-down pass: leaves accumulate in `pending`; a subtotal consumes
-    them and is itself recorded as a subtotal available to a higher total; a
-    section header bounds a leaf block. Both formula kinds run through `_emit`,
-    so the per-year and tie-out guards apply uniformly — for any company, not
-    just the templates.
+    Every formula still runs through `_emit`, so the per-year / tie-out / no-blank
+    guards apply uniformly — a wrong role/component hint can never yield a wrong
+    number, only a fallback to the reported value.
     """
+    # label -> rows usable as summands (leaves and totals; not section headers).
+    index: dict[str, list[dict]] = {}
+    for m in row_meta:
+        if m["is_leaf"] or m["is_total"]:
+            index.setdefault(m["norm"], []).append(m)
+
     pending: list[dict] = []      # contiguous leaves since the last total/header
     subtotals: list[dict] = []    # subtotal rows available to a higher-level total
 
@@ -192,14 +246,22 @@ def _apply_formulas(ws, row_meta: list[dict], years: list[int]) -> None:
                 pending.append(meta)
             continue
 
-        # Total row: contiguous leaves above -> SUM (type 1); otherwise it tops a
-        # set of subtotals (+ any stray leaf) -> addition (types 2/3).
+        # Explicit components first (when the extractor declared them and they resolve).
+        resolved = _resolve_components(meta["components"], index, meta["row"]) \
+            if meta.get("components") else None
+        if resolved is not None:
+            if _emit(ws, meta, resolved, years, block=False):
+                subtotals = [meta]
+            pending = []
+            continue
+
+        # Positional fallback: contiguous leaves -> SUM; else subtotals(+leaf) -> add.
         if len(pending) >= 2:
-            _emit(ws, meta, pending, years, op="sum")
+            _emit(ws, meta, pending, years, block=True)
             subtotals.append(meta)
         else:
             summands = subtotals + pending
-            if len(summands) >= 2 and _emit(ws, meta, summands, years, op="add"):
+            if len(summands) >= 2 and _emit(ws, meta, summands, years, block=False):
                 subtotals = [meta]   # subsumes its components; can feed a higher total
             # if nothing was emitted, keep the accumulated subtotals (no discard)
         pending = []

@@ -173,6 +173,64 @@ def test_per_year_guard_keeps_reported_when_leaves_blank(tmp_path):
     assert ws["C6"].value == 80.0           # 2025 leaves blank -> reported value kept (NOT 0)
 
 
+def test_role_overrides_total_heuristic_false_positive(tmp_path):
+    # "Profit on bank deposits" would trip the is_total_row prefix heuristic, but
+    # role="leaf" makes it a leaf -> it sums INTO the total below.
+    table = FinancialTable(
+        statement_type=StatementType.other_income, title="OI", years=[2025],
+        line_items=[
+            LineItem(label="Interest income", role="leaf", values=[LineItemValue(year=2025, value=10.0)]),
+            LineItem(label="Profit on bank deposits", role="leaf", values=[LineItemValue(year=2025, value=5.0)]),
+            LineItem(label="Total other income", role="total", values=[LineItemValue(year=2025, value=15.0)]),
+        ],
+    )
+    out = tmp_path / "oi.xlsx"
+    write_company_workbook(CompanyResult(company="Acme", fiscal_years=[2025], tables=[table]), out)
+    ws = openpyxl.load_workbook(out)["OI"]
+    assert ws["B6"].value == "=SUM(B4:B5)"   # both leaves summed (heuristic would have dropped row5)
+
+
+def test_explicit_components_handle_running_subtotal(tmp_path):
+    # Income statement: Gross profit = Revenue - Cost; Operating profit = Gross - Dist - Admin.
+    # Positional grouping cannot express these; explicit components + is_contra can.
+    table = FinancialTable(
+        statement_type=StatementType.income_statement, title="P&L", years=[2025],
+        line_items=[
+            LineItem(label="Revenue", role="leaf", values=[LineItemValue(year=2025, value=100.0)]),
+            LineItem(label="Cost of sales", role="leaf", is_contra=True, values=[LineItemValue(year=2025, value=60.0)]),
+            LineItem(label="Gross profit", role="total", components=["Revenue", "Cost of sales"],
+                     values=[LineItemValue(year=2025, value=40.0)]),
+            LineItem(label="Distribution costs", role="leaf", is_contra=True, values=[LineItemValue(year=2025, value=5.0)]),
+            LineItem(label="Administrative expenses", role="leaf", is_contra=True, values=[LineItemValue(year=2025, value=3.0)]),
+            LineItem(label="Operating profit", role="total",
+                     components=["Gross profit", "Distribution costs", "Administrative expenses"],
+                     values=[LineItemValue(year=2025, value=32.0)]),
+        ],
+    )
+    out = tmp_path / "pl.xlsx"
+    write_company_workbook(CompanyResult(company="Acme", fiscal_years=[2025], tables=[table]), out)
+    ws = openpyxl.load_workbook(out)["P&L"]
+    # rows: 4 Revenue, 5 Cost, 6 Gross profit, 7 Dist, 8 Admin, 9 Operating profit
+    assert ws["B6"].value == "=B4-B5"          # 100 - 60 = 40 (cost is contra)
+    assert ws["B9"].value == "=B6-B7-B8"       # 40 - 5 - 3 = 32 (running subtotal)
+
+
+def test_contra_leaf_in_positional_block_subtracts(tmp_path):
+    # No components, but a contra leaf in the block -> signed reference list, not SUM.
+    table = FinancialTable(
+        statement_type=StatementType.revenue, title="NetSales", years=[2025],
+        line_items=[
+            LineItem(label="Gross sales", role="leaf", values=[LineItemValue(year=2025, value=100.0)]),
+            LineItem(label="Trade discount", role="leaf", is_contra=True, values=[LineItemValue(year=2025, value=10.0)]),
+            LineItem(label="Net sales", role="subtotal", values=[LineItemValue(year=2025, value=90.0)]),
+        ],
+    )
+    out = tmp_path / "ns.xlsx"
+    write_company_workbook(CompanyResult(company="Acme", fiscal_years=[2025], tables=[table]), out)
+    ws = openpyxl.load_workbook(out)["NetSales"]
+    assert ws["B6"].value == "=B4-B5"          # 100 - 10 = 90 (discount subtracted, not SUM)
+
+
 def test_no_formula_filled_into_blank_total_cell(tmp_path):
     # A total with NO reported value for a year must stay blank, never be back-filled
     # with a (possibly mis-grouped) computed sum -- no reported value to validate against.

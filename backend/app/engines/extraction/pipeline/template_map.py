@@ -38,6 +38,54 @@ _SECTION_STOPWORDS = {
 }
 
 
+# --- statement-type containment (lever 1) ---
+# A breakdown sheet's data may be extracted under its parent FACE statement (or a
+# sibling breakdown), e.g. "Cash in hand" landing in the whole `balance_sheet`
+# table instead of the `current_assets` breakdown. So when a sheet's own type
+# yields no match for a row, widen the candidate pool to its statement family.
+_FACE_GROUPS: dict[StatementType, set[StatementType]] = {
+    StatementType.balance_sheet: {
+        StatementType.non_current_assets, StatementType.current_assets,
+        StatementType.share_capital_reserves, StatementType.non_current_liabilities,
+        StatementType.current_liabilities, StatementType.equity_changes,
+    },
+    StatementType.income_statement: {
+        StatementType.revenue, StatementType.cost_of_sales, StatementType.operating_expenses,
+        StatementType.other_income, StatementType.finance_cost, StatementType.taxation,
+        StatementType.oci,
+    },
+}
+
+
+def _related_types(st: StatementType | None) -> set[StatementType]:
+    """The statement family a sheet's type belongs to: itself + its face + the
+    face's other parts. Used as a widened (fallback) candidate pool."""
+    if st is None:
+        return set()
+    related: set[StatementType] = {st}
+    for face, parts in _FACE_GROUPS.items():
+        if st == face or st in parts:
+            related.add(face)
+            related |= parts
+    return related
+
+
+# --- label normalization for matching (lever 2) ---
+# Applied on top of `spaced()` so corporate/financial abbreviations don't sink a
+# fuzzy match below threshold (e.g. "(Pvt) Ltd" vs "(Private) Limited").
+_ABBREV = {
+    "pvt": "private", "ltd": "limited", "co": "company", "corp": "corporation",
+    "incl": "including", "amt": "amount", "recd": "received", "dep": "depreciation",
+    "accum": "accumulated", "invt": "investment", "mfg": "manufacturing",
+    "wppf": "workers profit participation fund", "wwf": "workers welfare fund",
+}
+
+
+def _match_norm(label: str) -> str:
+    """Normalize a label for fuzzy matching: `spaced()` + abbreviation expansion."""
+    return " ".join(_ABBREV.get(tok, tok) for tok in spaced(label).split())
+
+
 def _significant_tokens(section_norm: str) -> set[str]:
     return {t for t in section_norm.split() if len(t) >= 3 and t not in _SECTION_STOPWORDS}
 
@@ -158,7 +206,7 @@ def _build_candidates(company: CompanyResult):
         bucket: list[tuple[str, str, object]] = []
         for table in chosen:
             for li in table.line_items:
-                entry = (spaced(li.label), spaced(li.section or ""), li)
+                entry = (_match_norm(li.label), spaced(li.section or ""), li)
                 bucket.append(entry)
                 pooled.append(entry)
         by_type[st] = bucket
@@ -177,7 +225,7 @@ def _best_candidate(template_label: str, template_section: str, candidates, thre
     """
     from rapidfuzz import fuzz
 
-    q_label, q_section = spaced(template_label), spaced(template_section)
+    q_label, q_section = _match_norm(template_label), spaced(template_section)
     best, best_label_score, best_combined = None, 0.0, -1.0
     for cand_label, cand_section, line in candidates:
         label_score = fuzz.token_set_ratio(q_label, cand_label)
@@ -214,7 +262,15 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
 
             plan.sheets_processed.append(ws.title)
             st = _sheet_statement_type(ws, header_row, classifier)
-            candidates = by_type.get(st) or pooled
+            # Tier 1: the sheet's own statement type (precision-first).
+            own = by_type.get(st) or []
+            # Tier 2: widen to the statement family (face + sibling breakdowns) so a
+            # line extracted into a parent/sibling table is still reachable; falls
+            # back to the full pool only when the family yields nothing.
+            widened: list = []
+            for rt in _related_types(st):
+                widened.extend(by_type.get(rt, []))
+            widened = widened or pooled
 
             # Pass 1: best label match per writable leaf row (recall-first).
             matches = []  # dicts: ws, writable, lbl, template_section, line, score
@@ -229,9 +285,13 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                     continue
                 writable = {c: y for c, y in year_cols.items()
                             if _is_empty(ws.cell(r, c)) and not _is_formula(ws.cell(r, c))}
-                if not writable or not candidates:
+                if not writable or not (own or widened):
                     continue
-                line, score = _best_candidate(lbl, template_section, candidates, threshold)
+                # Own type first; only widen to the family when the sheet's own type
+                # has no candidate for this row (keeps cross-statement bleed out).
+                line, score = _best_candidate(lbl, template_section, own, threshold)
+                if line is None:
+                    line, score = _best_candidate(lbl, template_section, widened, threshold)
                 if line is None:
                     plan.unmatched_template_labels.append(lbl)
                     continue
