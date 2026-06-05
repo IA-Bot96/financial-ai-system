@@ -31,6 +31,14 @@ KEY_METRICS = frozenset({
     "non_current_liabilities", "current_liabilities", "other_income",
 })
 
+# Canonical metrics that name the SAME face concept — folded together for face truth so
+# a value under either name supplies the shared metric's truth. "Share capital and
+# reserves" is the total-equity line in many statements (= equity); verified equal where
+# both appear. Only the alias TARGET is a KEY metric, so lookups stay consistent.
+_METRIC_ALIASES = {
+    "share_capital_and_reserves": "equity",
+}
+
 # Metrics that LEGITIMATELY appear across statement families — never quarantined
 # (deferred tax on the BS, depreciation in PP&E notes, finance-cost-paid in cash flow…).
 CROSS_FAMILY_OK = frozenset({
@@ -80,18 +88,31 @@ def confidently_incompatible(li: LineItem, statement_type: StatementType) -> boo
     a balance-sheet table)."""
     return metric_incompatible(li.canonical_metric, li.canonical_category, statement_type)
 
-# Titles that mark an analytical/summary table (never truth, never a note input).
+# STRONG analytical markers: a transformed/summarized view that must NEVER be truth,
+# regardless of content (a six-year summary lists real totals but is still a summary).
 _ANALYTICAL_RE = re.compile(
-    r"six[\s-]?year|ten[\s-]?year|highlight|ratio|analysis|horizontal|vertical|"
+    r"six[\s-]?year|ten[\s-]?year|highlight|ratio|horizontal|vertical|"
     r"key\s+(?:data|figures|indicators)|at\s+a\s+glance|common[\s-]?size",
     re.I,
 )
+# WEAK marker: bare "analysis" is ambiguous. "Analysis of Statement of Financial
+# Position" is the statement itself (real absolute figures that balance), whereas
+# "Horizontal/Vertical analysis" is already caught by the strong markers above. So
+# "analysis" only demotes a table when there is NO corroborating primary face
+# evidence (a face title or a headline-total line).
+_WEAK_ANALYTICAL_RE = re.compile(r"\banalysis\b", re.I)
 # A handful of headline-total metrics — their presence confirms a real face statement.
 _FACE_TOTAL_METRICS = {
     "revenue", "gross_profit", "operating_profit", "profit_before_tax", "profit_after_tax",
     "total_assets", "total_liabilities", "total_equity_and_liabilities", "equity",
     "cash_at_end_of_period",
 }
+# Balance-sheet GRAND totals — only the face statement carries these (a PP&E or payables
+# note never does). A balance-family sub-type table holding one is really a split-off
+# section of the primary statement (e.g. an "ASSETS - NON-CURRENT ASSETS" half-page the
+# classifier typed `non_current_assets`), so it should contribute face truth. Subtotals
+# like `current_assets` are deliberately excluded — notes carry those (often wrong).
+_BS_GRAND_TOTALS = {"total_assets", "total_equity_and_liabilities", "total_liabilities"}
 # Face-statement title keywords.
 _FACE_TITLE_RE = re.compile(
     r"statement of financial position|balance sheet|statement of profit|"
@@ -105,16 +126,27 @@ def infer_table_role(table: FinancialTable) -> str:
     """'primary' | 'note' | 'analytical'. Used when the extractor/classifier
     didn't set `table_role` (e.g. GPT page tables)."""
     title = (table.title or "").lower()
+    # Definite analytical: a highlights type, a %/ratio scale, or a STRONG analytical
+    # title (six-year summary, ratios, horizontal/vertical analysis…).
     if (table.statement_type == StatementType.financial_highlights
             or _ANALYTICAL_RE.search(title)
             or (table.unit_scale or "").strip() in {"%", "percent", "ratio"}):
         return "analytical"
+    metrics = {li.canonical_metric for li in table.line_items if li.canonical_metric}
     if table.statement_type in FACE_TYPES:
-        metrics = {li.canonical_metric for li in table.line_items if li.canonical_metric}
         # A face TYPE alone isn't enough (note pages get mis-typed) — require a face
-        # title or a headline-total line as corroboration.
+        # title or a headline-total line as corroboration. This corroboration also
+        # OUTRANKS a bare "analysis" in the title, so a real statement titled
+        # "Analysis of Statement of Financial Position" is correctly primary.
         if _FACE_TITLE_RE.search(title) or (metrics & _FACE_TOTAL_METRICS):
             return "primary"
+    # A balance-family section the classifier split off as a sub-type note but which
+    # carries a balance-sheet GRAND total is really part of the primary statement.
+    if _TYPE_FAMILY.get(table.statement_type) == "balance" and (metrics & _BS_GRAND_TOTALS):
+        return "primary"
+    # A bare "analysis" block with no primary face evidence is analytical, not a note.
+    if _WEAK_ANALYTICAL_RE.search(title):
+        return "analytical"
     return "note"
 
 
@@ -141,7 +173,7 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
         if table_role_of(t) != "primary" or not _is_currency_scale(t):
             continue
         for li in t.line_items:
-            cm = li.canonical_metric
+            cm = _METRIC_ALIASES.get(li.canonical_metric, li.canonical_metric)
             if not cm:
                 continue
             for v in li.values:

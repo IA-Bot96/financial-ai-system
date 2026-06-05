@@ -1,0 +1,126 @@
+"""Tests for table-role inference (P1/P3) — especially the analytical-vs-primary
+precedence that decides whether a statement contributes face truth."""
+from app.engines.extraction.models.common import StatementType
+from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
+from app.engines.extraction.services.face_truth import build_face_truth, infer_table_role
+
+
+def _bs(title, unit="thousands", with_totals=True):
+    items = []
+    if with_totals:
+        items = [
+            LineItem(label="Total assets", canonical_metric="total_assets",
+                     canonical_category="balance_sheet",
+                     values=[LineItemValue(year=2025, value=266748030.0)]),
+            LineItem(label="Total equity and liabilities",
+                     canonical_metric="total_equity_and_liabilities",
+                     canonical_category="balance_sheet",
+                     values=[LineItemValue(year=2025, value=266748030.0)]),
+        ]
+    return FinancialTable(statement_type=StatementType.balance_sheet, title=title,
+                          unit_scale=unit, line_items=items)
+
+
+def test_analysis_of_sofp_with_face_totals_is_primary():
+    # The Lucky case: title contains "analysis" but it IS the statement (absolute
+    # figures + headline totals) -> primary, so it can supply balance-sheet face truth.
+    t = _bs("Analysis of Statement of Financial Position")
+    assert infer_table_role(t) == "primary"
+
+
+def test_real_sofp_is_primary():
+    assert infer_table_role(_bs("Unconsolidated Statement of Financial Position")) == "primary"
+
+
+def test_horizontal_and_vertical_analysis_stay_analytical():
+    # Strong analytical markers win even with face totals present.
+    assert infer_table_role(_bs("Horizontal Analysis of the Balance Sheet")) == "analytical"
+    assert infer_table_role(_bs("Vertical Analysis of Financial Position")) == "analytical"
+
+
+def test_six_year_summary_with_totals_stays_analytical():
+    assert infer_table_role(_bs("Six Year Summary - Statement of Financial Position")) == "analytical"
+
+
+def test_percent_scale_is_analytical_even_if_titled_like_a_statement():
+    assert infer_table_role(_bs("Statement of Financial Position", unit="%")) == "analytical"
+
+
+def test_bare_analysis_without_face_evidence_is_analytical():
+    # A generic "analysis" block with no face title/totals is analytical, not a note.
+    t = FinancialTable(statement_type=StatementType.non_current_assets,
+                       title="Analysis of operations", unit_scale="thousands",
+                       line_items=[LineItem(label="Something", canonical_metric="property_plant_equipment",
+                                            canonical_category="balance_sheet",
+                                            values=[LineItemValue(year=2025, value=1.0)])])
+    assert infer_table_role(t) == "analytical"
+
+
+def test_build_face_truth_picks_up_analysis_of_sofp():
+    # End-to-end: the analysis-of-SoFP primary table feeds balance-sheet face truth.
+    truth = build_face_truth([_bs("Analysis of Statement of Financial Position")])
+    assert truth[("total_assets", 2025)][0] == 266748030.0
+    assert ("total_equity_and_liabilities", 2025) in truth
+
+
+def test_split_off_asset_section_with_grand_total_is_primary():
+    # The Millat 2025 case: the assets half of the SoFP was typed `non_current_assets`
+    # (a sub-type note) but carries the grand total `total_assets` -> primary.
+    t = FinancialTable(
+        statement_type=StatementType.non_current_assets, title="ASSETS - NON-CURRENT ASSETS",
+        unit_scale="thousands",
+        line_items=[
+            LineItem(label="Total non-current assets", canonical_metric="non_current_assets",
+                     canonical_category="balance_sheet",
+                     values=[LineItemValue(year=2025, value=8014208.0)]),
+            LineItem(label="Total assets", canonical_metric="total_assets",
+                     canonical_category="balance_sheet",
+                     values=[LineItemValue(year=2025, value=32988591.0)]),
+        ])
+    assert infer_table_role(t) == "primary"
+    truth = build_face_truth([t])
+    assert truth[("total_assets", 2025)][0] == 32988591.0
+    assert truth[("non_current_assets", 2025)][0] == 8014208.0
+
+
+def test_ppe_note_without_grand_total_stays_note():
+    # A real PP&E note (no balance-sheet grand total) must NOT be promoted.
+    t = FinancialTable(
+        statement_type=StatementType.non_current_assets, title="PROPERTY, PLANT AND EQUIPMENT",
+        unit_scale="thousands",
+        line_items=[LineItem(label="Operating fixed assets",
+                             canonical_metric="property_plant_equipment",
+                             canonical_category="balance_sheet",
+                             values=[LineItemValue(year=2025, value=775150.0)])])
+    assert infer_table_role(t) == "note"
+
+
+def test_note_with_only_subtotal_not_promoted():
+    # A note carrying a `current_assets` SUBTOTAL (not a grand total) — often a wrong
+    # value — stays a note so it can't pollute face truth.
+    t = FinancialTable(
+        statement_type=StatementType.current_assets, title="Long-term loans and advances",
+        unit_scale="thousands",
+        line_items=[LineItem(label="Total current assets", canonical_metric="current_assets",
+                             canonical_category="balance_sheet",
+                             values=[LineItemValue(year=2024, value=22517991.0)])])
+    assert infer_table_role(t) == "note"
+
+
+def test_share_capital_and_reserves_aliases_to_equity():
+    # "Share capital and reserves" is the total-equity line -> supplies `equity` truth
+    # (closes the years where the line is named that way rather than "Total equity").
+    t = FinancialTable(
+        statement_type=StatementType.balance_sheet,
+        title="Statement of Financial Position", unit_scale="thousands",
+        line_items=[
+            LineItem(label="Total assets", canonical_metric="total_assets",
+                     canonical_category="balance_sheet",
+                     values=[LineItemValue(year=2022, value=184962368.0)]),
+            LineItem(label="Share Capital & Reserves",
+                     canonical_metric="share_capital_and_reserves",
+                     canonical_category="balance_sheet",
+                     values=[LineItemValue(year=2022, value=128540324.0)]),
+        ])
+    truth = build_face_truth([t])
+    assert truth[("equity", 2022)][0] == 128540324.0     # aliased into `equity`

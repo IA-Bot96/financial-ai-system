@@ -34,6 +34,7 @@ class Job(BaseModel):
     # Observability (#8): validation outcome exposed via the job-status API.
     production_ready: Optional[bool] = None
     validation_failures: Optional[int] = None
+    detail_incomplete: Optional[int] = None
     withheld: Optional[int] = None
     quarantined: Optional[int] = None
     manifest_file: Optional[str] = None
@@ -69,6 +70,7 @@ def _run(job: Job, pdf_paths: list[Path], output_path: Path, template_path: Path
         job.mode = result.mode
         job.production_ready = result.production_ready
         job.validation_failures = result.validation_failures
+        job.detail_incomplete = result.detail_incomplete
         job.withheld = result.withheld
         job.quarantined = result.quarantined
         job.manifest_file = result.manifest_path

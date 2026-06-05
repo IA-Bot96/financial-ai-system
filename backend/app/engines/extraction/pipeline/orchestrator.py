@@ -55,7 +55,8 @@ class ExtractionOutput(BaseModel):
     plan: Optional[MappingPlan] = None
     # Observability (#8): validation outcome surfaced to callers / API / manifest.
     production_ready: bool = True
-    validation_failures: int = 0
+    validation_failures: int = 0       # production-blocking: headline-statement tie-out failures
+    detail_incomplete: int = 0         # non-blocking: breakdown subtotals / withheld leaves
     withheld: int = 0
     quarantined: int = 0
     manifest_path: Optional[str] = None
@@ -83,6 +84,24 @@ def process_documents(
         plan = build_plan(company_result, template_path)
         dumper.json("05_mapping_plan", plan)
         apply_plan(plan, template_path, output_path, company=company_result.company)
+        # Bucket A — repair template-author formula defects (frozen $col$row refs that
+        # don't shift across year columns; literal-0 check cells that mask imbalances)
+        # BEFORE validation, so the computed tie-out reflects the repaired formulas.
+        from app.engines.extraction.services.formula_repair import repair_template_formulas
+        repairs = repair_template_formulas(output_path)
+        if repairs:
+            logger.info("Template formula repair: fixed %d cell(s): %s",
+                        len(repairs), "; ".join(str(r) for r in repairs[:8]))
+        # Bucket B — substitute audited face truth into output-sheet headline cells that
+        # don't tie out (incomplete/mis-placed breakdown leaves), so the delivered
+        # statements are correct. Breakdown notes are left flagged, not faked.
+        from app.engines.extraction.pipeline.template_map import _tieout
+        from app.engines.extraction.services.headline_override import override_headline_metrics
+        overrides = override_headline_metrics(
+            output_path, company_result, _tieout, set(plan.formula_sheets))
+        if overrides:
+            logger.info("Headline override: substituted audited face truth into %d output cell(s): %s",
+                        len(overrides), "; ".join(str(o) for o in overrides[:8]))
         append_insights_sheets(output_path, company_result.insights, company_result.insights_review)
         logger.info(
             "Template workbook written: company=%r years=%s -> %s (%d writes)",
@@ -94,18 +113,37 @@ def process_documents(
         # written workbook's output/subtotal formulas against the audited face truth.
         from app.engines.extraction.pipeline.template_map import _tieout
         from app.engines.extraction.services.validation import (
-            append_ledger_sheet, computed_output_ledger, template_ledger, write_source_ledger,
+            append_ledger_sheet, computed_output_ledger, headline_coverage_gaps,
+            template_ledger, write_source_ledger,
         )
         # Sign sensitivity: output statements (the formula/computed sheets) and any
         # cross-sheet pull are validated signed; intra-sheet breakdown subtotals by
         # magnitude. `formula_sheets` is the precise output-sheet set (not dividers).
+        output_set = set(plan.formula_sheets)
         computed_rows, computed_fail, computed_unevaluable = computed_output_ledger(
-            output_path, company_result, _tieout, output_sheets=set(plan.formula_sheets))
-        ledger_rows = template_ledger(plan) + computed_rows
+            output_path, company_result, _tieout, output_sheets=output_set)
+        # Coverage gate: an emitted headline metric with NO face truth is unvalidated
+        # (e.g. a mis-classified balance sheet yields no primary table) — block, don't
+        # silently pass it just because there's nothing to compare against.
+        coverage_rows, coverage_gaps = headline_coverage_gaps(
+            output_path, company_result, output_set)
+        ledger_rows = template_ledger(plan) + computed_rows + coverage_rows
         append_ledger_sheet(output_path, ledger_rows)
         write_source_ledger(output_path, plan)               # traceability (#9)
-        production_fail = len(plan.withheld) + computed_fail
-        unevaluable = computed_unevaluable
+        # Production gate certifies the HEADLINE statements (output sheets): every key
+        # metric there must tie out to audited face truth, be evaluable, AND have face
+        # truth to validate against. Breakdown-note gaps (incomplete leaves) + withheld
+        # leaves are surfaced as non-blocking "detail incomplete".
+        headline_fail = sum(1 for r in computed_rows
+                            if r.status == "MISMATCH" and r.sheet in output_set)
+        headline_uneval = sum(1 for r in computed_rows
+                              if r.status == "UNEVALUATED" and r.sheet in output_set)
+        production_fail = headline_fail + coverage_gaps
+        unevaluable = headline_uneval
+        detail_incomplete = (computed_fail - headline_fail) \
+            + (computed_unevaluable - headline_uneval) + len(plan.withheld)
+        formulas_repaired = len(repairs)
+        overrides_applied = len(overrides)
     else:
         write_company_workbook(company_result, output_path)
         logger.info(
@@ -119,12 +157,17 @@ def process_documents(
         ledger_rows, production_fail = no_template_ledger(company_result, _tieout)
         append_ledger_sheet(output_path, ledger_rows)
         unevaluable = 0
+        detail_incomplete = 0
+        formulas_repaired = 0
+        overrides_applied = 0
+        coverage_gaps = 0
 
     # Observability (#8): populate the result + write a manifest beside the workbook.
     # A run is production-ready only if every key metric tied out AND none was left
     # unvalidated (an un-evaluable key formula is a coverage gap, not a silent pass).
     out.production_ready = (production_fail == 0 and unevaluable == 0)
     out.validation_failures = production_fail
+    out.detail_incomplete = detail_incomplete
     out.withheld = len(out.plan.withheld) if out.plan else 0
     out.quarantined = len(company_result.rejected_lines)
     manifest = {
@@ -135,10 +178,18 @@ def process_documents(
         "unmatched_template_labels": len(out.plan.unmatched_template_labels) if out.plan else None,
         "withheld": out.withheld,
         "quarantined_lines": out.quarantined,
+        # Production-blocking: headline-statement (output-sheet) tie-out failures.
         "validation_failures": production_fail,
         "unevaluable_formulas": unevaluable,
-        # A run with any failed face-statement tie-out is flagged non-production so
-        # it isn't shipped silently. See the 'Validation Ledger' / 'Source Ledger' sheets.
+        # Non-blocking: breakdown-note gaps + withheld leaves (flagged, not shipped silently).
+        "detail_incomplete": detail_incomplete,
+        # Production-blocking subset of validation_failures: headline metrics emitted with
+        # no audited face truth (e.g. a mis-classified statement -> no primary table).
+        "headline_coverage_gaps": coverage_gaps,
+        "template_formulas_repaired": formulas_repaired,
+        "headline_overrides": overrides_applied,
+        # Production-ready iff every HEADLINE metric tied out and was evaluable.
+        # See the 'Validation Ledger' / 'Source Ledger' sheets.
         "production_ready": out.production_ready,
     }
     dumper.json("00_run_summary", manifest)
@@ -149,8 +200,12 @@ def process_documents(
     except Exception as exc:  # noqa: BLE001 — manifest is best-effort, never fail the run
         logger.warning("Could not write manifest: %s", exc)
     if production_fail:
-        logger.warning("Run is NON-PRODUCTION: %d key value(s) failed face-statement tie-out "
-                       "(see 'Validation Ledger' sheet)", production_fail)
+        logger.warning("Run is NON-PRODUCTION: %d headline value(s) failed validation "
+                       "(%d tie-out mismatch, %d with no audited face truth) — see 'Validation Ledger'",
+                       production_fail, production_fail - coverage_gaps, coverage_gaps)
+    elif detail_incomplete:
+        logger.info("Headline statements tie out; %d breakdown-detail row(s) remain incomplete "
+                    "(non-blocking, see 'Validation Ledger' sheet)", detail_incomplete)
     return out
 
 

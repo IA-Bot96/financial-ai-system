@@ -183,6 +183,65 @@ def computed_output_ledger(workbook_path, company: CompanyResult, tieout,
     return rows, fails, unevaluable
 
 
+def headline_coverage_gaps(workbook_path, company: CompanyResult,
+                           output_sheets: set) -> tuple[list[LedgerRow], int]:
+    """Coverage gate — an emitted HEADLINE metric with NO audited face truth is an
+    unvalidated value, NOT a silent pass.
+
+    On the output sheets, every row resolving to a KEY metric is checked for face-truth
+    coverage in each *historical* reporting year (forecast columns are exempt). A
+    populated headline cell whose (metric, year) has no face truth is recorded as
+    NO_FACE_TRUTH and counted as a production-blocking gap. This catches the case where
+    a whole statement (e.g. a mis-classified balance sheet) produced no primary face
+    table, so its output would otherwise pass review by never being validated at all."""
+    from openpyxl import load_workbook
+
+    from app.engines.extraction.pipeline.template_map import _KEY_METRICS, _row_metric
+    from app.engines.extraction.services.formula_repair import _year_columns
+
+    face = build_face_truth(company.tables)
+    fyears = set(company.fiscal_years or [])
+    if not output_sheets or not fyears:
+        return [], 0
+    wb = load_workbook(workbook_path, data_only=False)
+    rows: list[LedgerRow] = []
+    gaps = 0
+    for title in output_sheets:
+        if title not in wb.sheetnames:
+            continue
+        ws = wb[title]
+        header_row, band = _year_columns(ws)
+        if not band:
+            continue
+        year_of = {c: int(ws.cell(header_row, c).value) for c in band}
+        seen: set = set()
+        for r in range(header_row + 1, ws.max_row + 1):
+            label = ws.cell(r, 1).value
+            if not isinstance(label, str) or not label.strip():
+                continue
+            cm = _row_metric(label.strip())
+            if cm not in _KEY_METRICS:
+                continue
+            for c in band:
+                year = year_of[c]
+                if year not in fyears:                 # only historical years, not forecasts
+                    continue
+                cell = ws.cell(r, c)
+                has_content = (isinstance(cell.value, str) and cell.value.startswith("=")) \
+                    or (isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool))
+                if not has_content or face.get((cm, year)) is not None:
+                    continue
+                if (cm, year) in seen:
+                    continue
+                seen.add((cm, year))
+                gaps += 1
+                rows.append(LedgerRow("NO_FACE_TRUTH", title, cell.coordinate, cm, year,
+                                      None, None, "",
+                                      "emitted headline metric has no audited face truth -> unvalidated"))
+    wb.close()
+    return rows, gaps
+
+
 _SOURCE_HEADERS = ["Sheet", "Cell", "Template label", "Matched label", "Year", "Value",
                    "Report year", "Report file", "Page", "Table id", "Confidence", "Note"]
 

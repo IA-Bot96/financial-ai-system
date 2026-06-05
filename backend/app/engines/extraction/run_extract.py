@@ -43,10 +43,14 @@ def main() -> None:
         if result.plan.unmatched_template_labels:
             print(f"Unmatched template labels: {len(result.plan.unmatched_template_labels)}")
     print(f"Production-ready: {result.production_ready}  "
-          f"(validation failures: {result.validation_failures}, withheld: {result.withheld}, "
-          f"quarantined: {result.quarantined})")
+          f"(headline failures: {result.validation_failures}, detail incomplete: {result.detail_incomplete}, "
+          f"withheld: {result.withheld}, quarantined: {result.quarantined})")
     if not result.production_ready:
-        print("  -> NON-PRODUCTION: see the 'Validation Ledger' sheet for the failing rows.")
+        print("  -> NON-PRODUCTION: a headline statement value failed tie-out; "
+              "see the 'Validation Ledger' sheet.")
+    elif result.detail_incomplete:
+        print(f"  -> Headline statements tie out to audited truth. "
+              f"{result.detail_incomplete} breakdown-detail row(s) incomplete (non-blocking).")
     if result.manifest_path:
         print(f"Manifest: {result.manifest_path}")
 
