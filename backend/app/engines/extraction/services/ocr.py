@@ -18,6 +18,15 @@ class OCRResult:
         self.confidence = confidence
 
 
+class OCRPage:
+    """Full OCR of a page in one pass: reconstructed text + word boxes + conf."""
+
+    def __init__(self, text: str, words: list[dict], confidence: float | None) -> None:
+        self.text = text
+        self.words = words
+        self.confidence = confidence
+
+
 class OCRService:
     """Thin wrapper over pytesseract. Imports are lazy so importing this module
     never fails if tesseract / its python binding is absent."""
@@ -97,3 +106,49 @@ class OCRService:
 
         with Image.open(io.BytesIO(png_bytes)) as img:
             return self.image_to_words(img)
+
+    def image_to_page(self, image) -> OCRPage:
+        """One tesseract pass yielding BOTH reconstructed text and word boxes.
+
+        This lets ingest (text) and table detection (word boxes) share a single
+        OCR pass instead of OCRing each scanned page twice.
+        """
+        import pytesseract
+
+        self._configure()
+        lang = self.settings.ocr_lang or "eng"
+        data = pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
+
+        words: list[dict] = []
+        lines: dict[tuple, list[tuple[int, str]]] = {}
+        confs: list[float] = []
+        for i, raw in enumerate(data.get("text", [])):
+            text = (raw or "").strip()
+            if not text:
+                continue
+            left, top = data["left"][i], data["top"][i]
+            words.append({
+                "text": text,
+                "x0": float(left), "x1": float(left + data["width"][i]),
+                "top": float(top), "bottom": float(top + data["height"][i]),
+            })
+            key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+            lines.setdefault(key, []).append((data["word_num"][i], text))
+            try:
+                c = float(data["conf"][i])
+                if c >= 0:
+                    confs.append(c)
+            except (TypeError, ValueError):
+                pass
+
+        text = "\n".join(
+            " ".join(t for _, t in sorted(lines[key])) for key in sorted(lines)
+        )
+        confidence = round(sum(confs) / len(confs), 2) if confs else None
+        return OCRPage(text=text, words=words, confidence=confidence)
+
+    def png_bytes_to_page(self, png_bytes: bytes) -> OCRPage:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(png_bytes)) as img:
+            return self.image_to_page(img)

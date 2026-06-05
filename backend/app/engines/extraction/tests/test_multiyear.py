@@ -19,9 +19,10 @@ def _revenue_table(label, year_values: dict[int, float]) -> FinancialTable:
     )
 
 
-def _doc(report_year, label, year_values, insights=None) -> DocumentResult:
+def _doc(report_year, label, year_values, insights=None, company=None) -> DocumentResult:
     return DocumentResult(
         file_name=f"r{report_year}.pdf",
+        company=company,
         report_year=report_year,
         tables=[_revenue_table(label, year_values)],
         insights=insights or [],
@@ -79,6 +80,16 @@ def test_insights_concatenated_across_reports():
     ]
     company = resolve_multiyear(results)
     assert {i.takeaway for i in company.insights} == {"t24", "t25"}
+
+
+def test_extracted_company_is_used_as_truth():
+    results = [
+        _doc(2024, "Revenue", {2024: 1.0}, company="Millat Tractors Limited"),
+        _doc(2025, "Revenue", {2025: 2.0}, company="Millat Tractors Limited"),
+    ]
+    # Caller passes a different name; the extracted (document) name wins.
+    company = resolve_multiyear(results, company="wrong-name-from-cli")
+    assert company.company == "Millat Tractors Limited"
 
 
 def test_lines_merge_by_canonical_key_despite_label_change():

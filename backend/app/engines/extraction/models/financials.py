@@ -19,6 +19,7 @@ class LineItemValue(BaseModel):
 
 class LineItem(BaseModel):
     label: str = Field(..., description="Line item name, e.g. 'Total assets'")
+    section: Optional[str] = Field(None, description="Sub-section header above this row (e.g. 'LOCAL SALES')")
     unit: Optional[str] = Field(None, description="e.g. 'USD thousands', '%'")
     note_ref: Optional[str] = Field(None, description="Footnote/note reference, if any")
     values: list[LineItemValue] = Field(default_factory=list, description="One per period/year")
@@ -32,6 +33,8 @@ class FinancialTable(BaseModel):
     title: str = ""
     currency: Optional[str] = None
     unit_scale: Optional[str] = Field(None, description="e.g. 'thousands', 'millions'")
+    # None = unknown; True = consolidated; False = unconsolidated/separate.
+    consolidated: Optional[bool] = None
     years: list[int] = Field(default_factory=list)
     line_items: list[LineItem] = Field(default_factory=list)
     source: Optional[SourceRef] = None

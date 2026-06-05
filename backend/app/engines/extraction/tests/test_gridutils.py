@@ -104,3 +104,21 @@ def test_multiword_label_stays_in_one_cell():
 def test_has_labels_false_for_numbers_only():
     grid = [["1,234", "5,678"], ["(90)", "12"]]
     assert gu.has_labels(grid) is False
+
+
+def test_ocr_grids_reuses_cached_words():
+    """Layer 2 builds a grid from ingest-cached word boxes (no re-OCR)."""
+    from app.core.config import get_settings
+    from app.engines.extraction.pipeline.tables import _ocr_grids
+
+    words = [
+        {"text": "Revenue", "x0": 0, "x1": 50, "top": 0, "bottom": 10},
+        {"text": "100", "x0": 200, "x1": 230, "top": 0, "bottom": 10},
+        {"text": "120", "x0": 400, "x1": 430, "top": 0, "bottom": 10},
+        {"text": "Costs", "x0": 0, "x1": 50, "top": 30, "bottom": 40},
+        {"text": "40", "x0": 200, "x1": 220, "top": 30, "bottom": 40},
+        {"text": "50", "x0": 400, "x1": 420, "top": 30, "bottom": 40},
+    ]
+    grids = _ocr_grids(words, get_settings())
+    assert grids and grids[0][0][0] == "Revenue"
+    assert _ocr_grids([], get_settings()) == []  # no cached words -> nothing

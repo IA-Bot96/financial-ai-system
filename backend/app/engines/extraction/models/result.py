@@ -11,6 +11,7 @@ from app.engines.extraction.models.insight import Insight
 
 class DocumentResult(BaseModel):
     file_name: str
+    company: Optional[str] = None
     report_year: Optional[int] = None
     tables: list[FinancialTable] = Field(default_factory=list)
     insights: list[Insight] = Field(default_factory=list)          # confidence >= review

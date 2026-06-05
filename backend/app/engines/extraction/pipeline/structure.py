@@ -19,10 +19,12 @@ from app.engines.extraction.models.financials import FinancialTable, LineItem, L
 from app.engines.extraction.models.table import RawTable, TableSet
 from app.engines.extraction.pipeline import gridutils as gu
 from app.engines.extraction.services import prompts
+from app.engines.extraction.services.styles import is_section_header
 
 logger = get_logger(__name__)
 
 _DASH = {"-", "–", "—", "�", ""}
+_YEAR_ONLY = re.compile(r"^(?:19|20)\d{2}$")
 
 
 def _parse_value(text: str) -> tuple[float | None, str | None]:
@@ -68,7 +70,9 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
         value_cols = list(range(max(0, ncols - len(raw.years)), ncols))
         year_cols = dict(zip(value_cols, raw.years))
 
+    header_years = set(year_cols.values())
     line_items: list[LineItem] = []
+    current_section: str | None = None
     for row in raw.rows:
         if not row:
             continue
@@ -78,15 +82,30 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
         values: list[LineItemValue] = []
         for c, year in sorted(year_cols.items()):
             cell = row[c] if c < len(row) else ""
-            value, raw_txt = _parse_value(cell)
-            if value is None and not raw_txt:
+            raw_txt = (cell or "").strip()
+            # Reject a bare year that is just the column header repeated as a value
+            # (e.g. a sub-note header row "Components consumed | 2024 | 2025").
+            if _YEAR_ONLY.match(raw_txt) and int(raw_txt) in header_years:
                 continue
-            values.append(LineItemValue(year=year, value=value, raw=raw_txt))
+            value, parsed_raw = _parse_value(cell)
+            if value is None and not parsed_raw:
+                continue
+            values.append(LineItemValue(year=year, value=value, raw=parsed_raw))
+
+        if not values:
+            # A value-less row is a section header only if it's ALL-CAPS or ends
+            # with ':' (e.g. 'LOCAL SALES', 'Local:'). Otherwise it's a value-less
+            # leaf / junk row — skip it without clobbering the current section.
+            stripped = label.rstrip(":").strip()
+            if is_section_header(label) or label.rstrip().endswith(":"):
+                current_section = stripped
+            continue
 
         match = resolver.resolve(label)
         line_items.append(
             LineItem(
                 label=label,
+                section=current_section,
                 values=values,
                 canonical_metric=match.canonical_key if match else None,
                 canonical_category=match.category if match else None,
@@ -98,6 +117,7 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
         title=raw.title,
         currency=raw.currency,
         unit_scale=raw.unit_scale,
+        consolidated=raw.consolidated,
         years=raw.years or sorted(set(year_cols.values())),
         line_items=line_items,
         source=raw.source,

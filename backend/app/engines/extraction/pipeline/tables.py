@@ -21,9 +21,12 @@ from app.engines.extraction.models.common import SourceRef, StatementType
 from app.engines.extraction.models.document import IngestedDoc, PageKind
 from app.engines.extraction.models.table import RawTable, TableSet
 from app.engines.extraction.pipeline import gridutils as gu
-from app.engines.extraction.pipeline.sections import detect_sections, section_for_page
+from app.engines.extraction.pipeline.sections import (
+    consolidated_context_by_page,
+    detect_sections,
+    section_for_page,
+)
 from app.engines.extraction.services.classifier import TableClassifier
-from app.engines.extraction.services.ocr import OCRService
 
 logger = get_logger(__name__)
 
@@ -37,6 +40,7 @@ class _PageTable:
     section_type: StatementType
     section_title: str = ""
     context_text: str = ""
+    consolidated: bool | None = None
 
 
 def _clean_grid(grid: list[list[str]]) -> list[list[str]]:
@@ -87,18 +91,13 @@ def _native_grids(pl_page, settings) -> list[list[list[str]]]:
     return [word_grid] if word_grid else []
 
 
-def _ocr_grids(fitz_page, ocr: OCRService, settings) -> list[list[list[str]]]:
-    """Reconstruct a grid from a scanned page via OCR word bounding boxes."""
-    try:
-        pix = fitz_page.get_pixmap(dpi=settings.ocr_dpi)
-        words = ocr.png_bytes_to_words(pix.tobytes("png"))
-        g = gu.cluster_words_to_grid(words, settings.table_row_tol, settings.table_col_tol)
-        cg = _clean_grid(g)
-        if gu.looks_tabular(cg, settings.table_min_numeric_ratio):
-            return [cg]
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("OCR table extraction failed on page %s: %s", fitz_page.number + 1, exc)
-    return []
+def _ocr_grids(words: list[dict], settings) -> list[list[list[str]]]:
+    """Reconstruct a grid from cached OCR word boxes (captured during ingest)."""
+    if not words:
+        return []
+    g = gu.cluster_words_to_grid(words, settings.table_row_tol, settings.table_col_tol)
+    cg = _clean_grid(g)
+    return [cg] if gu.looks_tabular(cg, settings.table_min_numeric_ratio) else []
 
 
 # --- multipage merge ---
@@ -123,20 +122,17 @@ def detect_tables(
     pdf_path: Path,
     doc: IngestedDoc,
     classifier: TableClassifier | None = None,
-    ocr: OCRService | None = None,
 ) -> TableSet:
     settings = get_settings()
     classifier = classifier or TableClassifier()
-    ocr = ocr or OCRService()
 
     sections = detect_sections(doc)
+    consolidated_ctx = consolidated_context_by_page(doc)
     page_tables: list[_PageTable] = []
 
-    import fitz  # PyMuPDF
     import pdfplumber
 
     pl = pdfplumber.open(pdf_path)
-    fz = fitz.open(pdf_path)
     try:
         for page in doc.pages:
             sec = section_for_page(sections, page.page)
@@ -146,7 +142,8 @@ def detect_tables(
             if page.kind == PageKind.native:
                 grids = _native_grids(pl.pages[page.page - 1], settings)
             elif page.kind == PageKind.ocr:
-                grids = _ocr_grids(fz[page.page - 1], ocr, settings)
+                # Reuse the word boxes OCR'd during ingest — no re-rasterize/re-OCR.
+                grids = _ocr_grids(page.ocr_words, settings)
             else:
                 grids = []
 
@@ -158,11 +155,11 @@ def detect_tables(
                         section_type=sec_type,
                         section_title=sec_title,
                         context_text=page.text[:400],
+                        consolidated=consolidated_ctx.get(page.page),
                     )
                 )
     finally:
         pl.close()
-        fz.close()
 
     merged = merge_multipage(page_tables)
 
@@ -193,6 +190,7 @@ def detect_tables(
                 needs_review=cls.needs_review,
                 classification_method=cls.method,
                 classification_score=round(cls.score, 4),
+                consolidated=pt.consolidated,
                 source=SourceRef(
                     report_file=doc.file_name,
                     report_year=doc.report_year,

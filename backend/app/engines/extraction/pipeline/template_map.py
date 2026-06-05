@@ -30,6 +30,26 @@ from app.engines.extraction.services.metric_resolver import spaced
 logger = get_logger(__name__)
 
 _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+# Generic section words shared across sections (don't distinguish Local vs Export).
+_SECTION_STOPWORDS = {
+    "sales", "cost", "costs", "expense", "expenses", "income", "revenue",
+    "total", "net", "gross", "and", "the", "of", "to", "from", "other",
+}
+
+
+def _significant_tokens(section_norm: str) -> set[str]:
+    return {t for t in section_norm.split() if len(t) >= 3 and t not in _SECTION_STOPWORDS}
+
+
+def _section_compatible(template_section_norm: str, cand_section_norm: str) -> bool:
+    """Sections are compatible unless both carry distinctive tokens that don't
+    overlap — so 'EXPORT SALES' (export) is rejected against 'LOCAL SALES' (local),
+    but a missing/uninformative section never blocks a match."""
+    t = _significant_tokens(template_section_norm)
+    c = _significant_tokens(cand_section_norm)
+    if not t or not c:
+        return True
+    return bool(t & c)
 
 
 # --- cell helpers ---
@@ -117,23 +137,43 @@ def _sheet_statement_type(ws, header_row: int, classifier: TableClassifier) -> S
 # --- candidates from extracted data ---
 
 def _build_candidates(company: CompanyResult):
-    """Return (by_type, pooled): lists of (normalized_label, line) per statement type."""
-    by_type: dict[StatementType, list[tuple[str, object]]] = {}
-    pooled: list[tuple[str, object]] = []
+    """Return (by_type, pooled): lists of (label_norm, section_norm, line) per type."""
+    by_type: dict[StatementType, list[tuple[str, str, object]]] = {}
+    pooled: list[tuple[str, str, object]] = []
     for table in company.tables:
         bucket = by_type.setdefault(table.statement_type, [])
         for li in table.line_items:
-            entry = (spaced(li.label), li)
+            entry = (spaced(li.label), spaced(li.section or ""), li)
             bucket.append(entry)
             pooled.append(entry)
     return by_type, pooled
+
+
+def _best_candidate(template_label: str, template_section: str, candidates, threshold: float):
+    """Best extracted line for a template row, gated by section similarity.
+
+    When both the template row and a candidate carry a section, the sections
+    must be similar — this stops 'Export sales > Tractors' from matching the
+    'Local sales > Tractors' line (and leaves export blank when the source has
+    no export breakdown).
+    """
+    from rapidfuzz import fuzz
+
+    q_label, q_section = spaced(template_label), spaced(template_section)
+    best, best_score = None, 0.0
+    for cand_label, cand_section, line in candidates:
+        if not _section_compatible(q_section, cand_section):
+            continue  # distinctive sections differ -> not a match
+        score = fuzz.token_set_ratio(q_label, cand_label)
+        if score > best_score:
+            best, best_score = line, score
+    return (best, best_score) if best_score >= threshold else (None, 0.0)
 
 
 # --- main ---
 
 def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan:
     import openpyxl
-    from rapidfuzz import fuzz, process
 
     settings = get_settings()
     threshold = settings.template_match_threshold * 100
@@ -155,28 +195,25 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
             plan.sheets_processed.append(ws.title)
             st = _sheet_statement_type(ws, header_row, classifier)
             candidates = by_type.get(st) or pooled
-            cand_labels = [c[0] for c in candidates]
 
+            template_section = ""  # carried forward from section-header rows
             for r in range(header_row + 1, ws.max_row + 1):
                 label = ws.cell(r, 1).value
                 if not isinstance(label, str) or not label.strip():
                     continue
                 lbl = label.strip()
                 if _is_section_header(lbl):
+                    template_section = lbl  # e.g. LOCAL SALES / EXPORT SALES
                     continue
                 writable = {c: y for c, y in year_cols.items()
                             if _is_empty(ws.cell(r, c)) and not _is_formula(ws.cell(r, c))}
-                if not writable or not cand_labels:
+                if not writable or not candidates:
                     continue
 
-                match = process.extractOne(
-                    spaced(lbl), cand_labels, scorer=fuzz.token_set_ratio, score_cutoff=threshold,
-                )
-                if match is None:
+                line, score = _best_candidate(lbl, template_section, candidates, threshold)
+                if line is None:
                     plan.unmatched_template_labels.append(lbl)
                     continue
-                _, score, idx = match
-                line = candidates[idx][1]
                 by_year = {v.year: v for v in line.values}
                 for col, year in writable.items():
                     v = by_year.get(year)

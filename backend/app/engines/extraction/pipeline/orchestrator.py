@@ -53,11 +53,17 @@ def process_documents(
         plan = build_plan(company_result, template_path)
         apply_plan(plan, template_path, output_path)
         append_insights_sheets(output_path, company_result.insights, company_result.insights_review)
-        logger.info("Template workbook written: %s (%d writes)", output_path, len(plan.writes))
+        logger.info(
+            "Template workbook written: company=%r years=%s -> %s (%d writes)",
+            company_result.company, company_result.fiscal_years, output_path, len(plan.writes),
+        )
         return ExtractionOutput(output_path=output_path, company=company_result, mode="template", plan=plan)
 
     write_company_workbook(company_result, output_path)
-    logger.info("No-template workbook written: %s (%d tables)", output_path, len(company_result.tables))
+    logger.info(
+        "No-template workbook written: company=%r years=%s -> %s (%d tables)",
+        company_result.company, company_result.fiscal_years, output_path, len(company_result.tables),
+    )
     return ExtractionOutput(output_path=output_path, company=company_result, mode="no_template")
 
 

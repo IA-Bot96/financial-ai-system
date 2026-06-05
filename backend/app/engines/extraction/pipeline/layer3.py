@@ -45,6 +45,7 @@ def run_layer3(
     exported, review = extract_insights(doc, gpt)
     return DocumentResult(
         file_name=doc.file_name,
+        company=doc.company,
         report_year=doc.report_year,
         tables=tables,
         insights=exported,

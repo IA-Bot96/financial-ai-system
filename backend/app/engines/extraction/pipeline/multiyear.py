@@ -40,9 +40,21 @@ def _line_key(item: LineItem) -> str:
     return item.canonical_metric or squash(item.label)
 
 
+def _resolve_company(results: list[DocumentResult], fallback: str | None) -> str | None:
+    """Company extracted from the documents is the source of truth; the caller's
+    value is only a fallback when nothing was extracted."""
+    from collections import Counter
+
+    names = [r.company.strip() for r in results if r.company and r.company.strip()]
+    if names:
+        return Counter(names).most_common(1)[0][0]
+    return fallback
+
+
 def resolve_multiyear(results: list[DocumentResult], company: str | None = None) -> CompanyResult:
     """Merge per-report DocumentResults into one multi-year CompanyResult."""
     results = [r for r in results if r is not None]
+    company = _resolve_company(results, company)
 
     # st -> {key -> meta};  (st, key) -> {report_year -> {data_year -> LineItemValue}}
     lines_by_st: dict[StatementType, dict[str, dict]] = {}
@@ -54,7 +66,10 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
         ry = res.report_year
         if ry is None:
             continue
-        for table in res.tables:
+        # Prefer the unconsolidated set the template targets: process
+        # unconsolidated (False) tables first, unknown next, consolidated last,
+        # and don't overwrite a year already filled (setdefault below).
+        for table in sorted(res.tables, key=lambda t: {False: 0, None: 1, True: 2}[t.consolidated]):
             st = table.statement_type
             st_info.setdefault(st, (table.title, table.currency, table.unit_scale))
             km = lines_by_st.setdefault(st, {})
@@ -64,13 +79,14 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                     continue
                 km.setdefault(key, {
                     "label": li.label,
+                    "section": li.section,
                     "canonical_metric": li.canonical_metric,
                     "canonical_category": li.canonical_category,
                 })
                 rmap = values_index.setdefault((st, key), {}).setdefault(ry, {})
                 for v in li.values:
                     if v.year is not None:
-                        rmap[v.year] = v
+                        rmap.setdefault(v.year, v)  # unconsolidated wins within a report
 
     data_years = sorted({
         y for idx in values_index.values() for rmap in idx.values() for y in rmap
@@ -96,6 +112,7 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
             if values:
                 items.append(LineItem(
                     label=meta["label"],
+                    section=meta.get("section"),
                     canonical_metric=meta["canonical_metric"],
                     canonical_category=meta["canonical_category"],
                     values=values,
@@ -110,8 +127,8 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
     review = [i for res in results for i in res.insights_review]
 
     logger.info(
-        "Multi-year resolution: %d reports, years %s, %d merged tables",
-        len(results), data_years, len(merged),
+        "Multi-year resolution: company=%r, %d reports, years %s, %d merged tables",
+        company, len(results), data_years, len(merged),
     )
     return CompanyResult(
         company=company,

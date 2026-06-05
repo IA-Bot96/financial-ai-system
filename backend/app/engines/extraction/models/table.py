@@ -41,6 +41,8 @@ class RawTable(BaseModel):
     needs_review: bool = Field(False, description="True -> let GPT (Layer 3) classify")
     classification_method: str = ""
     classification_score: float = 0.0
+    # None = unknown; True = consolidated; False = unconsolidated/separate.
+    consolidated: Optional[bool] = None
 
     source: Optional[SourceRef] = None
 

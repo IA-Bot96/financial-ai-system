@@ -85,3 +85,22 @@ def section_for_page(sections: list[Section], page: int) -> Section | None:
         if s.start_page <= page <= s.end_page:
             return s
     return None
+
+
+def consolidated_context_by_page(doc: IngestedDoc) -> dict[int, bool | None]:
+    """Map each page -> whether it belongs to the consolidated (True) or
+    unconsolidated/separate (False) statement set, carried forward from the
+    most recent 'Unconsolidated/Consolidated Statement…' or 'Notes to the …'
+    heading. Lets later stages prefer the unconsolidated set the template targets.
+    """
+    context: dict[int, bool | None] = {}
+    current: bool | None = None
+    for page in doc.pages:
+        low = page.text.lower()
+        # Strongest signals first; check unconsolidated/separate before consolidated.
+        if "unconsolidated" in low or "separate financial statements" in low:
+            current = False
+        elif "consolidated" in low:
+            current = True
+        context[page.page] = current
+    return context

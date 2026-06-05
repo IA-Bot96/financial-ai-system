@@ -20,6 +20,24 @@ LOG_FORMAT = "%(asctime)s.%(msecs)03d | %(levelname)s | %(component)s | %(messag
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+# Third-party libraries that emit huge volumes of DEBUG (pdfminer alone can
+# write hundreds of MB). Pin them to WARNING so they never reach any handler.
+_NOISY_LIBRARIES = (
+    "pdfminer", "pdfplumber", "httpx", "httpcore", "openai", "urllib3",
+    "sentence_transformers", "PIL", "fontTools", "matplotlib",
+)
+
+
+def _silence_noisy_libraries() -> None:
+    for name in _NOISY_LIBRARIES:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+# Apply at import so pdfminer is quiet even before configure_logging runs
+# (e.g. when per_document_log is used without explicit logging setup).
+_silence_noisy_libraries()
+
+
 def _component_from_logger(name: str) -> str:
     """'app...pipeline.excel_writer' -> 'Excel Writer'."""
     seg = name.rsplit(".", 1)[-1] if name else "engine"
@@ -50,6 +68,7 @@ def configure_logging(debug: bool = False) -> None:
     handler.setFormatter(EngineFormatter())
     handler.setLevel(level)
     root.addHandler(handler)
+    _silence_noisy_libraries()  # keep pdfminer/httpx/etc. quiet even in DEBUG
 
 
 def get_logger(name: str) -> logging.Logger:

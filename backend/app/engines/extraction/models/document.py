@@ -23,12 +23,16 @@ class PageText(BaseModel):
     ocr_confidence: Optional[float] = Field(
         None, description="Mean OCR word confidence (0-100), if OCR was used"
     )
+    # OCR word boxes ({text,x0,x1,top,bottom}) captured during ingest, reused by
+    # table detection so scanned pages are OCR'd only once.
+    ocr_words: list[dict] = Field(default_factory=list, exclude=True, repr=False)
 
 
 class IngestedDoc(BaseModel):
     file_name: str
     page_count: int = 0
-    report_year: Optional[int] = Field(None, description="Inferred fiscal year of the report")
+    company: Optional[str] = Field(None, description="Company name extracted from the document")
+    report_year: Optional[int] = Field(None, description="Fiscal year extracted from the document")
     is_scanned: bool = Field(False, description="True if most pages required OCR")
     pages: list[PageText] = Field(default_factory=list)
 
