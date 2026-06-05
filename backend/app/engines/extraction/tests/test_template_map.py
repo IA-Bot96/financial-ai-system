@@ -141,6 +141,43 @@ def test_abbrev_lifts_fuzzy_match_over_threshold():
     assert fuzz.token_set_ratio(a, b) >= 82
 
 
+def _two_sheet_template(path: Path) -> None:
+    # Two writable breakdown sheets that both contain the same row label.
+    wb = openpyxl.Workbook()
+    a = wb.active
+    a.title = "PL1 - Revenue"
+    a["A1"] = "Note - Revenue"
+    a["A3"], a["B3"], a["C3"] = "Particulars", 2024, 2025
+    a["A4"] = "Shared item"
+    a["A5"] = "Filler one"
+    b = wb.create_sheet("PL4 - Other Income")
+    b["A1"] = "Note - Other Income"
+    b["A3"], b["B3"], b["C3"] = "Particulars", 2024, 2025
+    b["A4"] = "Shared item"
+    b["A5"] = "Filler two"
+    wb.save(path)
+
+
+def test_global_dedup_writes_shared_line_to_one_sheet_only(tmp_path):
+    # One extracted line ('Shared item', in the revenue table) is reachable from both
+    # sheets (own on PL1, widened on PL4). The global dedup must write it to exactly
+    # ONE sheet, not both — preventing the cross-statement bleed.
+    tpl = tmp_path / "two.xlsx"
+    _two_sheet_template(tpl)
+    company = CompanyResult(
+        company="Acme", fiscal_years=[2024, 2025],
+        tables=[FinancialTable(
+            statement_type=StatementType.revenue, title="Revenue",
+            line_items=[LineItem(label="Shared item", values=[
+                LineItemValue(year=2024, value=11.0), LineItemValue(year=2025, value=22.0)])],
+        )],
+    )
+    plan = build_plan(company, tpl)
+    sheets_with_shared = {w.sheet for w in plan.writes if w.matched_label == "Shared item"}
+    assert len(sheets_with_shared) == 1            # written to exactly one sheet, not both
+    assert "Shared item" in plan.unmatched_template_labels  # the losing sheet's row recorded
+
+
 _LUCKY = Path(r"C:\AI Financial Intelligence\data\lucky-template.xlsx")
 
 

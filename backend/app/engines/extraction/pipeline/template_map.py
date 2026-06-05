@@ -74,8 +74,8 @@ def _related_types(st: StatementType | None) -> set[StatementType]:
 # Applied on top of `spaced()` so corporate/financial abbreviations don't sink a
 # fuzzy match below threshold (e.g. "(Pvt) Ltd" vs "(Private) Limited").
 _ABBREV = {
-    "pvt": "private", "ltd": "limited", "co": "company", "corp": "corporation",
-    "incl": "including", "amt": "amount", "recd": "received", "dep": "depreciation",
+    "pvt": "private", "ltd": "limited", "corp": "corporation",
+    "incl": "including", "amt": "amount", "recd": "received",
     "accum": "accumulated", "invt": "investment", "mfg": "manufacturing",
     "wppf": "workers profit participation fund", "wwf": "workers welfare fund",
 }
@@ -88,17 +88,6 @@ def _match_norm(label: str) -> str:
 
 def _significant_tokens(section_norm: str) -> set[str]:
     return {t for t in section_norm.split() if len(t) >= 3 and t not in _SECTION_STOPWORDS}
-
-
-def _section_compatible(template_section_norm: str, cand_section_norm: str) -> bool:
-    """Sections are compatible unless both carry distinctive tokens that don't
-    overlap — so 'EXPORT SALES' (export) is rejected against 'LOCAL SALES' (local),
-    but a missing/uninformative section never blocks a match."""
-    t = _significant_tokens(template_section_norm)
-    c = _significant_tokens(cand_section_norm)
-    if not t or not c:
-        return True
-    return bool(t & c)
 
 
 # --- cell helpers ---
@@ -221,7 +210,8 @@ def _section_overlap(template_section_norm: str, cand_section_norm: str) -> int:
 def _best_candidate(template_label: str, template_section: str, candidates, threshold: float):
     """Best extracted line for a template row by LABEL (recall-first), with the
     section used only as a tie-breaker. Conflicts where one extracted line is
-    claimed by two template rows are resolved later in `build_plan`.
+    claimed by two template rows are resolved globally in `build_plan` (a line maps
+    to at most one sheet, its home-type sheet preferred).
     """
     from rapidfuzz import fuzz
 
@@ -251,6 +241,9 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
     wb = openpyxl.load_workbook(template_path, data_only=False)
     plan = MappingPlan()
     try:
+        # Pass 1: collect best label matches across ALL sheets (own type first, then
+        # the widened family with a section-compatibility gate).
+        matches = []  # dicts: ws, row, writable, lbl, template_section, line, score, own_tier
         for ws in wb.worksheets:
             year_cols, header_row, _ = _detect_year_columns(ws)
             if len(year_cols) < 2:
@@ -272,8 +265,6 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                 widened.extend(by_type.get(rt, []))
             widened = widened or pooled
 
-            # Pass 1: best label match per writable leaf row (recall-first).
-            matches = []  # dicts: ws, writable, lbl, template_section, line, score
             template_section = ""
             for r in range(header_row + 1, ws.max_row + 1):
                 label = ws.cell(r, 1).value
@@ -288,8 +279,10 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                 if not writable or not (own or widened):
                     continue
                 # Own type first; only widen to the family when the sheet's own type
-                # has no candidate for this row (keeps cross-statement bleed out).
+                # has no candidate. The global dedup below routes each extracted line
+                # to a single best (home-type) sheet, so widened matches can't bleed.
                 line, score = _best_candidate(lbl, template_section, own, threshold)
+                own_tier = line is not None
                 if line is None:
                     line, score = _best_candidate(lbl, template_section, widened, threshold)
                 if line is None:
@@ -297,41 +290,44 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                     continue
                 matches.append({
                     "ws": ws, "row": r, "writable": writable, "lbl": lbl,
-                    "template_section": template_section, "line": line, "score": score,
+                    "template_section": template_section, "line": line,
+                    "score": score, "own_tier": own_tier,
                 })
 
-            # Pass 2: resolve conflicts — if one extracted line is claimed by
-            # several template rows (e.g. Local 'Tractors' and Export 'Tractors'),
-            # keep the row whose section best matches; blank the others.
-            from collections import defaultdict
-            by_line: dict[int, list] = defaultdict(list)
-            for m in matches:
-                by_line[id(m["line"])].append(m)
-            for group in by_line.values():
-                if len(group) > 1:
-                    winner = max(group, key=lambda m: (
-                        _section_overlap(spaced(m["template_section"]), spaced(m["line"].section or "")),
-                        m["score"],
-                    ))
-                    for m in group:
-                        if m is not winner:
-                            plan.unmatched_template_labels.append(m["lbl"])
-                    group[:] = [winner]
+        # Pass 2: GLOBAL conflict resolution — one extracted line maps to at most one
+        # template row, ACROSS sheets. Prefer the line's home-type sheet (own_tier) so a
+        # liability line claimed by an asset sheet via widening loses to its own sheet;
+        # then by section overlap, then label score. Losers are recorded as unmatched.
+        from collections import defaultdict
+        by_line: dict[int, list] = defaultdict(list)
+        for m in matches:
+            by_line[id(m["line"])].append(m)
+        winners = []
+        for group in by_line.values():
+            winner = max(group, key=lambda m: (
+                m["own_tier"],
+                _section_overlap(spaced(m["template_section"]), spaced(m["line"].section or "")),
+                m["score"],
+            ))
+            winners.append(winner)
+            for m in group:
+                if m is not winner:
+                    plan.unmatched_template_labels.append(m["lbl"])
 
-            # Write the surviving matches.
-            for m in (m for grp in by_line.values() for m in grp):
-                by_year = {v.year: v for v in m["line"].values}
-                for col, year in m["writable"].items():
-                    v = by_year.get(year)
-                    if v is None or v.value is None:
-                        continue
-                    plan.writes.append(CellWrite(
-                        sheet=m["ws"].title,
-                        coordinate=m["ws"].cell(m["row"], col).coordinate,
-                        year=year, value=v.value, template_label=m["lbl"],
-                        matched_label=m["line"].label, confidence=m["score"] / 100.0,
-                        source_report_year=v.source_report_year,
-                    ))
+        # Write the surviving matches.
+        for m in winners:
+            by_year = {v.year: v for v in m["line"].values}
+            for col, year in m["writable"].items():
+                v = by_year.get(year)
+                if v is None or v.value is None:
+                    continue
+                plan.writes.append(CellWrite(
+                    sheet=m["ws"].title,
+                    coordinate=m["ws"].cell(m["row"], col).coordinate,
+                    year=year, value=v.value, template_label=m["lbl"],
+                    matched_label=m["line"].label, confidence=m["score"] / 100.0,
+                    source_report_year=v.source_report_year,
+                ))
     finally:
         wb.close()
 
