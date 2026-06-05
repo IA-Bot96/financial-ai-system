@@ -22,7 +22,7 @@ class GPTClient:
     def __init__(self) -> None:
         self.settings = get_settings()
         if not self.settings.openai_api_key:
-            logger.warning("OPENAI_API_KEY is empty — set it in backend/.env before running Layer 3.")
+            logger.warning("OPENAI_API_KEY is empty — set it in backend/.env before interpretation.")
         from openai import OpenAI
 
         self.client = OpenAI(

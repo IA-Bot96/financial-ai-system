@@ -1,4 +1,4 @@
-"""Structured financial-statement models produced by Layer 3 (GPT)."""
+"""Structured financial-statement models produced by the interpretation stage."""
 from __future__ import annotations
 
 from typing import Optional
@@ -38,3 +38,10 @@ class FinancialTable(BaseModel):
     years: list[int] = Field(default_factory=list)
     line_items: list[LineItem] = Field(default_factory=list)
     source: Optional[SourceRef] = None
+
+
+class FinancialTableList(BaseModel):
+    """Wrapper so GPT page-extraction returns a JSON object (one page can hold
+    several tables)."""
+
+    tables: list[FinancialTable] = Field(default_factory=list)

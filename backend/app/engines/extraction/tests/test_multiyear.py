@@ -92,6 +92,37 @@ def test_extracted_company_is_used_as_truth():
     assert company.company == "Millat Tractors Limited"
 
 
+def test_implausible_years_filtered_out():
+    # Junk years (e.g. 1990 from a six-year summary / OCR) are dropped; only the
+    # plausible window [min(report)-1 .. max(report)] survives.
+    t = FinancialTable(
+        statement_type=StatementType.income_statement, title="IS",
+        line_items=[LineItem(label="Revenue", canonical_metric="revenue", values=[
+            LineItemValue(year=1990, value=1.0), LineItemValue(year=2025, value=2.0)])],
+    )
+    company = resolve_multiyear([DocumentResult(file_name="r.pdf", report_year=2025, tables=[t])])
+    assert company.fiscal_years == [2025]   # 1990 dropped (window is [2024, 2025])
+
+
+def test_same_label_in_different_sections_not_merged():
+    # Distribution vs Administrative 'Salaries and amenities' must stay distinct
+    # (keyed by section), not collapse into one line.
+    dist = FinancialTable(
+        statement_type=StatementType.operating_expenses, title="Distribution and marketing expenses",
+        line_items=[LineItem(label="Salaries and amenities", values=[LineItemValue(year=2025, value=100.0)])],
+    )
+    admin = FinancialTable(
+        statement_type=StatementType.operating_expenses, title="Administrative expenses",
+        line_items=[LineItem(label="Salaries and amenities", values=[LineItemValue(year=2025, value=50.0)])],
+    )
+    company = resolve_multiyear([DocumentResult(file_name="r.pdf", report_year=2025, tables=[dist, admin])])
+    oe = [t for t in company.tables if t.statement_type == StatementType.operating_expenses][0]
+    salaries = [li for li in oe.line_items if li.label == "Salaries and amenities"]
+    assert len(salaries) == 2  # NOT collapsed
+    assert {li.section for li in salaries} == {"Distribution and marketing expenses", "Administrative expenses"}
+    assert sorted(li.values[0].value for li in salaries) == [50.0, 100.0]
+
+
 def test_lines_merge_by_canonical_key_despite_label_change():
     results = [
         _doc(2024, "Turnover - net", {2024: 100.0}),

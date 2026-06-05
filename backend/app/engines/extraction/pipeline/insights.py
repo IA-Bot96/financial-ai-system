@@ -1,4 +1,4 @@
-"""Layer 3b — Insights via section-aware, sliding-window extraction.
+"""Interpretation — Insights via section-aware, sliding-window extraction.
 
 Pipeline (mirrors the proven OCR-v2 design, with semantic dedup added):
   narrative sections -> sliding-window chunks -> rule-based ranking

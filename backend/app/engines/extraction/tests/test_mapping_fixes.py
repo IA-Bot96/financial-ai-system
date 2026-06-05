@@ -50,28 +50,45 @@ def test_build_rejects_year_header_values_and_tracks_section():
 
 # --- C: prefer unconsolidated ---
 
-def test_multiyear_prefers_unconsolidated():
-    def doc(consolidated, value):
-        t = FinancialTable(
-            statement_type=StatementType.revenue, title="Revenue", consolidated=consolidated,
-            line_items=[LineItem(label="Tractors", canonical_metric=None,
-                                 values=[LineItemValue(year=2025, value=value)])],
-        )
-        return DocumentResult(file_name="r.pdf", report_year=2025, tables=[t])
-
-    # Same report year, two sets: unconsolidated 5000, consolidated 50000.
+def test_multiyear_keeps_both_sets_labeled():
+    # No template: BOTH unconsolidated and consolidated are preserved & labeled.
     res = DocumentResult(
         file_name="r2025.pdf", report_year=2025,
         tables=[
-            FinancialTable(statement_type=StatementType.revenue, consolidated=True,
+            FinancialTable(statement_type=StatementType.revenue, title="Revenue", consolidated=True,
                            line_items=[LineItem(label="Tractors", values=[LineItemValue(year=2025, value=50000.0)])]),
-            FinancialTable(statement_type=StatementType.revenue, consolidated=False,
+            FinancialTable(statement_type=StatementType.revenue, title="Revenue", consolidated=False,
                            line_items=[LineItem(label="Tractors", values=[LineItemValue(year=2025, value=5000.0)])]),
         ],
     )
     company = resolve_multiyear([res])
-    tractors = company.tables[0].line_items[0]
-    assert tractors.values[0].value == 5000.0  # unconsolidated wins
+    by_flag = {t.consolidated: t for t in company.tables}
+    assert set(by_flag) == {True, False}  # two separate labeled tables
+    assert by_flag[False].line_items[0].values[0].value == 5000.0
+    assert by_flag[True].line_items[0].values[0].value == 50000.0
+
+
+def test_template_prefers_unconsolidated_candidates():
+    import openpyxl
+    from app.engines.extraction.pipeline.template_map import build_plan
+
+    company = CompanyResult(company="Acme", fiscal_years=[2025], tables=[
+        FinancialTable(statement_type=StatementType.revenue, title="Revenue", consolidated=False,
+                       line_items=[LineItem(label="Net revenue", values=[LineItemValue(year=2025, value=5000.0)])]),
+        FinancialTable(statement_type=StatementType.revenue, title="Revenue", consolidated=True,
+                       line_items=[LineItem(label="Net revenue", values=[LineItemValue(year=2025, value=50000.0)])]),
+    ])
+    import tempfile, pathlib
+    tpl = pathlib.Path(tempfile.mkdtemp()) / "t.xlsx"
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "PL1 - Revenue"
+    ws["A1"] = "Gross Revenue"
+    ws["A3"], ws["B3"], ws["C3"] = "Particulars", 2024, 2025
+    ws["A4"] = "Net revenue"
+    wb.save(tpl)
+
+    plan = build_plan(company, tpl)
+    c4 = next((w for w in plan.writes if w.coordinate == "C4"), None)  # 2025 column
+    assert c4 and c4.value == 5000.0  # unconsolidated chosen, not consolidated 50000
 
 
 # --- A: section-aware template matching ---

@@ -134,5 +134,5 @@ class TableClassifier:
         method = "fuzzy+embed" if embed else "fuzzy"
         if best_score >= self.settings.classify_accept_threshold and margin >= self.settings.classify_margin:
             return Classification(best_type, best_score, method, False, combined)
-        # Not confident -> mark unclassified so Layer 3 sends it to GPT.
+        # Not confident -> mark unclassified so the interpretation stage sends it to GPT.
         return Classification(StatementType.unclassified, best_score, method + "+ambiguous", True, combined)

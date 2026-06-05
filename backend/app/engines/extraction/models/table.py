@@ -38,11 +38,14 @@ class RawTable(BaseModel):
     unit_scale: Optional[str] = None
 
     # Classification provenance
-    needs_review: bool = Field(False, description="True -> let GPT (Layer 3) classify")
+    needs_review: bool = Field(False, description="True -> let GPT classify in the interpretation stage")
     classification_method: str = ""
     classification_score: float = 0.0
     # None = unknown; True = consolidated; False = unconsolidated/separate.
     consolidated: Optional[bool] = None
+    # True if reconstructed from a scanned/OCR page (grid is unreliable -> the
+    # interpretation stage extracts those pages with GPT instead).
+    from_ocr: bool = False
 
     source: Optional[SourceRef] = None
 

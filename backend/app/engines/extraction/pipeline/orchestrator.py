@@ -16,6 +16,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.core.debug import DebugDumper
 from app.core.logging import get_logger
 from app.engines.extraction.models.company import CompanyResult
 from app.engines.extraction.models.mapping import MappingPlan
@@ -27,6 +28,23 @@ from app.engines.extraction.pipeline.excel_writer import (
 from app.engines.extraction.pipeline.multiyear import resolve_multiyear
 
 logger = get_logger(__name__)
+
+
+def _document_summary(doc, table_set, result) -> dict:
+    from collections import Counter
+    return {
+        "file_name": doc.file_name,
+        "company": doc.company,
+        "report_year": doc.report_year,
+        "pages": doc.page_count,
+        "ocr_pages": doc.ocr_page_count,
+        "is_scanned": doc.is_scanned,
+        "grids_detected": len(table_set.tables),
+        "tables_emitted": len(result.tables),
+        "tables_by_type": dict(Counter(t.statement_type.value for t in result.tables)),
+        "insights": len(result.insights),
+        "insights_review": len(result.insights_review),
+    }
 
 
 class ExtractionOutput(BaseModel):
@@ -41,30 +59,45 @@ def process_documents(
     output_path: str | Path,
     template_path: str | Path | None = None,
     company: str | None = None,
+    dumper: DebugDumper | None = None,
 ) -> ExtractionOutput:
     """Assemble per-report results into the final workbook."""
+    dumper = dumper or DebugDumper(None)
     company_result = resolve_multiyear(results, company=company)
     output_path = str(output_path)
+
+    dumper.subject(company_result.company or "company")
+    dumper.json("04_multiyear", company_result)
 
     if template_path:
         # Lazy import keeps openpyxl-template logic out of the no-template path.
         from app.engines.extraction.pipeline.template_map import apply_plan, build_plan
 
         plan = build_plan(company_result, template_path)
+        dumper.json("05_mapping_plan", plan)
         apply_plan(plan, template_path, output_path)
         append_insights_sheets(output_path, company_result.insights, company_result.insights_review)
         logger.info(
             "Template workbook written: company=%r years=%s -> %s (%d writes)",
             company_result.company, company_result.fiscal_years, output_path, len(plan.writes),
         )
-        return ExtractionOutput(output_path=output_path, company=company_result, mode="template", plan=plan)
+        out = ExtractionOutput(output_path=output_path, company=company_result, mode="template", plan=plan)
+    else:
+        write_company_workbook(company_result, output_path)
+        logger.info(
+            "No-template workbook written: company=%r years=%s -> %s (%d tables)",
+            company_result.company, company_result.fiscal_years, output_path, len(company_result.tables),
+        )
+        out = ExtractionOutput(output_path=output_path, company=company_result, mode="no_template")
 
-    write_company_workbook(company_result, output_path)
-    logger.info(
-        "No-template workbook written: company=%r years=%s -> %s (%d tables)",
-        company_result.company, company_result.fiscal_years, output_path, len(company_result.tables),
-    )
-    return ExtractionOutput(output_path=output_path, company=company_result, mode="no_template")
+    dumper.json("00_run_summary", {
+        "company": company_result.company, "mode": out.mode,
+        "fiscal_years": company_result.fiscal_years, "output_path": out.output_path,
+        "source_reports": company_result.source_reports, "tables": len(company_result.tables),
+        "writes": len(out.plan.writes) if out.plan else None,
+        "unmatched_template_labels": len(out.plan.unmatched_template_labels) if out.plan else None,
+    })
+    return out
 
 
 def process_reports(
@@ -77,14 +110,22 @@ def process_reports(
     """Full pipeline from PDFs to workbook (requires OPENAI_API_KEY for L3)."""
     # Imports here so the heavy/optional deps load only when actually extracting.
     from app.engines.extraction.pipeline.ingest import ingest_pdf
-    from app.engines.extraction.pipeline.layer3 import run_layer3
+    from app.engines.extraction.pipeline.interpret import interpret_document
     from app.engines.extraction.pipeline.tables import detect_tables
     from app.engines.extraction.services.gpt_client import GPTClient
+
+    from datetime import datetime
+
+    from app.core.debug import GPTRecorder, make_dumper
+    from app.core.logging import per_document_log
 
     gpt = gpt or GPTClient()
     has_template = template_path is not None
 
-    from app.core.logging import per_document_log
+    # One debug run dir for the whole company run (DEBUG only); GPT calls are
+    # captured via a transparent recorder so every prompt/response is dumped.
+    dumper = make_dumper(datetime.now().strftime("%Y%m%d_%H%M%S"))
+    recording_gpt = GPTRecorder(gpt, dumper) if dumper.enabled else gpt
 
     results: list[DocumentResult] = []
     for pdf in pdf_paths:
@@ -92,8 +133,16 @@ def process_reports(
         # Each PDF gets its own log file (logs/<timestamp>_<pdf>.log).
         with per_document_log(pdf.stem):
             logger.info("Processing report %s", pdf.name)
+            dumper.subject(pdf.stem)
             doc = ingest_pdf(pdf)
+            dumper.json("01_ingest", doc)
             table_set = detect_tables(pdf, doc)
-            results.append(run_layer3(doc, table_set, gpt, has_template=has_template))
+            dumper.json("02_tables", table_set)
+            result = interpret_document(doc, table_set, recording_gpt, has_template=has_template)
+            dumper.json("03_interpret", result)
+            dumper.json("00_summary", _document_summary(doc, table_set, result))
+            results.append(result)
 
-    return process_documents(results, output_path, template_path=template_path, company=company)
+    return process_documents(
+        results, output_path, template_path=template_path, company=company, dumper=dumper,
+    )

@@ -1,24 +1,18 @@
-"""Layer 3a — Structuring + ambiguous-table classification.
+"""Interpretation — reconstruct financial tables from detected grids.
 
-Logic:
-  - Structuring is RULE-BASED (no GPT): Layer 2 now yields clean grids
-    (label + per-year values), so each RawTable is parsed locally into a
-    FinancialTable.
-  - GPT is used ONLY to classify the tables Layer 2 flagged `needs_review`,
-    and those are sent in a SINGLE batched request.
-  - If no table needs review, NO OpenAI request is made at all.
+  - Grids confidently classified by Layer 2 -> rule-based reconstruction (free).
+  - Unclassified grids -> GPT classifies AND reconstructs in one request
+    (see gpt_tables.gpt_structure_grid); kept only if GPT judges them financial.
+  - No GPT request is made when every grid was already classified.
 """
 from __future__ import annotations
 
 import re
 
 from app.core.logging import get_logger
-from app.engines.extraction.models.classification import BatchClassification
-from app.engines.extraction.models.common import TARGET_STATEMENT_TYPES
 from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
 from app.engines.extraction.models.table import RawTable, TableSet
 from app.engines.extraction.pipeline import gridutils as gu
-from app.engines.extraction.services import prompts
 from app.engines.extraction.services.styles import is_section_header
 
 logger = get_logger(__name__)
@@ -124,45 +118,34 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
     )
 
 
-def _signature(raw: RawTable) -> str:
-    labels = " ".join(r[0] for r in raw.rows[:12] if r)
-    return " ".join([raw.title, " ".join(raw.header), labels]).strip()[:500]
-
-
-def _batch_classify(raws: list[RawTable], gpt) -> dict[str, object]:
-    """One GPT request classifying all ambiguous tables. Returns id -> type."""
-    allowed = ", ".join(st.value for st in TARGET_STATEMENT_TYPES)
-    listing = "\n".join(f"- {r.table_id} :: {_signature(r)}" for r in raws)
-    system, user = prompts.render("classify", allowed_types=allowed, tables=listing)
-    try:
-        result = gpt.complete_structured(system, user, BatchClassification)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Batch classification failed (%d tables): %s", len(raws), exc)
-        return {}
-    return {c.table_id: c.statement_type for c in result.classifications}
-
-
 def structure_tables(table_set: TableSet, gpt=None) -> list[FinancialTable]:
-    """Parse all tables (rule-based); classify only the ambiguous ones via GPT.
+    """Reconstruct financial tables from detected grids.
 
-    Makes at most ONE OpenAI request (the batch), and none if every table was
-    already classified by Layer 2.
+      - Grids confidently classified by Layer 2 -> rule-based reconstruction (free).
+      - Unclassified grids -> GPT classifies AND reconstructs in one request; a
+        FinancialTable is kept only if GPT judges it a financial table.
+
+    No GPT request is made when every grid was already classified.
     """
-    tables = [build_financial_table(r) for r in table_set.tables]
-
+    confident = [r for r in table_set.tables if not r.needs_review]
     review = [r for r in table_set.tables if r.needs_review]
+
+    tables = [build_financial_table(r) for r in confident]
+
     if not review:
-        logger.info("All %d tables classified by Layer 2 — no GPT request.", len(tables))
+        logger.info("All %d grids classified by Layer 2 — no GPT for grids.", len(tables))
         return tables
-
     if gpt is None:
-        logger.info("%d tables need review but no GPT client supplied.", len(review))
+        logger.info("%d unclassified grid(s) but no GPT client supplied.", len(review))
         return tables
 
-    logger.info("Batch-classifying %d ambiguous table(s) in one GPT request.", len(review))
-    mapping = _batch_classify(review, gpt)
-    index = {r.table_id: i for i, r in enumerate(table_set.tables)}
-    for table_id, st in mapping.items():
-        if table_id in index:
-            tables[index[table_id]].statement_type = st
+    from app.engines.extraction.pipeline.gpt_tables import gpt_structure_grid
+
+    logger.info("GPT classifying + reconstructing %d unclassified grid(s).", len(review))
+    for raw in review:
+        ft = gpt_structure_grid(raw, gpt)
+        # If GPT reconstructs it as a financial table, use that; otherwise keep
+        # the rule-based grid (as `unclassified`) so the no-template output still
+        # emits it (the template path drops non-target tables anyway).
+        tables.append(ft if ft is not None else build_financial_table(raw))
     return tables

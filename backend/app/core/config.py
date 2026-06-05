@@ -18,8 +18,11 @@ class Settings(BaseSettings):
     app_name: str = "AI Financial Intelligence - Extraction Engine"
     debug: bool = False
     log_dir: str = str(BACKEND_ROOT / "logs")  # per-document log files
+    # DEBUG-only: dump each stage's output (+ every GPT prompt/response) to disk.
+    debug_dump_dir: str = str(BACKEND_ROOT / "logs" / "debug")
+    debug_dump_gpt: bool = True
 
-    # --- Layer 3: GPT (read from .env) ---
+    # --- Interpretation stage: GPT (read from .env) ---
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-mini"
     openai_timeout: int = 120
@@ -28,7 +31,7 @@ class Settings(BaseSettings):
     # for our two call sites (classification + insights) — no per-call backoff var.
     openai_max_retries: int = 3
 
-    # --- Layer 3: insights (sliding-window extraction) ---
+    # --- Interpretation stage: insights (sliding-window extraction) ---
     insights_chunk_max_chars: int = 2800
     insights_chunk_overlap: int = 250
     insights_chunks_per_call: int = 8
@@ -36,6 +39,13 @@ class Settings(BaseSettings):
     insight_reject_threshold: float = 0.50   # below -> dropped
     insight_review_threshold: float = 0.70   # below -> 'Insights Review' sheet
     insight_dedup_similarity: float = 0.90   # cosine >= this -> duplicate
+
+    # --- GPT-assisted table extraction (robust on scanned/complex pages) ---
+    use_gpt_table_extraction: bool = True
+    gpt_table_max_pages: int = 80           # safety cap on pages sent to GPT per report
+    gpt_table_min_money: int = 6            # page needs >= this many comma-grouped figures
+    gpt_table_dense_digits: int = 120       # OCR fallback: very digit-dense page (commas lost)
+    gpt_table_workers: int = 8              # concurrent page-extraction GPT calls (1 = sequential)
 
     # --- Metric resolution (line-item label -> canonical metric) ---
     metric_registry_path: str = ""           # empty -> packaged registry file

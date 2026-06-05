@@ -34,6 +34,7 @@ _YEAR_RE = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 _SECTION_STOPWORDS = {
     "sales", "cost", "costs", "expense", "expenses", "income", "revenue",
     "total", "net", "gross", "and", "the", "of", "to", "from", "other",
+    "note", "notes",
 }
 
 
@@ -137,37 +138,56 @@ def _sheet_statement_type(ws, header_row: int, classifier: TableClassifier) -> S
 # --- candidates from extracted data ---
 
 def _build_candidates(company: CompanyResult):
-    """Return (by_type, pooled): lists of (label_norm, section_norm, line) per type."""
+    """Return (by_type, pooled): lists of (label_norm, section_norm, line) per type.
+
+    Templates target the UNCONSOLIDATED set, so when a statement type has both
+    sets we use the unconsolidated (or unknown) tables and skip the consolidated
+    ones as mapping candidates.
+    """
+    from collections import defaultdict
+
+    tables_by_type: dict[StatementType, list] = defaultdict(list)
+    for table in company.tables:
+        tables_by_type[table.statement_type].append(table)
+
     by_type: dict[StatementType, list[tuple[str, str, object]]] = {}
     pooled: list[tuple[str, str, object]] = []
-    for table in company.tables:
-        bucket = by_type.setdefault(table.statement_type, [])
-        for li in table.line_items:
-            entry = (spaced(li.label), spaced(li.section or ""), li)
-            bucket.append(entry)
-            pooled.append(entry)
+    for st, tables in tables_by_type.items():
+        preferred = [t for t in tables if t.consolidated is not True]  # False or None
+        chosen = preferred or tables  # fall back to consolidated if that's all we have
+        bucket: list[tuple[str, str, object]] = []
+        for table in chosen:
+            for li in table.line_items:
+                entry = (spaced(li.label), spaced(li.section or ""), li)
+                bucket.append(entry)
+                pooled.append(entry)
+        by_type[st] = bucket
     return by_type, pooled
 
 
-def _best_candidate(template_label: str, template_section: str, candidates, threshold: float):
-    """Best extracted line for a template row, gated by section similarity.
+def _section_overlap(template_section_norm: str, cand_section_norm: str) -> int:
+    """Count of shared distinctive section tokens (0 = unrelated/uninformative)."""
+    return len(_significant_tokens(template_section_norm) & _significant_tokens(cand_section_norm))
 
-    When both the template row and a candidate carry a section, the sections
-    must be similar — this stops 'Export sales > Tractors' from matching the
-    'Local sales > Tractors' line (and leaves export blank when the source has
-    no export breakdown).
+
+def _best_candidate(template_label: str, template_section: str, candidates, threshold: float):
+    """Best extracted line for a template row by LABEL (recall-first), with the
+    section used only as a tie-breaker. Conflicts where one extracted line is
+    claimed by two template rows are resolved later in `build_plan`.
     """
     from rapidfuzz import fuzz
 
     q_label, q_section = spaced(template_label), spaced(template_section)
-    best, best_score = None, 0.0
+    best, best_label_score, best_combined = None, 0.0, -1.0
     for cand_label, cand_section, line in candidates:
-        if not _section_compatible(q_section, cand_section):
-            continue  # distinctive sections differ -> not a match
-        score = fuzz.token_set_ratio(q_label, cand_label)
-        if score > best_score:
-            best, best_score = line, score
-    return (best, best_score) if best_score >= threshold else (None, 0.0)
+        label_score = fuzz.token_set_ratio(q_label, cand_label)
+        if label_score < threshold:
+            continue
+        # Prefer a section-matching candidate when labels tie (e.g. Local vs Export).
+        combined = label_score + (5 if _section_overlap(q_section, cand_section) else 0)
+        if combined > best_combined:
+            best, best_label_score, best_combined = line, label_score, combined
+    return (best, best_label_score) if best is not None else (None, 0.0)
 
 
 # --- main ---
@@ -196,7 +216,9 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
             st = _sheet_statement_type(ws, header_row, classifier)
             candidates = by_type.get(st) or pooled
 
-            template_section = ""  # carried forward from section-header rows
+            # Pass 1: best label match per writable leaf row (recall-first).
+            matches = []  # dicts: ws, writable, lbl, template_section, line, score
+            template_section = ""
             for r in range(header_row + 1, ws.max_row + 1):
                 label = ws.cell(r, 1).value
                 if not isinstance(label, str) or not label.strip():
@@ -209,24 +231,45 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                             if _is_empty(ws.cell(r, c)) and not _is_formula(ws.cell(r, c))}
                 if not writable or not candidates:
                     continue
-
                 line, score = _best_candidate(lbl, template_section, candidates, threshold)
                 if line is None:
                     plan.unmatched_template_labels.append(lbl)
                     continue
-                by_year = {v.year: v for v in line.values}
-                for col, year in writable.items():
+                matches.append({
+                    "ws": ws, "row": r, "writable": writable, "lbl": lbl,
+                    "template_section": template_section, "line": line, "score": score,
+                })
+
+            # Pass 2: resolve conflicts — if one extracted line is claimed by
+            # several template rows (e.g. Local 'Tractors' and Export 'Tractors'),
+            # keep the row whose section best matches; blank the others.
+            from collections import defaultdict
+            by_line: dict[int, list] = defaultdict(list)
+            for m in matches:
+                by_line[id(m["line"])].append(m)
+            for group in by_line.values():
+                if len(group) > 1:
+                    winner = max(group, key=lambda m: (
+                        _section_overlap(spaced(m["template_section"]), spaced(m["line"].section or "")),
+                        m["score"],
+                    ))
+                    for m in group:
+                        if m is not winner:
+                            plan.unmatched_template_labels.append(m["lbl"])
+                    group[:] = [winner]
+
+            # Write the surviving matches.
+            for m in (m for grp in by_line.values() for m in grp):
+                by_year = {v.year: v for v in m["line"].values}
+                for col, year in m["writable"].items():
                     v = by_year.get(year)
                     if v is None or v.value is None:
                         continue
                     plan.writes.append(CellWrite(
-                        sheet=ws.title,
-                        coordinate=ws.cell(r, col).coordinate,
-                        year=year,
-                        value=v.value,
-                        template_label=lbl,
-                        matched_label=line.label,
-                        confidence=score / 100.0,
+                        sheet=m["ws"].title,
+                        coordinate=m["ws"].cell(m["row"], col).coordinate,
+                        year=year, value=v.value, template_label=m["lbl"],
+                        matched_label=m["line"].label, confidence=m["score"] / 100.0,
                         source_report_year=v.source_report_year,
                     ))
     finally:

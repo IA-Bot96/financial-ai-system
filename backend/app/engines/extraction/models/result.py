@@ -1,4 +1,4 @@
-"""Combined Layer 3 output for one document."""
+"""Combined interpretation-stage output for one document."""
 from __future__ import annotations
 
 from typing import Optional

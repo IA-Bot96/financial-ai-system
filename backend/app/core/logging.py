@@ -23,8 +23,8 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 # Third-party libraries that emit huge volumes of DEBUG (pdfminer alone can
 # write hundreds of MB). Pin them to WARNING so they never reach any handler.
 _NOISY_LIBRARIES = (
-    "pdfminer", "pdfplumber", "httpx", "httpcore", "openai", "urllib3",
-    "sentence_transformers", "PIL", "fontTools", "matplotlib",
+    "pdfminer", "pdfplumber", "pytesseract", "httpx", "httpcore", "openai",
+    "urllib3", "sentence_transformers", "PIL", "fontTools", "matplotlib",
 )
 
 

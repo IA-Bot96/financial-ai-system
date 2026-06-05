@@ -41,6 +41,7 @@ class _PageTable:
     section_title: str = ""
     context_text: str = ""
     consolidated: bool | None = None
+    from_ocr: bool = False
 
 
 def _clean_grid(grid: list[list[str]]) -> list[list[str]]:
@@ -111,6 +112,7 @@ def merge_multipage(page_tables: list[_PageTable]) -> list[_PageTable]:
             if gu.is_continuation(prev.rows, prev.pages, pt.rows, pt.pages, same_section):
                 prev.rows.extend(pt.rows)  # continuation has no header row
                 prev.pages = sorted(set(prev.pages) | set(pt.pages))
+                prev.from_ocr = prev.from_ocr or pt.from_ocr
                 continue
         merged.append(pt)
     return merged
@@ -156,6 +158,7 @@ def detect_tables(
                         section_title=sec_title,
                         context_text=page.text[:400],
                         consolidated=consolidated_ctx.get(page.page),
+                        from_ocr=(page.kind == PageKind.ocr),
                     )
                 )
     finally:
@@ -191,6 +194,7 @@ def detect_tables(
                 classification_method=cls.method,
                 classification_score=round(cls.score, 4),
                 consolidated=pt.consolidated,
+                from_ocr=pt.from_ocr,
                 source=SourceRef(
                     report_file=doc.file_name,
                     report_year=doc.report_year,

@@ -1,20 +1,20 @@
-"""CLI: full Layers 1+2+3 on a PDF (requires OPENAI_API_KEY in backend/.env).
+"""CLI: ingest + detect tables + interpret one PDF (requires OPENAI_API_KEY in backend/.env).
 
 Usage:
-    python -m app.engines.extraction.run_layer3 path/to/report.pdf [--json]
+    python -m app.engines.extraction.run_interpret path/to/report.pdf [--json]
 """
 import argparse
 from pathlib import Path
 
 from app.core.logging import configure_logging
 from app.engines.extraction.pipeline.ingest import ingest_pdf
-from app.engines.extraction.pipeline.layer3 import run_layer3
+from app.engines.extraction.pipeline.interpret import interpret_document
 from app.engines.extraction.pipeline.tables import detect_tables
 from app.engines.extraction.services.gpt_client import GPTClient
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run Layers 1-3 on a PDF.")
+    parser = argparse.ArgumentParser(description="Ingest, detect tables, and interpret one PDF.")
     parser.add_argument("pdf", type=Path)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -22,7 +22,7 @@ def main() -> None:
     configure_logging(debug=True)
     doc = ingest_pdf(args.pdf)
     table_set = detect_tables(args.pdf, doc)
-    result = run_layer3(doc, table_set, GPTClient())
+    result = interpret_document(doc, table_set, GPTClient())
 
     if args.json:
         print(result.model_dump_json(indent=2))

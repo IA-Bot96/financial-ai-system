@@ -35,9 +35,14 @@ def _sheet_name(title: str, used: set[str]) -> str:
 
 
 def _table_title(table: FinancialTable) -> str:
-    if table.title and table.title.strip():
-        return table.title.strip()
-    return table.statement_type.value.replace("_", " ").title()
+    base = table.title.strip() if (table.title and table.title.strip()) else \
+        table.statement_type.value.replace("_", " ").title()
+    # Label the set so consolidated vs unconsolidated tables are distinguishable.
+    if table.consolidated is True and "consolidat" not in base.lower():
+        base = f"{base} (Consolidated)"
+    elif table.consolidated is False and "unconsolidat" not in base.lower() and "separate" not in base.lower():
+        base = f"{base} (Unconsolidated)"
+    return base
 
 
 def _write_table(ws, table: FinancialTable) -> None:

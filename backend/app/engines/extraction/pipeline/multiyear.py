@@ -56,9 +56,23 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
     results = [r for r in results if r is not None]
     company = _resolve_company(results, company)
 
-    # st -> {key -> meta};  (st, key) -> {report_year -> {data_year -> LineItemValue}}
-    lines_by_st: dict[StatementType, dict[str, dict]] = {}
-    st_info: dict[StatementType, tuple] = {}
+    # Plausible data-year window from the reports themselves (a report covers its
+    # year + the prior comparative). Drops junk years (1990, 2001…) and stale
+    # six-year-summary years that pollute the output.
+    report_years = sorted({r.report_year for r in results if r.report_year})
+    year_lo = (min(report_years) - 1) if report_years else None
+    year_hi = max(report_years) if report_years else None
+
+    def _year_ok(y: int) -> bool:
+        return year_lo is None or (year_lo <= y <= year_hi)
+
+    # Group by (statement_type, consolidated) so the unconsolidated and
+    # consolidated sets stay SEPARATE and LABELED. The "prefer unconsolidated"
+    # choice is a template concern (handled in template_map), not here — so the
+    # no-template output keeps BOTH sets.
+    #   group -> {key -> meta};  (group, key) -> {report_year -> {data_year -> value}}
+    groups: dict[tuple, dict[str, dict]] = {}
+    group_info: dict[tuple, tuple] = {}
     values_index: dict[tuple, dict[int, dict[int, LineItemValue]]] = {}
 
     # Iterate latest report first so the most recent report defines line order/labels.
@@ -66,38 +80,42 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
         ry = res.report_year
         if ry is None:
             continue
-        # Prefer the unconsolidated set the template targets: process
-        # unconsolidated (False) tables first, unknown next, consolidated last,
-        # and don't overwrite a year already filled (setdefault below).
-        for table in sorted(res.tables, key=lambda t: {False: 0, None: 1, True: 2}[t.consolidated]):
-            st = table.statement_type
-            st_info.setdefault(st, (table.title, table.currency, table.unit_scale))
-            km = lines_by_st.setdefault(st, {})
+        for table in res.tables:
+            gkey = (table.statement_type, table.consolidated)
+            group_info.setdefault(gkey, (table.title, table.currency, table.unit_scale))
+            km = groups.setdefault(gkey, {})
             for li in table.line_items:
-                key = _line_key(li)
-                if not key:
+                base = _line_key(li)
+                if not base:
                     continue
+                # Include the sub-section in the key so same-labelled lines in
+                # different sub-notes (e.g. Distribution vs Administrative
+                # "Salaries and amenities") do NOT collapse into one line. Fall
+                # back to the table title when the line has no explicit section.
+                section = (li.section or table.title or "").strip()
+                key = (base, squash(section))
                 km.setdefault(key, {
                     "label": li.label,
-                    "section": li.section,
+                    "section": section,
                     "canonical_metric": li.canonical_metric,
                     "canonical_category": li.canonical_category,
                 })
-                rmap = values_index.setdefault((st, key), {}).setdefault(ry, {})
+                rmap = values_index.setdefault((gkey, key), {}).setdefault(ry, {})
                 for v in li.values:
-                    if v.year is not None:
-                        rmap.setdefault(v.year, v)  # unconsolidated wins within a report
+                    if v.year is not None and _year_ok(v.year):
+                        rmap.setdefault(v.year, v)
 
     data_years = sorted({
         y for idx in values_index.values() for rmap in idx.values() for y in rmap
     })
 
     merged: list[FinancialTable] = []
-    for st, km in lines_by_st.items():
+    for gkey, km in groups.items():
+        st, consolidated = gkey
         items: list[LineItem] = []
         present_years: set[int] = set()
         for key, meta in km.items():
-            idx = values_index.get((st, key), {})
+            idx = values_index.get((gkey, key), {})
             values: list[LineItemValue] = []
             for year in data_years:
                 candidates = [ry for ry, rmap in idx.items() if year in rmap]
@@ -117,10 +135,10 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                     canonical_category=meta["canonical_category"],
                     values=values,
                 ))
-        title, currency, unit = st_info.get(st, ("", None, None))
+        title, currency, unit = group_info.get(gkey, ("", None, None))
         merged.append(FinancialTable(
             statement_type=st, title=title, currency=currency, unit_scale=unit,
-            years=sorted(present_years), line_items=items,
+            consolidated=consolidated, years=sorted(present_years), line_items=items,
         ))
 
     insights = [i for res in results for i in res.insights]
