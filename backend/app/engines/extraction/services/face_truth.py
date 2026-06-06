@@ -39,6 +39,13 @@ _METRIC_ALIASES = {
     "share_capital_and_reserves": "equity",
 }
 
+# Expense/deduction metrics are ALWAYS negative on an additive P&L. Sources report them
+# inconsistently (a cost is positive in a cost note, parenthesised in the statement), so
+# face truth is normalised to -abs for these — keeping it consistent with the output
+# statement's formula sign (=-'PL2'!.. ) so the signed tie-out passes. Profit subtotals
+# and other_income are NOT here (they can legitimately be negative / vary). #6.
+_EXPENSE_KEY_METRICS = frozenset({"cost_of_sales", "finance_cost", "tax_expense", "taxation", "income_tax"})
+
 # Metrics that LEGITIMATELY appear across statement families — never quarantined
 # (deferred tax on the BS, depreciation in PP&E notes, finance-cost-paid in cash flow…).
 CROSS_FAMILY_OK = frozenset({
@@ -191,6 +198,13 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
     # Per-metric magnitude reference: median of |value|. Anchored to PRIMARY candidates
     # when the metric has any (so note partials don't move it); else fall back to all.
     # Includes zeros — a legitimately-zero metric must not be dropped from the median.
+    #
+    # CURRENCY-SCALE anchor: a mixed "Analysis of …" table can tag BOTH the real figure
+    # (266,748,030) AND its common-size percentage (100) as the same total. The % rows
+    # often OUTNUMBER the real ones, which would drag a plain median down to ~100 and make
+    # the outlier band reject the real values. So the reference ignores any value more
+    # than 1000x below the metric's largest — percentages are ~1e6x smaller than a money
+    # figure in thousands, while real year-on-year / consolidated variation stays within ~3x.
     prim_abs: dict[str, list[float]] = {}
     all_abs: dict[str, list[float]] = {}
     for (cm, _y), lst in cand.items():
@@ -198,7 +212,15 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
             all_abs.setdefault(cm, []).append(abs(c[0]))
             if c[3] == 0:
                 prim_abs.setdefault(cm, []).append(abs(c[0]))
-    median_abs = {cm: statistics.median(prim_abs.get(cm) or vals) for cm, vals in all_abs.items() if vals}
+
+    def _scale_ref(vals: list[float]) -> float:
+        nz = [v for v in vals if v]
+        if not nz:
+            return 0.0
+        floor = max(nz) / 1000.0
+        return statistics.median([v for v in nz if v >= floor] or nz)
+
+    median_abs = {cm: _scale_ref(prim_abs.get(cm) or vals) for cm, vals in all_abs.items() if vals}
 
     truth: dict[tuple[str, int], tuple[float, object]] = {}
     for (cm, year), lst in cand.items():
@@ -216,5 +238,9 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
         tiered = [c for c in chosen if c[3] == best_tier]
         # Newest report wins; then prefer the value CLOSEST to the metric's median.
         value, _ry, src, _tier = max(tiered, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
+        # Normalise expense metrics to the additive-P&L convention (always negative) so
+        # face truth, the output formula, and the override all share one sign.
+        if cm in _EXPENSE_KEY_METRICS:
+            value = -abs(value)
         truth[(cm, year)] = (value, src)
     return truth

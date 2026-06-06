@@ -54,9 +54,10 @@ class ExtractionOutput(BaseModel):
     mode: str                      # "template" | "no_template"
     plan: Optional[MappingPlan] = None
     # Observability (#8): validation outcome surfaced to callers / API / manifest.
-    production_ready: bool = True
+    production_ready: bool = True      # HEADLINE statements (P&L, BS) tie out to audited face truth
+    fully_reconciled: bool = True      # STRICT: production_ready AND every detail row reconciles too
     validation_failures: int = 0       # production-blocking: headline-statement tie-out failures
-    detail_incomplete: int = 0         # non-blocking: breakdown subtotals / withheld leaves
+    detail_incomplete: int = 0         # non-blocking for production_ready: breakdown / withheld leaves
     withheld: int = 0
     quarantined: int = 0
     manifest_path: Optional[str] = None
@@ -142,6 +143,13 @@ def process_documents(
         unevaluable = headline_uneval
         detail_incomplete = (computed_fail - headline_fail) \
             + (computed_unevaluable - headline_uneval) + len(plan.withheld)
+        # Objective detail-sheet accuracy: of the breakdown subtotals that resolve to a
+        # face metric, how many reconcile to the audited total. Reported so progress on
+        # detail mapping is measurable (codex acceptance test) and the manifest can't
+        # imply the detail sheets are clean when they aren't.
+        detail_rows = [r for r in computed_rows if r.sheet not in output_set]
+        detail_checked = len(detail_rows)
+        detail_ok = sum(1 for r in detail_rows if r.status == "ok")
         formulas_repaired = len(repairs)
         overrides_applied = len(overrides)
     else:
@@ -158,14 +166,24 @@ def process_documents(
         append_ledger_sheet(output_path, ledger_rows)
         unevaluable = 0
         detail_incomplete = 0
+        detail_checked = detail_ok = 0
         formulas_repaired = 0
         overrides_applied = 0
         coverage_gaps = 0
+
+    # Fit columns so large figures don't render as '######' (cosmetic, both modes).
+    from app.engines.extraction.services.validation import widen_columns
+    widen_columns(output_path)
 
     # Observability (#8): populate the result + write a manifest beside the workbook.
     # A run is production-ready only if every key metric tied out AND none was left
     # unvalidated (an un-evaluable key formula is a coverage gap, not a silent pass).
     out.production_ready = (production_fail == 0 and unevaluable == 0)
+    # STRICT signal so the manifest never overclaims relative to the workbook ledger:
+    # true only when EVERY ledger row reconciles — headline ties AND no breakdown
+    # mismatch / withheld / unevaluable / coverage gap. `production_ready` certifies the
+    # headline statements (the deliverable); `fully_reconciled` certifies the whole book.
+    out.fully_reconciled = out.production_ready and detail_incomplete == 0
     out.validation_failures = production_fail
     out.detail_incomplete = detail_incomplete
     out.withheld = len(out.plan.withheld) if out.plan else 0
@@ -183,6 +201,8 @@ def process_documents(
         "unevaluable_formulas": unevaluable,
         # Non-blocking: breakdown-note gaps + withheld leaves (flagged, not shipped silently).
         "detail_incomplete": detail_incomplete,
+        # Objective detail-sheet accuracy: breakdown subtotals reconciling to audited totals.
+        "detail_reconciliation": f"{detail_ok}/{detail_checked}" if detail_checked else "0/0",
         # Production-blocking subset of validation_failures: headline metrics emitted with
         # no audited face truth (e.g. a mis-classified statement -> no primary table).
         "headline_coverage_gaps": coverage_gaps,
@@ -191,6 +211,10 @@ def process_documents(
         # Production-ready iff every HEADLINE metric tied out and was evaluable.
         # See the 'Validation Ledger' / 'Source Ledger' sheets.
         "production_ready": out.production_ready,
+        # Strict: true only when the ENTIRE ledger reconciles (no detail mismatch/withheld
+        # either). When false but production_ready is true, the headline statements are
+        # trustworthy and `detail_incomplete` says how many supporting rows don't reconcile.
+        "fully_reconciled": out.fully_reconciled,
     }
     dumper.json("00_run_summary", manifest)
     try:

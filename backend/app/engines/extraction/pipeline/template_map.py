@@ -249,6 +249,27 @@ def _empty_fraction(ws, year_cols: dict[int, int], header_row: int) -> float:
     return (empty / total) if total else 0.0
 
 
+def _crosssheet_fraction(ws, year_cols: dict[int, int], header_row: int) -> float:
+    """Fraction of FORMULA data cells that pull from another sheet (contain '!').
+
+    The assembled output statements (P&L, Balance Sheet) are built almost entirely from
+    `='BS1 - …'!`/`='PL1 - …'!` references (~0.6–0.8); breakdown notes use intra-sheet
+    sums + leaf values (0.0). So a high fraction marks an OUTPUT statement even when its
+    empty-fraction is just over the computed-sheet threshold (the Millat balance sheet)."""
+    total = cross = 0
+    for r in range(header_row + 1, ws.max_row + 1):
+        label = ws.cell(r, 1).value
+        if not isinstance(label, str) or not label.strip():
+            continue
+        for c in year_cols:
+            v = ws.cell(r, c).value
+            if isinstance(v, str) and v.startswith("="):
+                total += 1
+                if "!" in v:
+                    cross += 1
+    return (cross / total) if total else 0.0
+
+
 def _sheet_statement_type(ws, header_row: int, classifier: TableClassifier) -> StatementType | None:
     title = ws.cell(1, 1).value or ""
     labels = [
@@ -375,7 +396,11 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
             if len(year_cols) < 2:
                 plan.sheets_skipped.append(ws.title)
                 continue
-            if _empty_fraction(ws, year_cols, header_row) < settings.template_min_empty_fraction:
+            # An output statement is either mostly-filled-with-formulas (low empty
+            # fraction) OR predominantly cross-sheet pulls (a balance sheet that pulls
+            # every line from the BS1–BS5 breakdowns but still has empty forecast cells).
+            if (_empty_fraction(ws, year_cols, header_row) < settings.template_min_empty_fraction
+                    or _crosssheet_fraction(ws, year_cols, header_row) >= 0.30):
                 plan.sheets_skipped.append(ws.title)  # computed/output sheet
                 plan.formula_sheets.append(ws.title)  # ...and it IS an output statement
                 continue

@@ -42,15 +42,17 @@ def main() -> None:
         print(f"Cells filled: {len(result.plan.writes)}; sheets: {result.plan.sheets_processed}")
         if result.plan.unmatched_template_labels:
             print(f"Unmatched template labels: {len(result.plan.unmatched_template_labels)}")
-    print(f"Production-ready: {result.production_ready}  "
-          f"(headline failures: {result.validation_failures}, detail incomplete: {result.detail_incomplete}, "
-          f"withheld: {result.withheld}, quarantined: {result.quarantined})")
+    print(f"Production-ready (headline): {result.production_ready}   "
+          f"Fully reconciled (all rows): {result.fully_reconciled}")
+    print(f"  headline failures: {result.validation_failures}, detail incomplete: {result.detail_incomplete}, "
+          f"withheld: {result.withheld}, quarantined: {result.quarantined}")
     if not result.production_ready:
         print("  -> NON-PRODUCTION: a headline statement value failed tie-out; "
               "see the 'Validation Ledger' sheet.")
-    elif result.detail_incomplete:
-        print(f"  -> Headline statements tie out to audited truth. "
-              f"{result.detail_incomplete} breakdown-detail row(s) incomplete (non-blocking).")
+    elif not result.fully_reconciled:
+        print(f"  -> Headline statements tie out to audited truth, but {result.detail_incomplete} "
+              f"supporting detail row(s) do not reconcile (see 'Validation Ledger'). "
+              f"Headline-shippable; not fully reconciled.")
     if result.manifest_path:
         print(f"Manifest: {result.manifest_path}")
 

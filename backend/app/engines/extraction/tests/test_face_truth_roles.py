@@ -56,6 +56,48 @@ def test_bare_analysis_without_face_evidence_is_analytical():
     assert infer_table_role(t) == "analytical"
 
 
+def test_common_size_percentages_do_not_pollute_truth():
+    # A mixed "Analysis of SoFP" tags BOTH the real figure AND its common-size % (100)
+    # as total_assets, and the % rows can outnumber the real ones. The currency-scale
+    # anchor must keep the real value, not collapse to 100.
+    items = []
+    real = {2022: 184962368.0, 2023: 213079067.0, 2024: 234018090.0, 2025: 266748030.0}
+    for y, v in real.items():
+        items.append(LineItem(label="Total assets", canonical_metric="total_assets",
+                              canonical_category="balance_sheet", values=[LineItemValue(year=y, value=v)]))
+        # two percentage rows per year (common-size + a ratio) — outnumber the real one
+        for pct in (100.0, 13.99):
+            items.append(LineItem(label="Total assets %", canonical_metric="total_assets",
+                                  canonical_category="balance_sheet", values=[LineItemValue(year=y, value=pct)]))
+    t = FinancialTable(statement_type=StatementType.balance_sheet,
+                       title="Analysis of Statement of Financial Position", unit_scale="thousands",
+                       line_items=items)
+    truth = build_face_truth([t])
+    assert truth[("total_assets", 2025)][0] == 266748030.0   # real value, not 100
+
+
+def test_expense_metrics_normalised_negative():
+    # Cost of sales reported POSITIVE in a note -> face truth stores it negative so it
+    # matches the additive-P&L formula sign (=-'PL2'!..) and the signed tie-out passes.
+    t = FinancialTable(statement_type=StatementType.income_statement,
+                       title="Statement of Profit or Loss",
+                       line_items=[LineItem(label="Cost of sales", canonical_metric="cost_of_sales",
+                           canonical_category="income_statement",
+                           values=[LineItemValue(year=2025, value=81827060.0)])])
+    truth = build_face_truth([t])
+    assert truth[("cost_of_sales", 2025)][0] == -81827060.0
+
+
+def test_crosssheet_fraction_marks_output_sheet():
+    import openpyxl
+    from app.engines.extraction.pipeline.template_map import _crosssheet_fraction
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws["A3"], ws["B3"], ws["C3"] = "Particulars", 2024, 2025
+    ws["A4"], ws["B4"], ws["C4"] = "Total assets", "='BS1'!B72", "='BS1'!C72"   # cross-sheet pulls
+    ws["A5"], ws["B5"], ws["C5"] = "Equity", "='BS3'!B10", "='BS3'!C10"
+    assert _crosssheet_fraction(ws, {2: 2024, 3: 2025}, 3) == 1.0
+
+
 def test_build_face_truth_picks_up_analysis_of_sofp():
     # End-to-end: the analysis-of-SoFP primary table feeds balance-sheet face truth.
     truth = build_face_truth([_bs("Analysis of Statement of Financial Position")])

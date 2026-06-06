@@ -23,6 +23,17 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Fallback sign convention when a row has no usable formula sibling to read it from.
+# Expenses/deductions are ALWAYS negative on an additive P&L; revenue and balance-sheet
+# figures are always positive. Profit subtotals and other_income are intentionally
+# OMITTED — they can legitimately be negative (a loss / a net other-expense), so they
+# keep face truth's own sign rather than being forced.
+_ALWAYS_NEGATIVE = frozenset({"cost_of_sales", "finance_cost", "tax_expense", "taxation", "income_tax"})
+_ALWAYS_POSITIVE = frozenset({
+    "revenue", "total_assets", "total_liabilities", "total_equity_and_liabilities",
+    "non_current_assets", "current_assets", "non_current_liabilities", "current_liabilities", "equity",
+})
+
 
 @dataclass
 class Override:
@@ -72,6 +83,28 @@ def override_headline_metrics(workbook_path, company, tieout, output_sheets,
             cm = _row_metric(label.strip())
             if cm not in _KEY_METRICS:
                 continue
+            # The sign the template INTENDS for this row, read from a sibling FORMULA
+            # cell (e.g. "=-'PL2'!.." -> negative cost; "='PL4'!.." -> positive income).
+            # Face truth carries whatever sign each source reported (a cost is positive
+            # in one report, parenthesised in another), so writing it raw makes the P&L
+            # inconsistent (costs add instead of subtract). Anchoring to the formula sign
+            # keeps the statement additive AND preserves genuine losses (a loss-year
+            # subtotal formula evaluates negative -> -abs). #6.
+            row_sign = None
+            for c in band:
+                fc = ws.cell(r, c)
+                if isinstance(fc.value, str) and fc.value.startswith("="):
+                    ev = evaluate(wb, title, fc.coordinate)
+                    if ev is not None and abs(ev) > 1e-9:
+                        row_sign = -1.0 if ev < 0 else 1.0
+                        break
+            # No usable formula sibling (whole row overridden / siblings evaluate to 0):
+            # fall back to the metric's fixed convention for the unambiguous metrics.
+            if row_sign is None:
+                if cm in _ALWAYS_NEGATIVE:
+                    row_sign = -1.0
+                elif cm in _ALWAYS_POSITIVE:
+                    row_sign = 1.0
             for c in band:
                 pair = face.get((cm, year_of[c]))
                 if not pair:
@@ -87,18 +120,24 @@ def override_headline_metrics(workbook_path, company, tieout, output_sheets,
                     computed = float(v)
                 else:
                     computed = None
-                # Output cells are signed; a cell already tying out keeps its formula.
-                if computed is not None and tieout(computed, truth):
+                # Write with the statement's intended sign (magnitude from face truth).
+                value = row_sign * abs(truth) if row_sign is not None else float(truth)
+                # A HEADLINE statement should show the audited figure exactly, not a
+                # within-tolerance breakdown sum. Overriding every key cell to face truth
+                # also makes the balance sheet tie (assets == equity+liabilities, since
+                # both totals come from the same audited statement). Skip only when the
+                # cell already holds that exact value (nothing to change).
+                if computed is not None and abs(computed - value) <= 0.5:
                     continue
                 was = cell.value
-                cell.value = float(truth)
+                cell.value = value
                 if annotate:
                     prior = f"{computed:,.0f}" if computed is not None else "blank / not evaluable"
                     cell.comment = Comment(
-                        f"OVERRIDE: substituted audited {cm} = {truth:,.0f} (was {prior}). "
+                        f"OVERRIDE: substituted audited {cm} = {value:,.0f} (was {prior}). "
                         f"Source: {_src_str(src)}", "validation")
                 overrides.append(Override(title, cell.coordinate, cm, year_of[c], was,
-                                          float(truth), _src_str(src)))
+                                          value, _src_str(src)))
     if overrides:
         wb.save(workbook_path)
     wb.close()

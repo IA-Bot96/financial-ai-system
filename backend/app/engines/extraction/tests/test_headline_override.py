@@ -43,6 +43,52 @@ def test_failing_headline_cell_is_overridden_with_face_value(tmp_path):
     assert {(o.coordinate, o.year) for o in overrides} == {("F28", 2024), ("G28", 2025)}
 
 
+def _pl_company(metric, label, vals):
+    return CompanyResult(company="A", fiscal_years=[2024, 2025], tables=[
+        FinancialTable(statement_type=StatementType.income_statement,
+                       title="Statement of Profit or Loss",
+                       line_items=[LineItem(label=label, canonical_metric=metric,
+                           canonical_category="income_statement",
+                           values=[LineItemValue(year=y, value=v) for y, v in vals.items()])])])
+
+
+def test_expense_overridden_negative_even_when_face_is_positive(tmp_path):
+    # Cost of sales face is POSITIVE (a cost reported plain); no formula sibling exists.
+    # The P&L additive convention requires it negative -> fallback forces -abs.
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "P&L"
+    ws["A3"], ws["F3"], ws["G3"] = "Particulars", 2024, 2025
+    ws["A12"], ws["F12"], ws["G12"] = "Cost of sales", 1, 1   # wrong -> overridden, no formula siblings
+    p = tmp_path / "wb.xlsx"; wb.save(p)
+    company = _pl_company("cost_of_sales", "Cost of sales", {2024: 500.0, 2025: 600.0})
+    override_headline_metrics(p, company, tieout, {"P&L"})
+    out = openpyxl.load_workbook(p)["P&L"]
+    assert out["F12"].value == -500.0 and out["G12"].value == -600.0
+
+
+def test_revenue_overridden_positive(tmp_path):
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "P&L"
+    ws["A3"], ws["F3"], ws["G3"] = "Particulars", 2024, 2025
+    ws["A5"], ws["F5"], ws["G5"] = "Revenue", 1, 1
+    p = tmp_path / "wb.xlsx"; wb.save(p)
+    company = _pl_company("revenue", "Revenue", {2024: 1000.0, 2025: 1100.0})
+    override_headline_metrics(p, company, tieout, {"P&L"})
+    out = openpyxl.load_workbook(p)["P&L"]
+    assert out["F5"].value == 1000.0 and out["G5"].value == 1100.0
+
+
+def test_sign_inferred_from_sibling_preserves_loss(tmp_path):
+    # profit_after_tax is NOT in the fixed sets (can be a loss). A sibling formula that
+    # evaluates negative -> the overridden cell is written negative too (loss preserved).
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "P&L"
+    ws["A3"], ws["F3"], ws["G3"] = "Particulars", 2024, 2025
+    ws["A25"], ws["F25"], ws["G25"] = "Profit after taxation", "=-100", 1  # F sibling = -100 (loss)
+    p = tmp_path / "wb.xlsx"; wb.save(p)
+    company = _pl_company("profit_after_tax", "Profit after taxation", {2025: 900.0})
+    override_headline_metrics(p, company, tieout, {"P&L"})
+    out = openpyxl.load_workbook(p)["P&L"]
+    assert out["G25"].value == -900.0          # negative sibling -> loss sign preserved
+
+
 def test_correct_headline_cell_keeps_its_formula(tmp_path):
     wb = openpyxl.Workbook()
     bs = wb.active; bs.title = "Balance Sheet"

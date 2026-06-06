@@ -273,6 +273,31 @@ def write_source_ledger(workbook_path, plan: MappingPlan) -> None:
     wb.save(workbook_path)
 
 
+def widen_columns(workbook_path) -> None:
+    """Fit each column to its widest value so large figures don't render as '######'.
+    Year data columns ship from the template at the default ~8.4 chars, too narrow for
+    9-digit money. Bounded [10, 60] and never shrinks an existing (wider) width."""
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+
+    wb = load_workbook(workbook_path)
+    for ws in wb.worksheets:
+        widest: dict[str, int] = {}
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if v is None:
+                    continue
+                s = f"{int(round(v)):,}" if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v)
+                col = get_column_letter(cell.column)
+                if len(s) > widest.get(col, 0):
+                    widest[col] = len(s)
+        for col, w in widest.items():
+            cur = ws.column_dimensions[col].width or 0
+            ws.column_dimensions[col].width = min(max(cur, w + 2, 10), 60)
+    wb.save(workbook_path)
+
+
 def append_ledger_sheet(workbook_path, rows: list[LedgerRow]) -> None:
     """Append a 'Validation Ledger' sheet to an existing workbook."""
     from openpyxl import load_workbook
