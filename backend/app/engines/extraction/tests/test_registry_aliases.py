@@ -28,7 +28,21 @@ def test_glossary_aliases_resolve():
         # Equity-total captions (regression: "Total share capital and reserves" was unresolved).
         "Total share capital and reserves": "share_capital_and_reserves",
         "Total shareholders equity": "equity",
+        # P&L tax/PAT/levy captions (regression: these template rows resolved to None, so the
+        # override never substituted the correct tax -> output showed tax=0, PAT=PBT).
+        "Profit before income tax": "profit_before_tax",
+        "Profit after tax for the year": "profit_after_tax",
+        "Taxation - income tax": "tax_expense",
+        "Levy - final taxes": "levy",
     }
+    r = get_resolver()
     for label, expected in cases.items():
         m = r.resolve(label)
         assert m is not None and m.canonical_key == expected, f"{label!r} -> {m and m.canonical_key} (want {expected})"
+
+
+def test_pre_levy_profit_row_stays_distinct_from_pbt():
+    # "Profit before income taxes and levies" (pre-levy) must NOT collapse onto
+    # profit_before_tax (post-levy) — they are different template rows.
+    m = get_resolver().resolve("Profit before income taxes and levies")
+    assert (m is None) or m.canonical_key != "profit_before_tax"

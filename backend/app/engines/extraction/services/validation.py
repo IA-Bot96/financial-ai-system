@@ -9,9 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.logging import get_logger
 from app.engines.extraction.models.company import CompanyResult
 from app.engines.extraction.models.mapping import MappingPlan
 from app.engines.extraction.services.face_truth import build_face_truth
+
+logger = get_logger(__name__)
 
 _LEDGER_SHEET = "Validation Ledger"
 _HEADERS = ["Status", "Sheet", "Cell/Label", "Metric", "Year", "Value", "Face truth", "Source", "Note"]
@@ -246,9 +249,11 @@ _SOURCE_HEADERS = ["Sheet", "Cell", "Template label", "Matched label", "Year", "
                    "Report year", "Report file", "Page", "Table id", "Confidence", "Note"]
 
 
-def write_source_ledger(workbook_path, plan: MappingPlan) -> None:
+def write_source_ledger(workbook_path, plan: MappingPlan, overrides=None) -> None:
     """Traceability (#9): a 'Source Ledger' sheet mapping every written cell back to
-    its report / page / table of origin."""
+    its report / page / table of origin. Also records the FINAL output-cell overrides
+    (audited face truth substituted into headline P&L / Balance Sheet cells), so the
+    delivered output values are cell-level auditable, not only traceable via comments."""
     from openpyxl import load_workbook
 
     from app.engines.extraction.services import styles as S
@@ -260,7 +265,8 @@ def write_source_ledger(workbook_path, plan: MappingPlan) -> None:
     for c, h in enumerate(_SOURCE_HEADERS, start=1):
         cell = ws.cell(1, c, h)
         cell.font, cell.fill = S.HEADER_FONT, S.HEADER_FILL
-    for r, w in enumerate(sorted(plan.writes, key=lambda x: (x.sheet, x.coordinate)), start=2):
+    r = 2
+    for w in sorted(plan.writes, key=lambda x: (x.sheet, x.coordinate)):
         src = w.source
         pages = (src.pages if src else None) or []
         vals = [w.sheet, w.coordinate, w.template_label, w.matched_label, w.year, w.value,
@@ -269,8 +275,66 @@ def write_source_ledger(workbook_path, plan: MappingPlan) -> None:
                 round(w.confidence, 3), w.note]
         for c, v in enumerate(vals, start=1):
             ws.cell(r, c, v)
+        r += 1
+    # Final output overrides (headline cells substituted with audited face truth).
+    for o in sorted(overrides or [], key=lambda x: (x.sheet, x.coordinate)):
+        vals = [o.sheet, o.coordinate, o.metric, "(headline override)", o.year, o.value,
+                getattr(o, "report_year", None), getattr(o, "report_file", None) or o.source,
+                getattr(o, "page", None), getattr(o, "table_id", None), 1.0,
+                f"OVERRIDE: audited face truth (was {o.was!r})"]
+        for c, v in enumerate(vals, start=1):
+            ws.cell(r, c, v)
+        r += 1
     ws.freeze_panes = "A2"
     wb.save(workbook_path)
+
+
+def recalc_workbook(workbook_path) -> bool:
+    """Make formula cells readable by NON-Excel consumers. Always sets `fullCalcOnLoad`
+    so Excel/LibreOffice recalculate on open; if a LibreOffice binary is found, headless-
+    recalculates and rewrites the file so cached <v> values are materialized for openpyxl
+    /pandas/`data_only` readers too. Returns True iff cached values were materialized."""
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(workbook_path)
+    try:
+        wb.calculation.fullCalcOnLoad = True   # Excel/LibreOffice recalc on open
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not set fullCalcOnLoad: %s", exc)
+    wb.save(workbook_path)
+    wb.close()
+
+    soffice = (shutil.which("soffice") or shutil.which("libreoffice")
+               or next((p for p in (
+                   r"C:\Program Files\LibreOffice\program\soffice.exe",
+                   r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                   "/usr/bin/soffice", "/usr/bin/libreoffice",
+                   "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+               ) if Path(p).exists()), None))
+    if not soffice:
+        logger.info("Formula cache: set fullCalcOnLoad (Excel recalcs on open); no LibreOffice "
+                    "found, so cached values are NOT materialized for headless readers.")
+        return False
+    try:
+        src = Path(workbook_path)
+        with tempfile.TemporaryDirectory() as td:
+            subprocess.run([soffice, "--headless", "--calc",
+                            "--convert-to", "xlsx:Calc MS Excel 2007 XML",
+                            "--outdir", td, str(src)], check=True, timeout=180,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            out = Path(td) / (src.stem + ".xlsx")
+            if out.exists():
+                shutil.copyfile(out, src)
+                logger.info("Formula cache materialized via LibreOffice headless recalc.")
+                return True
+    except Exception as exc:  # noqa: BLE001 — recalc is best-effort, never fail the run
+        logger.warning("LibreOffice recalc failed (%s); fullCalcOnLoad still set.", exc)
+    return False
 
 
 def reconcile_breakdown_subtotals(workbook_path, company: CompanyResult, tieout,
@@ -316,7 +380,12 @@ def reconcile_breakdown_subtotals(workbook_path, company: CompanyResult, tieout,
             if not isinstance(label, str) or not label.strip():
                 continue
             cm = _row_metric(label.strip())
-            if cm not in _KEY_METRICS:        # subtotals resolve to a KEY metric
+            # Reconcile BOTH grand totals (KEY metrics) AND section subtotals — any row
+            # resolving to a canonical with audited face truth (e.g. 'Total Long-term
+            # Investments' -> long_term_investments). Fixing sections first makes the grand
+            # total reconcile GENUINELY (sum of correct sections), shrinking the opaque
+            # grand-total plug. (face.get below still filters to metrics we actually have.)
+            if cm is None:
                 continue
             for c in band:
                 cell = ws.cell(r, c)

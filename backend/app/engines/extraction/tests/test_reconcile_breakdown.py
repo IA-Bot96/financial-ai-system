@@ -46,6 +46,26 @@ def test_subtotal_already_reconciles_not_touched(tmp_path):
     assert n == 0 and after == before
 
 
+def test_section_subtotal_reconciled_to_canonical_face(tmp_path):
+    # A SECTION subtotal resolving to a NON-key canonical (long_term_investments) must also
+    # reconcile to its audited note total — so each section is correct, not just the grand
+    # total. Leaves sum to 1,000,000 but audited LTI 2025 is 4,173,730 -> plugged.
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "BS1 - Non-Current Assets"
+    ws["A3"], ws["F3"], ws["G3"] = "Particulars", 2024, 2025
+    ws["A10"], ws["F10"], ws["G10"] = "Investment in associates", 900000, 1000000
+    ws["A12"], ws["F12"], ws["G12"] = "Total Long-term Investments", "=SUM(F10:F11)", "=SUM(G10:G11)"
+    p = tmp_path / "wb.xlsx"; wb.save(p)
+    company = CompanyResult(company="A", fiscal_years=[2024, 2025], tables=[
+        FinancialTable(statement_type=StatementType.balance_sheet, title="Statement of Financial Position",
+            line_items=[LineItem(label="Long-term investments", canonical_metric="long_term_investments",
+                canonical_category="balance_sheet",
+                values=[LineItemValue(year=2024, value=4000000.0), LineItemValue(year=2025, value=4173730.0)])])])
+    rows, n = reconcile_breakdown_subtotals(p, company, tieout, output_sheets=set())
+    wb2 = openpyxl.load_workbook(p)
+    assert abs(evaluate(wb2, "BS1 - Non-Current Assets", "G12") - 4173730.0) <= 1
+    assert any(r.metric == "long_term_investments" for r in rows)
+
+
 def test_output_sheets_are_skipped(tmp_path):
     # If BS1 were (wrongly) declared an output sheet, the breakdown pass skips it.
     p = _bs1(tmp_path, leaf_2025=7000000)

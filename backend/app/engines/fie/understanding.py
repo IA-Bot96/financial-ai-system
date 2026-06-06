@@ -53,6 +53,10 @@ _METRIC_KEYWORDS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\bequity\b", re.I), "total_equity"),
 ]
 
+# bare/unqualified "profit"/"earnings" — ambiguous metric (gross/operating/net),
+# routed to metric_lookup so the availability gate can clarify.
+_AMBIGUOUS_METRIC_RE = re.compile(r"\bprofit(s|ability)?\b|\bearnings\b", re.I)
+
 # aggregation operators over a multi-year series
 _AGG_RE = re.compile(
     r"average\s+(?:annual\s+)?(?:increase|growth|change|rise|gain)|"
@@ -199,6 +203,12 @@ def build_frame(query: str) -> QueryFrame:
         if pattern.search(query):
             return QueryFrame(raw_query=query, intent="metric_lookup",
                               company=company, year=year, metrics=[metric])
+
+    # an unqualified "profit"/"earnings" value question is an ambiguous metric_lookup
+    # (no canonical chosen) — the engine's availability gate decides clarify vs resolve.
+    if _AMBIGUOUS_METRIC_RE.search(query):
+        return QueryFrame(raw_query=query, intent="metric_lookup",
+                          company=company, year=year, metrics=[])
 
     return QueryFrame(raw_query=query, intent="unknown", company=company, year=year)
 

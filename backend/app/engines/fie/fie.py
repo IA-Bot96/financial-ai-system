@@ -14,7 +14,9 @@ from typing import Callable
 
 from . import citations as citations_mod
 from . import insights as insights_mod
-from . import admission, news_retrieval, planner, response, retrieval, scale, synthesis, understanding
+from . import (admission, entity_registry, forecast_rules, metric_resolve,
+               news_retrieval, planner, qualitative, response, retrieval, scale,
+               synthesis, understanding)
 from .apis import ExternalSources
 from .calc import CalcEngine
 from .conflicts import ConflictResolver
@@ -60,6 +62,8 @@ class FinancialIntelligenceEngine:
         self.insights = insights_mod.InsightSelector(mode=insight_mode, alpha=alpha,
                                                      llm=self.llm)
         self.synthesizer = synthesis.Synthesizer(llm=self.llm)
+        self._registry = None              # lazy EntityRegistry over PSX symbols
+        self._last_entity_verdict = None   # last company->ticker resolution verdict
 
     def answer(self, query: str, *, audience: str = "analyst") -> Response:
         _frame, _plan, _ctx, resp = self._run(query, audience)
@@ -89,12 +93,26 @@ class FinancialIntelligenceEngine:
             cr = self.calc.evaluate(frame.formula, frame.year)
             ctx.calcs = [cr]
             ctx.evidence = retrieval.evidence_from_facts(self.store, cr.inputs)
-            ctx.conflicts = self.conflicts.detect(facts=cr.inputs)
+            ctx.conflicts = self.conflicts.detect(
+                facts=cr.inputs, report_year_preference=frame.report_year_preference)
 
         elif frame.intent == "metric_lookup":
-            ctx.evidence = retrieval.fetch(self.store, plan)
-            ctx.conflicts = self.conflicts.detect(
-                facts=[f for e in ctx.evidence for f in e.fact_refs])
+            # availability-gated resolution + clarification on ambiguous terms
+            mr = metric_resolve.resolve(frame.raw_query, frame.metrics,
+                                        self.store.available_metrics())
+            if mr["clarify"]:
+                ctx.extra = {"clarify": True, "candidates": mr["candidates"],
+                             "suggestions": mr["suggestions"]}
+            else:
+                if mr["resolved"] and mr["resolved"] not in (frame.metrics or []):
+                    frame.metrics = [mr["resolved"]]      # prefer an available canonical
+                    for req in plan.requirements:
+                        req.metric = mr["resolved"]
+                ctx.extra = {"suggestions": mr["suggestions"], "available": mr["available"]}
+                ctx.evidence = retrieval.fetch(self.store, plan)
+                ctx.conflicts = self.conflicts.detect(
+                    facts=[f for e in ctx.evidence for f in e.fact_refs],
+                    report_year_preference=frame.report_year_preference)
 
         elif frame.intent == "risk_assessment":
             all_insights = self.store.insights(include_review=True)
@@ -106,6 +124,11 @@ class FinancialIntelligenceEngine:
                 insights=ctx.selected_insights)  # + cross-Area semantic (LLM, if present)
             ctx.total_insights = len(all_insights)
             ctx.superseded = sum(len(r["superseded"]) for r in ctx.insight_resolutions)
+            # taxonomy themes + coverage gate over the selected insights (L5/L6)
+            ctx.extra = {
+                "themes": qualitative.assemble_themes(ctx.selected_insights),
+                "qual_coverage": qualitative.coverage(ctx.selected_insights),
+            }
 
         elif frame.intent == "peer_comparison":
             self._peer_comparison(frame, ctx)
@@ -125,11 +148,27 @@ class FinancialIntelligenceEngine:
         elif frame.intent in ("news_impact", "earnings_review"):
             self._news(frame, ctx, plan)
 
+        # corroborate workbook facts with same-period external actuals (analysis_reports)
+        # so the cross-source reconciliation below has an overlapping source to compare.
+        if frame.intent in ("metric_lookup", "ratio_analysis", "trend_analysis",
+                            "peer_comparison"):
+            self._corroborate(frame, ctx)
+
         # admission role (L6): tag every datum so the trust model is explicit —
         # workbook facts = baseline; external = supporting/event/context; news =
         # non-authoritative. External numbers can never be a baseline (admission.py).
         for e in ctx.evidence:
             e.role = admission.classify_evidence(e).value
+        # cross-source numeric reconciliation (scale-aware, authority-resolved): a
+        # workbook value vs a same-metric external value — fires when an external feed
+        # reports a metric the workbook also has (e.g. analysis_reports).
+        internal_ev = [e for e in ctx.evidence if e.fact_refs]
+        external_ev = [e for e in ctx.evidence if e.kind == "external" and e.value is not None]
+        if internal_ev and external_ev:
+            ctx.conflicts += self.conflicts.detect_internal_vs_external(internal_ev, external_ev)
+        if len(external_ev) > 1:
+            # external-vs-external disagreement: surfaced (no trusted baseline to settle it)
+            ctx.conflicts += self.conflicts.detect_cross_api(external_ev)
 
         _layer("Retrieve", "evidence=%d calcs=%d conflicts=%d degraded=%s",
                 len(ctx.evidence), len(ctx.calcs), len(ctx.conflicts), ctx.degraded)
@@ -201,15 +240,63 @@ class FinancialIntelligenceEngine:
                     rows.append({"company": comp, "value": None})
         ctx.extra = {"peer_rows": rows, "subject": frame.formula or (frame.metrics[0] if frame.metrics else "metric")}
 
+    def _entity_registry(self):
+        """Lazy typed-alias registry over the PSX symbols master (verdict-returning)."""
+        if self._registry is None and self.external.symbols is not None:
+            try:
+                self._registry = entity_registry.EntityRegistry.from_symbols(
+                    self.external.symbols)
+            except Exception:  # symbols fetch failed -> fall back to fuzzy/static
+                self._registry = False
+        return self._registry or None
+
     def _ticker(self, company: str | None) -> str | None:
-        """Resolve a company name to a PSX ticker: symbols registry first
-        (any listed company), then the static fallback map."""
+        """Resolve a company name to a PSX ticker through the entity registry's
+        ladder. Only a RESOLVED verdict binds; REVIEW/QUARANTINED do NOT silently
+        bind to a wrong symbol (a typo/unknown ticker-shaped token is quarantined).
+        Falls back to the static map. The last verdict is stashed for the renderer."""
         name = company or self.store.company
-        if self.external.symbols is not None:
-            t = self.external.symbols.ticker_for(name)
-            if t:
-                return t
+        reg = self._entity_registry()
+        if reg is not None and name:
+            verdict = reg.resolve(name)
+            self._last_entity_verdict = verdict
+            if verdict.is_resolved and verdict.ticker:
+                return verdict.ticker
+            # REVIEW/QUARANTINED: do not bind on a low-confidence guess.
+            return COMPANY_TICKER.get(name)
         return COMPANY_TICKER.get(name)
+
+    def _corroborate(self, frame, ctx) -> None:
+        """Pull same-period external actuals (analysis_reports) for the metrics the
+        workbook facts already cover, giving the divergence / scale-reconcile machinery
+        an overlapping external source. CORROBORATES only — admission=supporting, so the
+        workbook (audited) always wins a genuine divergence (conflicts.py §8.2).
+
+        Company-aware: grouped by the (company, year) on each internal fact, so a peer
+        comparison corroborates each peer against its OWN external record. The workbook
+        company name is stamped onto the external evidence so the detector matches
+        company-for-company, never cross-company."""
+        ar = self.external.analysis_reports
+        if ar is None:
+            return
+        # (company, year) -> canonical metrics read for that company/year
+        wanted: dict[tuple[str, int], set[str]] = {}
+        for e in ctx.evidence:
+            for f in e.fact_refs:
+                if f.metric and f.value is not None and f.year and f.company:
+                    wanted.setdefault((f.company, f.year), set()).add(f.metric)
+        for (company, year), metrics in wanted.items():
+            ticker = self._ticker(company)
+            if ticker is None:
+                continue
+            res = ar.facts_for(year, symbol=ticker, metrics=sorted(metrics))
+            if not res.items:
+                continue
+            for it in res.items:                     # tie each external datum to the workbook entity
+                it.citations[0].locator["company"] = company
+            ctx.evidence += res.items
+            if res.status == "cached":
+                ctx.degraded = True
 
     def _market_data(self, ticker, ctx):
         """Gather price/eps/pe/market_cap/shares from company_overview (preferred,
@@ -354,9 +441,23 @@ class FinancialIntelligenceEngine:
                          "note": "no forecast on record"}
             return
         ctx.evidence.append(fc)
+        # validate the forecast against the company's OWN historical actual series
+        # (workbook = trusted baseline): volatility-adaptive growth / trend / scale rules.
+        history: list[tuple[int, float]] = []
+        for y in sorted(self.store.years):
+            if fyear and y >= fyear:
+                continue
+            try:
+                f = self.store.lookup(metric, y)
+            except KeyError:
+                continue
+            if f.value is not None and f.period_type == "historical":
+                history.append((y, f.value))
+        validation = forecast_rules.validate_forecast(history, fc.value)
         ctx.extra = {"forecast": fc.value, "metric": metric, "year": fyear,
                      "latest_actual": (latest.value if latest else None),
-                     "latest_year": (latest.year if latest else None)}
+                     "latest_year": (latest.year if latest else None),
+                     "validation": validation}
 
     def _trend(self, frame, ctx) -> None:
         metric = frame.metrics[0] if frame.metrics else "revenue"
@@ -380,7 +481,8 @@ class FinancialIntelligenceEngine:
             return
         facts = [f for _, f in avail]
         ctx.evidence = retrieval.evidence_from_facts(self.store, facts)
-        ctx.conflicts = self.conflicts.detect(facts=facts)
+        ctx.conflicts = self.conflicts.detect(
+            facts=facts, report_year_preference=frame.report_year_preference)
         series = [{"year": y, "value": f.value} for y, f in avail]
         first, last = avail[0][1].value, avail[-1][1].value
         n = avail[-1][0] - avail[0][0]

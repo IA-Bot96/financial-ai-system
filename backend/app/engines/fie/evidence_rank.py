@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from . import admission, citation_enforce
+from . import admission, authority, citation_enforce
 from .models import EvidenceItem
 
-# authority by admission role (workbook baseline highest → news lowest)
+# fallback authority by admission role (if claim-type mapping is unavailable)
 _ROLE_AUTHORITY = {
     "baseline": 1.0,
     "event_fact": 0.85,
@@ -52,7 +52,15 @@ def _recency(ev: EvidenceItem) -> float:
 
 
 def _authority(ev: EvidenceItem) -> float:
-    role = ev.role or admission.classify_evidence(ev).value
+    # claim-type-scoped authority (contextual trust) with a role-based fallback
+    try:
+        w = authority.authority_weight(authority.claim_type_for(ev),
+                                       authority.authority_class_for(ev))
+        if w > 0:
+            return w
+    except Exception:  # noqa: BLE001 — never let ranking crash on an odd item
+        pass
+    role = getattr(ev, "role", None) or admission.classify_evidence(ev).value
     return _ROLE_AUTHORITY.get(role, 0.4)
 
 

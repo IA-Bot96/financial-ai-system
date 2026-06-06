@@ -1,6 +1,7 @@
 """Financial Intelligence Engine (FIE)."""
 
 from .apis import (
+    AnalysisReports,
     ApiClient,
     CompanyOverview,
     CompanyPayouts,
@@ -32,6 +33,7 @@ from .store import FinancialFactStore
 __all__ = [
     "FinancialIntelligenceEngine",
     "FinancialFactStore",
+    "AnalysisReports",
     "ApiClient",
     "CompanyOverview",
     "CompanyPayouts",

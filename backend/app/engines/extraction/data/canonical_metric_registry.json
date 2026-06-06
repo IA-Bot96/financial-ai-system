@@ -257,7 +257,9 @@
       "profit before taxation and levy",
       "ebt",
       "income before tax",
-      "income before income taxes"
+      "income before income taxes",
+      "profit before income tax",
+      "profit before income taxes"
     ],
     "category": "income_statement"
   },
@@ -271,7 +273,8 @@
       "reported tax expense",
       "tax charge",
       "income taxes",
-      "tax on profit"
+      "tax on profit",
+      "taxation income tax"
     ],
     "category": "income_statement"
   },
@@ -310,7 +313,10 @@
       "reported profit after tax",
       "net earnings",
       "profit for the period",
-      "income after tax"
+      "income after tax",
+      "profit after tax for the year",
+      "profit after taxation for the year",
+      "profit after income tax"
     ],
     "category": "income_statement"
   },
@@ -3926,7 +3932,10 @@
     "aliases": [
       "levy",
       "tax levy",
-      "government levy"
+      "government levy",
+      "levy final taxes",
+      "final taxes",
+      "final tax"
     ],
     "category": "income_statement"
   },

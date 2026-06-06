@@ -41,8 +41,11 @@ _BASELINE_KINDS = {"statement", "detail", "calc"}
 # external source-id token -> role (first substring match wins; case-insensitive)
 _EXTERNAL_ROLE: tuple[tuple[str, NumericRole], ...] = (
     ("payout", NumericRole.EVENT_FACT),
-    ("analysis_report", NumericRole.FORECAST_CONTEXT),
-    ("analysisreport", NumericRole.FORECAST_CONTEXT),
+    # analysis_reports = exchange-published *unaudited actuals* that overlap the
+    # workbook's audited facts -> SUPPORTING (corroborates, never overrides). Not a
+    # forecast: the datum is a historical actual, just from a lower-authority source.
+    ("analysis_report", NumericRole.SUPPORTING),
+    ("analysisreport", NumericRole.SUPPORTING),
     ("futures", NumericRole.FORECAST_CONTEXT),
     ("overview", NumericRole.SUPPORTING),
     ("quote", NumericRole.SUPPORTING),

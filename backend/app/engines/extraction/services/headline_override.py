@@ -45,6 +45,10 @@ class Override:
     was: object
     value: float
     source: str
+    report_file: object = None     # structured provenance so the Source Ledger row
+    report_year: object = None     # carries the same columns as a normal write row
+    page: object = None
+    table_id: object = None
 
     def __str__(self) -> str:
         return f"{self.sheet}!{self.coordinate} {self.metric}/{self.year}: {self.was!r} -> {self.value:,.0f}"
@@ -136,8 +140,13 @@ def override_headline_metrics(workbook_path, company, tieout, output_sheets,
                     cell.comment = Comment(
                         f"OVERRIDE: substituted audited {cm} = {value:,.0f} (was {prior}). "
                         f"Source: {_src_str(src)}", "validation")
+                pages = getattr(src, "pages", None) or []
                 overrides.append(Override(title, cell.coordinate, cm, year_of[c], was,
-                                          value, _src_str(src)))
+                                          value, _src_str(src),
+                                          report_file=getattr(src, "report_file", None),
+                                          report_year=getattr(src, "report_year", None),
+                                          page=(pages[0] if pages else None),
+                                          table_id=getattr(src, "table_id", None)))
     if overrides:
         wb.save(workbook_path)
     wb.close()

@@ -9,7 +9,7 @@ See docs/fie_implementation_plan.md §Phase 1 (1.7) / §Phase 2.
 
 from __future__ import annotations
 
-from . import citation_enforce, evidence_rank, safety
+from . import citation_enforce, divergence, evidence_rank, safety
 from .models import (
     CalcResult,
     Citation,
@@ -72,20 +72,55 @@ def render(
         findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
 
     elif frame.intent == "metric_lookup":
-        valued = [e for e in evidence if e.value is not None]
-        metric = frame.metrics[0].replace("_", " ") if frame.metrics else "metric"
-        if valued:
-            e = valued[0]
-            direct = f"{company}'s {metric} for {frame.year} was {_fmt(e.value, 'currency')} (Rs '000)."
+        if extra.get("clarify"):
+            cands = ", ".join(c.replace("_", " ") for c in extra.get("candidates", []))
+            direct = (f'Your question ("{frame.raw_query}") is ambiguous — did you mean: '
+                      f"{cands}? Please specify which.")
+            findings = []
         else:
-            direct = f"{company}'s {metric} for {frame.year} was not found in the workbook."
-        findings = [f"{e.claim} [{_cite_of(e)}]" for e in valued]
+            valued = [e for e in evidence if e.value is not None]
+            metric = frame.metrics[0].replace("_", " ") if frame.metrics else "metric"
+            if valued:
+                e = valued[0]
+                direct = f"{company}'s {metric} for {frame.year} was {_fmt(e.value, 'currency')} (Rs '000)."
+            else:
+                sugg = extra.get("suggestions") or []
+                hint = (" Available metrics include: "
+                        + ", ".join(s.replace('_', ' ') for s in sugg[:8]) + "."
+                        ) if sugg else ""
+                direct = f"{company}'s {metric} for {frame.year} was not found in the workbook.{hint}"
+            findings = [f"{e.claim} [{_cite_of(e)}]" for e in valued]
 
     elif frame.intent == "risk_assessment":
-        direct = (f"Identified {len(evidence)} risk-related insight(s) for {company}"
-                  + (f" ({frame.year})." if frame.year else "."))
-        findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence_rank.top(evidence, 8)]
-        if conflicts:
+        themes = extra.get("themes") or []
+        qcov = extra.get("qual_coverage") or {}
+        if themes:
+            # theme-based view: group insights into taxonomy themes ranked by materiality,
+            # each cited to a representative insight; surface coverage gaps + divergence.
+            ref_by_insight = {e.citations[0].locator.get("insight_id"): _cite_of(e)
+                              for e in evidence if e.citations}
+            n_cat = len({t["category_ref"] for t in themes})
+            direct = (f"Key risks & qualitative themes for {company}: {len(themes)} theme(s) "
+                      f"across {n_cat} categor{'y' if n_cat == 1 else 'ies'}"
+                      + (f" (FY{frame.year})" if frame.year else "")
+                      + f"; coverage {qcov.get('run_status', 'n/a').lower()}.")
+            for t in themes[:8]:
+                ref = next((ref_by_insight.get(i) for i in t["insight_ids"]
+                            if ref_by_insight.get(i)), None) or "—"
+                tag = " — divergent views" if t.get("divergent") else ""
+                findings.append(
+                    f"{t['category_name']}: {t['theme_name']} "
+                    f"(materiality {t['materiality']:.2f}, {t['signal_count']} signal(s)){tag} [{ref}]")
+            weak = sorted(c for c, v in qcov.get("categories", {}).items()
+                          if v["status"].startswith("SKIPPED") or v.get("expected_section_absent"))
+            if weak:
+                analysis = ("Coverage caveat: " + ", ".join(weak)
+                            + " — limited signals or expected report sections not read.")
+        else:
+            direct = (f"Identified {len(evidence)} risk-related insight(s) for {company}"
+                      + (f" ({frame.year})." if frame.year else "."))
+            findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence_rank.top(evidence, 8)]
+        if conflicts and not analysis:
             analysis = (f"{len(conflicts)} insight conflict(s) resolved by recency/"
                         f"confidence; superseded views retained as caveats.")
 
@@ -131,10 +166,23 @@ def render(
         elif act is not None:
             delta = (fc - act) / act if act else None
             direction = "above" if fc > act else "below"
+            val = extra.get("validation") or {}
+            verdict = val.get("outcome")
+            vtxt = f" Validation: {verdict}." if verdict and verdict != "SKIPPED" else ""
             direct = (f"{company}'s {metric} forecast for {extra.get('year')} "
                       f"({_fmt(fc, 'currency')}) is {abs(delta):.1%} {direction} the latest "
-                      f"actual ({_fmt(act, 'currency')}, FY{extra.get('latest_year')}).")
-            findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+                      f"actual ({_fmt(act, 'currency')}, FY{extra.get('latest_year')}).{vtxt}")
+            # per-rule verdicts cited to the workbook history (the trusted baseline)
+            act_ref = next((_cite_of(e) for e in evidence
+                            if e.value is not None and e.kind in ("statement", "detail")), None)
+            rules = [r for r in val.get("rules", []) if r.get("outcome") != "SKIPPED"]
+            if rules and act_ref:
+                findings = [f"{r['id']}: {r['outcome']} — {r['reason']} [{act_ref}]" for r in rules]
+            else:
+                findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+            if verdict in ("WARNING", "FAIL"):
+                analysis = (f"Forecast validation ({verdict}) against {val.get('history_points')}y "
+                            f"of actuals: " + "; ".join(f"{r['id']} {r['outcome']}" for r in rules) + ".")
         else:
             direct = (f"{company}'s {metric} forecast for {extra.get('year')} is "
                       f"{_fmt(fc, 'currency')}; no recent actual to compare.")
@@ -208,6 +256,13 @@ def render(
             prose_source = "llm"
         # else: silently fall back — the LLM tried to introduce an unbacked number
 
+    # surface numeric divergences explicitly (both sides + authority/chronology verdict),
+    # appended so they are never silently dropped by the LLM/deterministic prose choice.
+    numeric_div = [c for c in conflicts if c.type in ("internal_vs_external", "cross_api")]
+    if numeric_div:
+        dtext = divergence.present(numeric_div)
+        analysis = f"{analysis} {dtext}".strip() if analysis else dtext
+
     # --- claim-level citation enforcement (L8a) ---------------------------
     # drop any finding whose backing citation lacks resolvable provenance; if a
     # findings-bearing answer loses ALL of them (and no computed value remains),
@@ -236,6 +291,11 @@ def render(
     cov = dict(coverage or {})
     if dropped_claims:
         cov["dropped_claims"] = len(dropped_claims)
+    qc = extra.get("qual_coverage")
+    if qc:
+        cov["qualitative"] = {"run_status": qc.get("run_status"),
+                              "admitted_categories": qc.get("admitted_categories"),
+                              "unmapped_count": qc.get("unmapped_count")}
     conf_out = confidence
     if insufficient:
         cov["insufficient_evidence"] = True

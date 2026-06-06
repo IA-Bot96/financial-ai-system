@@ -155,7 +155,7 @@ def process_documents(
             output_path, company_result, _tieout, output_set)
         ledger_rows = template_ledger(plan) + computed_rows + coverage_rows + identity_rows + reconcile_rows
         append_ledger_sheet(output_path, ledger_rows)
-        write_source_ledger(output_path, plan)               # traceability (#9)
+        write_source_ledger(output_path, plan, overrides)    # traceability (#9) incl. output overrides
         if dumper.enabled:                                   # validation layer as JSON (greppable)
             from dataclasses import asdict, is_dataclass
             dumper.json("08_validation_ledger",
@@ -205,8 +205,16 @@ def process_documents(
         breakdown_reconciled = 0
 
     # Fit columns so large figures don't render as '######' (cosmetic, both modes).
-    from app.engines.extraction.services.validation import widen_columns
+    from app.engines.extraction.services.validation import recalc_workbook, widen_columns
     widen_columns(output_path)
+    # Formula cache (#6): make formula cells readable by non-Excel consumers (sets
+    # fullCalcOnLoad; materializes cached values too if LibreOffice is available).
+    formula_cache_materialized = recalc_workbook(output_path)
+    # Cash flow scope (#4): the template defines no cash-flow OUTPUT sheet, so cash flow is
+    # out of the mapped deliverable. Declared explicitly so its absence isn't a silent gap;
+    # CF data that WAS extracted still feeds the cash-flow identity checks in the ledger.
+    output_titles = (out.plan.formula_sheets if out.plan else [])
+    cash_flow_in_scope = any("cash" in s.lower() and "flow" in s.lower() for s in output_titles)
 
     # Observability (#8): populate the result + write a manifest beside the workbook.
     # A run is production-ready only if every key metric tied out AND none was left
@@ -248,6 +256,12 @@ def process_documents(
         "headline_coverage_gaps": coverage_gaps,
         "template_formulas_repaired": formulas_repaired,
         "headline_overrides": overrides_applied,
+        # Delivery/coverage flags. cash_flow_in_scope=false means the template has no
+        # cash-flow output sheet (CF is intentionally not part of the mapped deliverable).
+        # formula_cache_materialized=false means formulas recalc on open in Excel but
+        # cached values aren't populated for headless readers (no LibreOffice available).
+        "cash_flow_in_scope": cash_flow_in_scope,
+        "formula_cache_materialized": formula_cache_materialized,
         # Production-ready iff every HEADLINE metric tied out and was evaluable.
         # See the 'Validation Ledger' / 'Source Ledger' sheets.
         "production_ready": out.production_ready,

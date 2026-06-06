@@ -167,6 +167,10 @@ class ConfidenceReport(BaseModel):
     score: float = 0.0
     reasons: list[str] = Field(default_factory=list)
     caps_applied: list[str] = Field(default_factory=list)
+    # min-weakest-link composition: the final score is min(component values); the
+    # binding (lowest) component is named so the band is explainable.
+    limited_by: Optional[str] = None
+    components: list[dict] = Field(default_factory=list)  # [{name, value, rationale}]
 
 
 ConflictType = Literal[

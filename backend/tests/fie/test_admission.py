@@ -31,7 +31,9 @@ def test_external_source_roles():
     assert adm.classify("PSX.CompanyOverview", "external") is R.SUPPORTING
     assert adm.classify("PSX.Quote", "external") is R.SUPPORTING
     assert adm.classify("Macro.Indicators", "external") is R.SUPPORTING
-    assert adm.classify("PSX.AnalysisReports", "external") is R.FORECAST_CONTEXT
+    # analysis_reports = exchange-published unaudited ACTUALS that overlap the
+    # workbook's audited facts -> supporting (corroborates, never overrides); not a forecast
+    assert adm.classify("PSX.AnalysisReports", "external") is R.SUPPORTING
     assert adm.classify("SECP.Notices", "external") is R.SUPPORTING
     assert adm.classify("something.unknown", "external") is R.NON_AUTHORITATIVE
     assert adm.classify(None, "external", is_news=True) is R.NON_AUTHORITATIVE

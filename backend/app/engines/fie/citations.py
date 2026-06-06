@@ -19,7 +19,10 @@ def _locator_key(c: Citation) -> tuple:
     # multiple chunks of the SAME article (same link) still merge to one cite.
     return (loc.get("report_file"), loc.get("page"), loc.get("table_id"),
             loc.get("sheet"), loc.get("cell"), loc.get("year"),
-            loc.get("link") or loc.get("url"), loc.get("source"), loc.get("insight_id"))
+            loc.get("link") or loc.get("url"), loc.get("source"), loc.get("insight_id"),
+            # external datasets (e.g. analysis_reports) serve many distinct facts from
+            # one source — keep per-(symbol, metric) facts as distinct citations.
+            loc.get("symbol"), loc.get("metric") or loc.get("field"))
 
 
 def bind(evidence: list[EvidenceItem], calcs: list[CalcResult]

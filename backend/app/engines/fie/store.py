@@ -136,6 +136,15 @@ class FinancialFactStore:
         row = (valued.iloc[0] if not valued.empty else sel.iloc[0]).to_dict()
         return self._row_to_factref(row)
 
+    def available_metrics(self, *, level: str = "headline",
+                          period_type: str = "historical") -> set[str]:
+        """Canonical metrics actually present (with a value) for this level/period —
+        used to availability-gate query metric resolution."""
+        df = self.findata
+        sel = df[(df["level"] == level) & (df["period_type"] == period_type)
+                 & df["value"].notna() & df["metric"].notna()]
+        return set(sel["metric"].unique())
+
     def detail(
         self, *, sheet: str | None = None, metric: str | None = None,
         year: int | None = None,
@@ -274,6 +283,10 @@ class FinancialFactStore:
             display = str(rf) if rf is not None else "workbook"
             if pg is not None and pd.notna(pg):
                 display = f"{display}, p{int(pg)}"
+            # surface the SOURCE report year (vs the value year) so restatement
+            # provenance is legible — "<file>, p12 (as reported FY2025)".
+            if ry is not None and pd.notna(ry):
+                display = f"{display} (as reported FY{int(ry)})"
             confs = [float(g["Confidence"]) for g in group
                      if "Confidence" in g and pd.notna(g.get("Confidence"))]
             cites.append(Citation(

@@ -1,0 +1,704 @@
+{
+  "taxonomy_version": "1.0.0",
+  "categories": [
+    {
+      "category_ref": "outlook",
+      "name": "Management Outlook",
+      "description": "Management's forward-looking posture and expectations."
+    },
+    {
+      "category_ref": "strategy",
+      "name": "Strategic Priorities",
+      "description": "Deliberate initiatives the company is pursuing."
+    },
+    {
+      "category_ref": "business_risk",
+      "name": "Business Risks",
+      "description": "External or financial threats to the business."
+    },
+    {
+      "category_ref": "operational_risk",
+      "name": "Operational Risks",
+      "description": "Internal or execution threats within the company's control."
+    },
+    {
+      "category_ref": "governance",
+      "name": "Governance Themes",
+      "description": "Board, controls, compliance, and ownership structure."
+    },
+    {
+      "category_ref": "esg",
+      "name": "ESG / Sustainability",
+      "description": "Environmental, social, and sustainability-governance themes."
+    }
+  ],
+  "themes": [
+    {
+      "theme_ref": "demand_outlook",
+      "category_ref": "outlook",
+      "secondary_categories": ["strategy"],
+      "description": "Management's forward view of demand, volume, or market growth for its products.",
+      "aliases": [
+        "demand outlook",
+        "volume outlook",
+        "market growth",
+        "demand growth",
+        "sales outlook",
+        "order book outlook"
+      ],
+      "example_area_labels": [
+        "Demand Outlook",
+        "Market Growth",
+        "Volume Growth",
+        "Tractor Demand",
+        "Cement Demand"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["demand_competition"]
+    },
+    {
+      "theme_ref": "margin_pricing_outlook",
+      "category_ref": "outlook",
+      "secondary_categories": ["business_risk"],
+      "description": "Forward view of pricing, margins, and profitability.",
+      "aliases": [
+        "margin outlook",
+        "pricing outlook",
+        "profitability outlook",
+        "price expectation",
+        "margin guidance"
+      ],
+      "example_area_labels": [
+        "Margin Outlook",
+        "Pricing",
+        "Profitability Outlook",
+        "Gross Margin Expectation"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "investment_capex_outlook",
+      "category_ref": "outlook",
+      "secondary_categories": ["strategy"],
+      "description": "Forward capital-deployment, capex, investment, dividend, or capital-allocation intent.",
+      "aliases": [
+        "capex outlook",
+        "investment plan",
+        "capital expenditure plan",
+        "future investment",
+        "dividend outlook",
+        "capital allocation"
+      ],
+      "example_area_labels": [
+        "Capex Plan",
+        "Future Investment",
+        "Capital Expenditure",
+        "Dividend"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["liquidity_funding"]
+    },
+    {
+      "theme_ref": "macro_regulatory_outlook",
+      "category_ref": "outlook",
+      "secondary_categories": ["business_risk"],
+      "description": "Forward view of the macroeconomic or regulatory environment, including rates, inflation, and policy.",
+      "aliases": [
+        "economic outlook",
+        "macro outlook",
+        "regulatory outlook",
+        "policy outlook",
+        "interest rate outlook",
+        "inflation outlook"
+      ],
+      "example_area_labels": [
+        "Economic Outlook",
+        "Macroeconomic Environment",
+        "Policy Outlook",
+        "Inflation Outlook"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["regulatory_tax"]
+    },
+    {
+      "theme_ref": "capacity_expansion",
+      "category_ref": "strategy",
+      "secondary_categories": ["outlook", "operational_risk"],
+      "description": "Deliberate capacity, plant, or production-line expansion programs.",
+      "aliases": [
+        "capacity expansion",
+        "new plant",
+        "new line",
+        "expansion project",
+        "brownfield",
+        "greenfield",
+        "capacity addition",
+        "debottlenecking"
+      ],
+      "example_area_labels": [
+        "Capacity Expansion",
+        "New Plant",
+        "Expansion",
+        "Production Line",
+        "Kiln Expansion"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["production_plant_reliability"]
+    },
+    {
+      "theme_ref": "market_geographic_expansion",
+      "category_ref": "strategy",
+      "secondary_categories": ["outlook"],
+      "description": "Entering new markets, geographies, channels, exports, or distribution networks.",
+      "aliases": [
+        "exports",
+        "export sales",
+        "geographic expansion",
+        "new market",
+        "market entry",
+        "distribution network",
+        "dealership expansion",
+        "overseas"
+      ],
+      "example_area_labels": [
+        "Exports",
+        "Export Sales",
+        "Geographic Expansion",
+        "New Markets",
+        "Dealer Network"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "cost_optimization",
+      "category_ref": "strategy",
+      "secondary_categories": ["outlook"],
+      "description": "Deliberate cost reduction, efficiency, and productivity initiatives.",
+      "aliases": [
+        "cost optimization",
+        "cost reduction",
+        "efficiency",
+        "productivity",
+        "cost saving",
+        "operational efficiency",
+        "rationalization"
+      ],
+      "example_area_labels": [
+        "Cost Optimization",
+        "Efficiency",
+        "Cost Savings",
+        "Productivity Improvement"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["input_cost_energy"]
+    },
+    {
+      "theme_ref": "diversification",
+      "category_ref": "strategy",
+      "secondary_categories": ["outlook"],
+      "description": "New products, segments, verticals, M&A, investments, or business lines that broaden the business.",
+      "aliases": [
+        "diversification",
+        "new product",
+        "new segment",
+        "acquisition",
+        "joint venture",
+        "vertical integration",
+        "new business",
+        "investment in subsidiary"
+      ],
+      "example_area_labels": [
+        "Diversification",
+        "New Product",
+        "Acquisition",
+        "Joint Venture",
+        "New Business Line"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "digital_technology",
+      "category_ref": "strategy",
+      "secondary_categories": ["operational_risk"],
+      "description": "Digital, automation, ERP, and technology adoption initiatives.",
+      "aliases": [
+        "digital transformation",
+        "automation",
+        "technology",
+        "erp",
+        "digitalization",
+        "innovation",
+        "industry 4.0",
+        "system upgrade"
+      ],
+      "example_area_labels": [
+        "Digital Transformation",
+        "Automation",
+        "Technology",
+        "ERP Implementation"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["cybersecurity_it"]
+    },
+    {
+      "theme_ref": "input_cost_energy",
+      "category_ref": "business_risk",
+      "secondary_categories": ["outlook"],
+      "description": "External cost pressure from raw materials, energy, fuel, freight, power, gas, or commodity prices.",
+      "aliases": [
+        "energy cost",
+        "fuel cost",
+        "coal price",
+        "raw material cost",
+        "input cost",
+        "freight cost",
+        "power cost",
+        "gas price",
+        "commodity price"
+      ],
+      "example_area_labels": [
+        "Energy Costs",
+        "Coal Prices",
+        "Raw Material",
+        "Fuel Cost",
+        "Freight",
+        "Input Costs"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["energy_transition", "cost_optimization"]
+    },
+    {
+      "theme_ref": "fx_interest_rate",
+      "category_ref": "business_risk",
+      "secondary_categories": ["outlook"],
+      "description": "Currency, interest-rate, finance-cost, forex, and devaluation exposure.",
+      "aliases": [
+        "exchange rate",
+        "currency risk",
+        "interest rate",
+        "finance cost",
+        "forex",
+        "devaluation",
+        "rupee depreciation",
+        "markup rate"
+      ],
+      "example_area_labels": [
+        "Exchange Rate",
+        "Finance Cost",
+        "Interest Rate",
+        "Currency Risk",
+        "Rupee Devaluation"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "regulatory_tax",
+      "category_ref": "business_risk",
+      "secondary_categories": ["outlook"],
+      "description": "Specific regulatory, tax, tariff, subsidy, duty, or sales-tax threats and changes.",
+      "aliases": [
+        "regulatory risk",
+        "tax",
+        "tariff",
+        "duty",
+        "gst",
+        "subsidy",
+        "levy",
+        "sales tax",
+        "regulatory change",
+        "import duty"
+      ],
+      "example_area_labels": [
+        "Regulatory",
+        "Taxation",
+        "Tariff",
+        "GST",
+        "Duty",
+        "Subsidy"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["compliance_ethics", "macro_regulatory_outlook"]
+    },
+    {
+      "theme_ref": "demand_competition",
+      "category_ref": "business_risk",
+      "secondary_categories": ["outlook"],
+      "description": "Competitive pressure or demand-decline threats such as oversupply, price wars, and market-share loss.",
+      "aliases": [
+        "competition",
+        "competitive pressure",
+        "demand risk",
+        "oversupply",
+        "price war",
+        "market share loss",
+        "slowdown",
+        "weak demand"
+      ],
+      "example_area_labels": [
+        "Competition",
+        "Demand Risk",
+        "Oversupply",
+        "Market Slowdown",
+        "Competitive Pressure"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["demand_outlook"]
+    },
+    {
+      "theme_ref": "liquidity_funding",
+      "category_ref": "business_risk",
+      "secondary_categories": ["outlook"],
+      "description": "Funding availability, debt servicing, liquidity, working-capital stress, leverage, and refinancing risk.",
+      "aliases": [
+        "liquidity",
+        "funding",
+        "debt servicing",
+        "working capital",
+        "borrowings",
+        "leverage",
+        "cash flow risk",
+        "refinancing",
+        "credit risk"
+      ],
+      "example_area_labels": [
+        "Liquidity",
+        "Debt",
+        "Borrowings",
+        "Working Capital",
+        "Funding",
+        "Leverage"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["investment_capex_outlook"]
+    },
+    {
+      "theme_ref": "supply_chain_procurement",
+      "category_ref": "operational_risk",
+      "secondary_categories": ["business_risk"],
+      "description": "Supply, procurement, sourcing, logistics, inventory, localization, and import-dependence disruption.",
+      "aliases": [
+        "supply chain",
+        "procurement",
+        "sourcing",
+        "logistics",
+        "supplier",
+        "raw material availability",
+        "inventory",
+        "localization",
+        "import dependence"
+      ],
+      "example_area_labels": [
+        "Supply Chain",
+        "Procurement",
+        "Localization",
+        "Raw Material Supply",
+        "Inventory"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "production_plant_reliability",
+      "category_ref": "operational_risk",
+      "secondary_categories": ["strategy"],
+      "description": "Plant uptime, equipment, maintenance, utilization, downtime, quality, and running-asset reliability.",
+      "aliases": [
+        "plant reliability",
+        "production",
+        "equipment",
+        "maintenance",
+        "utilization",
+        "downtime",
+        "capacity utilization",
+        "breakdown",
+        "quality"
+      ],
+      "example_area_labels": [
+        "Plant Operations",
+        "Capacity Utilization",
+        "Production",
+        "Maintenance",
+        "Equipment"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["capacity_expansion"]
+    },
+    {
+      "theme_ref": "health_safety",
+      "category_ref": "operational_risk",
+      "secondary_categories": ["esg"],
+      "description": "Workplace health and safety of operations and workforce.",
+      "aliases": [
+        "health and safety",
+        "hse",
+        "occupational safety",
+        "workplace safety",
+        "accident",
+        "safety record",
+        "lti"
+      ],
+      "example_area_labels": [
+        "Health & Safety",
+        "HSE",
+        "Workplace Safety",
+        "Occupational Health"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "workforce_labor",
+      "category_ref": "operational_risk",
+      "secondary_categories": ["esg"],
+      "description": "Workforce availability, skills, retention, labor relations, training, and human-resource operations.",
+      "aliases": [
+        "workforce",
+        "labor",
+        "employees",
+        "talent",
+        "retention",
+        "training",
+        "skills",
+        "human resource",
+        "industrial relations",
+        "attrition"
+      ],
+      "example_area_labels": [
+        "Workforce",
+        "Human Resource",
+        "Training",
+        "Employee Retention",
+        "Labor Relations"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "cybersecurity_it",
+      "category_ref": "operational_risk",
+      "secondary_categories": ["governance"],
+      "description": "IT systems, cyber, data, information-security, privacy, and business-continuity risk.",
+      "aliases": [
+        "cybersecurity",
+        "cyber risk",
+        "it risk",
+        "data security",
+        "information security",
+        "system failure",
+        "business continuity",
+        "data privacy"
+      ],
+      "example_area_labels": [
+        "Cybersecurity",
+        "IT Risk",
+        "Data Security",
+        "Information Security"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["digital_technology"]
+    },
+    {
+      "theme_ref": "board_oversight",
+      "category_ref": "governance",
+      "secondary_categories": [],
+      "description": "Board composition, independence, committees, evaluation, and oversight.",
+      "aliases": [
+        "board of directors",
+        "board composition",
+        "independent director",
+        "audit committee",
+        "board oversight",
+        "governance structure",
+        "board evaluation"
+      ],
+      "example_area_labels": [
+        "Board of Directors",
+        "Board Composition",
+        "Audit Committee",
+        "Independent Directors"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["sustainability_governance"]
+    },
+    {
+      "theme_ref": "internal_controls",
+      "category_ref": "governance",
+      "secondary_categories": ["business_risk"],
+      "description": "Internal financial controls, risk-management framework, internal audit, and control environment.",
+      "aliases": [
+        "internal controls",
+        "internal audit",
+        "risk management framework",
+        "control environment",
+        "financial controls",
+        "control framework"
+      ],
+      "example_area_labels": [
+        "Internal Controls",
+        "Risk Management",
+        "Internal Audit",
+        "Control Framework"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "compliance_ethics",
+      "category_ref": "governance",
+      "secondary_categories": ["business_risk"],
+      "description": "Compliance posture, ethics, code of conduct, regulatory actions or violations, whistleblowing, and anti-corruption.",
+      "aliases": [
+        "compliance",
+        "code of conduct",
+        "ethics",
+        "anti-corruption",
+        "regulatory action",
+        "penalty",
+        "violation",
+        "whistleblower",
+        "secp notice"
+      ],
+      "example_area_labels": [
+        "Compliance",
+        "Code of Conduct",
+        "Ethics",
+        "Regulatory Compliance",
+        "Penalty"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["regulatory_tax"]
+    },
+    {
+      "theme_ref": "ownership_related_party",
+      "category_ref": "governance",
+      "secondary_categories": [],
+      "description": "Ownership structure, major shareholders, related-party transactions, associated companies, and group structure.",
+      "aliases": [
+        "shareholding",
+        "ownership",
+        "related party",
+        "major shareholder",
+        "group structure",
+        "associated company",
+        "sponsor",
+        "parent company"
+      ],
+      "example_area_labels": [
+        "Shareholding",
+        "Related Party Transactions",
+        "Ownership Structure",
+        "Associated Companies"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "emissions_environment",
+      "category_ref": "esg",
+      "secondary_categories": ["operational_risk"],
+      "description": "Current environmental footprint including emissions, waste, water, pollution, GHG, effluent, and environmental compliance.",
+      "aliases": [
+        "emissions",
+        "carbon",
+        "co2",
+        "environment",
+        "waste",
+        "water",
+        "pollution",
+        "environmental compliance",
+        "ghg",
+        "effluent"
+      ],
+      "example_area_labels": [
+        "Emissions",
+        "Carbon Footprint",
+        "Environment",
+        "Waste Management",
+        "Water Usage"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "energy_transition",
+      "category_ref": "esg",
+      "secondary_categories": ["strategy"],
+      "description": "Shift to renewable or clean energy, energy efficiency, decarbonization, and net-zero initiatives.",
+      "aliases": [
+        "renewable energy",
+        "solar",
+        "wind",
+        "waste heat recovery",
+        "whr",
+        "clean energy",
+        "energy efficiency",
+        "decarbonization",
+        "net zero"
+      ],
+      "example_area_labels": [
+        "Renewable Energy",
+        "Solar",
+        "Waste Heat Recovery",
+        "Energy Efficiency",
+        "Net Zero"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["input_cost_energy"]
+    },
+    {
+      "theme_ref": "community_social",
+      "category_ref": "esg",
+      "secondary_categories": [],
+      "description": "Community investment, CSR, social impact, education, health, philanthropy, diversity, and inclusion.",
+      "aliases": [
+        "community",
+        "csr",
+        "corporate social responsibility",
+        "social impact",
+        "philanthropy",
+        "education",
+        "healthcare",
+        "diversity",
+        "inclusion"
+      ],
+      "example_area_labels": [
+        "Community",
+        "CSR",
+        "Social Responsibility",
+        "Education",
+        "Philanthropy"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": []
+    },
+    {
+      "theme_ref": "sustainability_governance",
+      "category_ref": "esg",
+      "secondary_categories": ["governance"],
+      "description": "Sustainability governance, ESG reporting, frameworks, targets, ratings, committees, and SDGs.",
+      "aliases": [
+        "sustainability governance",
+        "esg framework",
+        "esg reporting",
+        "sustainability strategy",
+        "sdg",
+        "esg targets",
+        "sustainability committee",
+        "gri"
+      ],
+      "example_area_labels": [
+        "Sustainability",
+        "ESG",
+        "Sustainability Framework",
+        "ESG Reporting",
+        "SDGs"
+      ],
+      "sector_neutral": true,
+      "never_merge_with": ["board_oversight"]
+    }
+  ]
+}

@@ -32,6 +32,7 @@ logger = get_logger(__name__)
 from app.engines.extraction.services.face_truth import (  # noqa: E402
     CROSS_FAMILY_OK as _CROSS_FAMILY_OK,
     KEY_METRICS as _KEY_METRICS,
+    _TYPE_FAMILY,
     tieout as _tieout,
 )
 
@@ -329,7 +330,8 @@ def _section_overlap(template_section_norm: str, cand_section_norm: str) -> int:
 
 def _best_candidate(template_label: str, template_section: str, candidates, threshold: float,
                     row_metric: str | None = None, sheet_polarity: str | None = None,
-                    template_is_total: bool = False, strict_polarity: bool = False):
+                    template_is_total: bool = False, strict_polarity: bool = False,
+                    sheet_family: str | None = None):
     """Best extracted line for a template row by LABEL (recall-first), with the
     section used only as a tie-breaker. Conflicts where one extracted line is
     claimed by two template rows are resolved globally in `build_plan`.
@@ -358,6 +360,14 @@ def _best_candidate(template_label: str, template_section: str, candidates, thre
         cm = getattr(line, "canonical_metric", None)
         if row_metric and cm and cm != row_metric:
             continue  # different concept (e.g. cash vs share capital) -> reject
+        # Statement-family gate: a balance-sheet note row must never take an income-family
+        # line (the "Cost of sales" -35M bleed into BS1) and vice-versa. Robust even when
+        # polarity can't be inferred. Cross-family metrics (depreciation, taxes-paid, …) and
+        # unknown families are exempt — never block on a missing signal.
+        if sheet_family and cm not in _CROSS_FAMILY_OK:
+            home_family = _TYPE_FAMILY.get(home_type)
+            if home_family and home_family != sheet_family:
+                continue
         if sheet_polarity and cm not in _CROSS_FAMILY_OK:
             cand_pol = _polarity(home_type, getattr(line, "section", None)) or _metric_polarity(cm)
             if cand_pol and cand_pol != sheet_polarity:
@@ -411,6 +421,9 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
             title_pol = _sheet_polarity_from_title(ws.title)
             sheet_polarity = (_polarity(st) if st else None) or title_pol
             strict_polarity = (st in _HIGH_RISK_FAMILIES) or (title_pol == "equity")
+            # Statement family of this sheet (income/balance/cash) for the family gate.
+            sheet_family = _TYPE_FAMILY.get(st) if st else (
+                "balance" if title_pol in ("asset", "liability", "equity") else None)
             # Tier 1: the sheet's own statement type (precision-first).
             own = by_type.get(st) or []
             # Tier 2: widen to the statement family (face + sibling breakdowns) so a
@@ -441,12 +454,12 @@ def build_plan(company: CompanyResult, template_path: str | Path) -> MappingPlan
                 is_total = _looks_total(lbl)
                 line, score = _best_candidate(lbl, template_section, own, threshold, row_metric=rm,
                                               sheet_polarity=sheet_polarity, template_is_total=is_total,
-                                              strict_polarity=strict_polarity)
+                                              strict_polarity=strict_polarity, sheet_family=sheet_family)
                 own_tier = line is not None
                 if line is None:
                     line, score = _best_candidate(lbl, template_section, widened, threshold, row_metric=rm,
                                                   sheet_polarity=sheet_polarity, template_is_total=is_total,
-                                                  strict_polarity=strict_polarity)
+                                                  strict_polarity=strict_polarity, sheet_family=sheet_family)
                 if line is None:
                     # #4 statement-total fallback: a writable, empty row that resolves
                     # to a HEADLINE metric is filled from the audited face truth (kills
