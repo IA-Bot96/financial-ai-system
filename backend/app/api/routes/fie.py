@@ -13,11 +13,14 @@ import os
 from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
-from app.core.config import STORAGE_ROOT
+from app.core.config import STORAGE_ROOT, get_settings
 from app.engines.fie import ExternalSources, FinancialFactStore, FinancialIntelligenceEngine
 from app.engines.fie.apis import ApiClient, HttpTransport, News, Symbols
+
+_MAX_QUERY = get_settings().fie_max_query_chars
+_MAX_AUDIENCE = 32
 
 router = APIRouter(prefix="/fie", tags=["fie"])
 
@@ -35,6 +38,23 @@ class AnswerRequest(BaseModel):
     query: str
     company: str | None = None
     audience: str = "analyst"
+
+    @field_validator("query")
+    @classmethod
+    def _bounded_query(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("query must not be empty")
+        if len(v) > _MAX_QUERY:
+            raise ValueError(f"query too long (max {_MAX_QUERY} chars)")
+        return v
+
+    @field_validator("company", "audience")
+    @classmethod
+    def _bounded_field(cls, v):
+        if v is not None and len(v) > 128:
+            raise ValueError("field too long")
+        return v
 
 
 @lru_cache(maxsize=8)
@@ -78,6 +98,8 @@ def answer(req: AnswerRequest) -> dict:
         engine = _engine(company)
     except (KeyError, FileNotFoundError):
         raise HTTPException(status_code=404, detail=f"No workbook for company {company!r}")
+    # cap external-adapter fan-out for this request (cost / abuse guard)
+    _external_client().begin_request(get_settings().max_external_calls_per_request)
     resp = engine.answer(req.query, audience=req.audience)
     return resp.model_dump()
 

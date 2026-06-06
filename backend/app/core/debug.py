@@ -141,3 +141,17 @@ def make_dumper(run_id: str) -> DebugDumper:
     root = Path(settings.debug_dump_dir) / run_id
     logger.info("Debug dumps -> %s", root)
     return DebugDumper(root, dump_gpt=settings.debug_dump_gpt)
+
+
+def make_fie_dumper(trace_id: str) -> DebugDumper:
+    """Dumper for FIE queries, rooted at ``logs/debug/fie/`` (keeps FIE runs from
+    colliding with extraction run dirs). The caller sets ``.subject(trace_id)`` so each
+    query's artifacts land under ``fie/<trace_id>/``. Enabled only in DEBUG mode."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.debug:
+        return DebugDumper(None)
+    root = Path(settings.debug_dump_dir) / "fie"
+    logger.info("FIE debug dumps -> %s/%s", root, trace_id)
+    return DebugDumper(root, dump_gpt=settings.debug_dump_gpt)

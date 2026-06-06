@@ -9,10 +9,12 @@ cited and conflict-checked exactly like internal data (architecture §4).
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Protocol, runtime_checkable
 
+from app.core.security import url_safe_param
 from ..models import Citation, EvidenceItem
 
 
@@ -123,12 +125,37 @@ class ApiClient:
         self.breaker_cooldown = breaker_cooldown
         self._breaker: dict[str, dict] = {}
         self._cache: dict[tuple, dict] = {}
+        # per-request external-call budget (thread-local: requests run in a threadpool)
+        self._budget = threading.local()
+
+    def begin_request(self, max_calls: int | None) -> None:
+        """Reset the per-request external-call budget for THIS thread. Call once at
+        the start of handling a request; subsequent ``call``s decrement it and fail
+        closed (note='call budget exhausted') once it hits zero."""
+        self._budget.remaining = max_calls
+
+    def _spend_budget(self) -> bool:
+        remaining = getattr(self._budget, "remaining", None)
+        if remaining is None:
+            return True                       # no budget set -> unrestricted
+        if remaining <= 0:
+            return False
+        self._budget.remaining = remaining - 1
+        return True
 
     def call(self, spec: ApiSpec, *, body: dict | None = None, **params) -> CallResult:
         key = (spec.id, tuple(sorted(params.items())), tuple(sorted((body or {}).items())))
 
+        if not self._spend_budget():
+            return self._on_failure(spec, key, note="call budget exhausted")
         if self._breaker_open(spec.id):
             return self._on_failure(spec, key, note="circuit open")
+
+        # SSRF guard: any value templated into the URL path must be URL-safe
+        # (no separators / traversal) so a crafted identifier can't redirect the fetch.
+        for name, val in params.items():
+            if ("{" + name + "}") in spec.path and not url_safe_param(val):
+                return self._on_failure(spec, key, note=f"unsafe path param {name!r}")
 
         url = spec.base_url.rstrip("/") + "/" + spec.path.lstrip("/")
         try:

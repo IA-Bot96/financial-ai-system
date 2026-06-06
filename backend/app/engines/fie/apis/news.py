@@ -16,9 +16,22 @@ from __future__ import annotations
 
 from typing import Optional
 
+from app.core.security import DailyQuota
 from .base import ApiClient, ApiSpec, CallResult
 from .news_providers import PROVIDERS, NewsProvider
 from ..models import Citation, EvidenceItem, NewsArticle
+
+# process-global per-provider daily call ceiling (News is recreated per request, so
+# the quota must outlive a single instance). 0 in settings => unlimited.
+_QUOTA: DailyQuota | None = None
+
+
+def _quota() -> DailyQuota:
+    global _QUOTA
+    if _QUOTA is None:
+        from app.core.config import get_settings
+        _QUOTA = DailyQuota(cap=get_settings().news_daily_call_cap_per_provider)
+    return _QUOTA
 
 
 class News:
@@ -78,6 +91,9 @@ class News:
                 continue
             if p.requires_symbol and not symbol:
                 skipped.append(f"{p.id}:needs_symbol")
+                continue
+            if not _quota().allow(p.id):                 # daily cost ceiling reached
+                skipped.append(f"{p.id}:quota")
                 continue
             path, params = p.build(query=query, symbol=symbol, key=key,
                                    limit=limit, anchor_date=anchor_date)

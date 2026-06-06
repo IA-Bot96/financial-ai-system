@@ -44,6 +44,14 @@ class OpenAILLM:
         self.model = model
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._client = None
+        # cost guards: truncate oversized prompts, cap completion length
+        self.max_input_chars = max_input_chars
+        self.max_output_tokens = max_output_tokens
+
+    def _clip(self, text: str) -> str:
+        if text and len(text) > self.max_input_chars:
+            return text[:self.max_input_chars]
+        return text
 
     def _ensure(self):
         if self._client is None:
@@ -56,10 +64,11 @@ class OpenAILLM:
             client = self._ensure()
             resp = client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": user}],
+                messages=[{"role": "system", "content": self._clip(system)},
+                          {"role": "user", "content": self._clip(user)}],
                 response_format={"type": "json_object"},
                 temperature=0,
+                max_tokens=self.max_output_tokens,
             )
             return json.loads(resp.choices[0].message.content)
         except Exception:
@@ -70,9 +79,10 @@ class OpenAILLM:
             client = self._ensure()
             resp = client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": user}],
+                messages=[{"role": "system", "content": self._clip(system)},
+                          {"role": "user", "content": self._clip(user)}],
                 temperature=0.2,
+                max_tokens=self.max_output_tokens,
             )
             return resp.choices[0].message.content
         except Exception:

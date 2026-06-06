@@ -18,6 +18,30 @@ class Settings(BaseSettings):
     app_name: str = "AI Financial Intelligence - Extraction Engine"
     debug: bool = False
     log_dir: str = str(BACKEND_ROOT / "logs")  # per-document log files
+
+    # --- Security / hardening (Tier-A/B) ---
+    # CORS: comma-separated allowed origins (pin to the real frontend in prod).
+    cors_allow_origins: str = "http://localhost:4200"
+    force_https: bool = False          # prod (Heroku): True -> HSTS + http->https redirect
+    # request input limits
+    fie_max_query_chars: int = 256     # max NL query length
+    max_request_bytes: int = 2_000_000         # max JSON request body (2 MB)
+    max_upload_bytes: int = 150 * 1024 * 1024  # max uploaded file (150 MB)
+    request_timeout_seconds: int = 60          # per-request wall-clock cap (504 on exceed)
+    max_external_calls_per_request: int = 12   # hard cap on adapter fan-out per query
+    # rate limiting (token bucket: burst `capacity`, refill 1 per `refill_seconds`)
+    # default sustained rate = 1 req/sec per IP, with a small burst of 3.
+    rate_limit_enabled: bool = True
+    rate_limit_capacity: int = 3
+    rate_limit_refill_seconds: float = 1.0
+    # LLM cost guard
+    llm_max_input_chars: int = 24_000          # truncate prompt input above this
+    llm_max_output_tokens: int = 800           # cap completion length
+    # per-provider news daily call ceiling (0 = unlimited)
+    news_daily_call_cap_per_provider: int = 200
+
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
     # DEBUG-only: dump each stage's output (+ every GPT prompt/response) to disk.
     debug_dump_dir: str = str(BACKEND_ROOT / "logs" / "debug")
     debug_dump_gpt: bool = True

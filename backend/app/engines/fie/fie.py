@@ -9,11 +9,16 @@ caps confidence (architecture §3.2, §4, §9.2).
 from __future__ import annotations
 
 import logging
+import time
 import uuid
+from contextlib import ExitStack
 from typing import Callable
 
+from app.core.debug import make_fie_dumper
+from app.core.logging import per_document_log
 from . import citations as citations_mod
 from . import insights as insights_mod
+from .debug_dump import restore_llms, wrap_llms
 from . import (admission, entity_registry, forecast_rules, metric_resolve,
                news_retrieval, planner, qualitative, response, retrieval, scale,
                synthesis, understanding)
@@ -73,7 +78,7 @@ class FinancialIntelligenceEngine:
                           ) -> tuple[Response, TraceRecord]:
         frame, plan, ctx, resp = self._run(query, audience)
         trace = TraceRecord(
-            trace_id=self._trace_id(), query=query, audience=audience,
+            trace_id=ctx.trace_id or self._trace_id(), query=query, audience=audience,
             company=frame.company, frame=frame, plan=plan,
             evidence=ctx.evidence, response=resp,
         )
@@ -81,13 +86,32 @@ class FinancialIntelligenceEngine:
 
     # ------------------------------------------------------------ core run
     def _run(self, query: str, audience: str):
+        """Mint a trace id, set up DEBUG observability (a per-query .log file + a
+        per-layer artifact dump), then run the pipeline. All dumping is a no-op when
+        DEBUG is off — same behavior, ~zero overhead."""
+        trace_id = self._trace_id()
+        dumper = make_fie_dumper(trace_id)
+        with ExitStack() as stack:
+            if dumper.enabled:
+                stack.enter_context(per_document_log(trace_id))  # logs/<ts>_<id>.log
+                dumper.subject(trace_id)
+                stack.callback(restore_llms, wrap_llms(self, dumper))  # capture LLM calls
+            return self._pipeline(query, audience, trace_id, dumper)
+
+    def _pipeline(self, query: str, audience: str, trace_id: str, dumper):
+        t0 = time.monotonic()
         frame = understanding.understand(query, llm=self.llm)
         plan = planner.plan(frame, llm=self.llm)
         _layer("Understand", "intent=%s company=%s year=%s formula=%s sources=%s (%s)",
                 frame.intent, frame.company, frame.year, frame.formula,
                 plan.external_sources, frame.source)
+        if dumper.enabled:
+            _log.debug("L1 frame=%s", frame.model_dump(), extra={"component": "Understand"})
+            dumper.json("01_frame", frame)
+            dumper.json("02_plan", plan)
 
         ctx = _Ctx()
+        ctx.trace_id = trace_id
 
         if frame.intent == "ratio_analysis" and frame.formula and frame.year is not None:
             cr = self.calc.evaluate(frame.formula, frame.year)
@@ -148,6 +172,16 @@ class FinancialIntelligenceEngine:
         elif frame.intent in ("news_impact", "earnings_review"):
             self._news(frame, ctx, plan)
 
+        # per-layer dump: intent-stage outputs (evidence / calcs / conflicts / extras)
+        if dumper.enabled:
+            dumper.json("03_evidence", [e.model_dump() for e in ctx.evidence])
+            dumper.json("04_calcs", [c.model_dump() for c in ctx.calcs])
+            dumper.json("05_conflicts", [c.model_dump() for c in ctx.conflicts])
+            if ctx.extra is not None or ctx.selected_insights:
+                dumper.json("06_extra", {"extra": ctx.extra,
+                                         "selected_insights": ctx.selected_insights,
+                                         "insight_resolutions": ctx.insight_resolutions})
+
         # corroborate workbook facts with same-period external actuals (analysis_reports)
         # so the cross-source reconciliation below has an overlapping source to compare.
         if frame.intent in ("metric_lookup", "ratio_analysis", "trend_analysis",
@@ -170,11 +204,16 @@ class FinancialIntelligenceEngine:
             # external-vs-external disagreement: surfaced (no trusted baseline to settle it)
             ctx.conflicts += self.conflicts.detect_cross_api(external_ev)
 
+        # per-layer dump: admitted evidence (roles stamped + corroboration merged) + final conflicts
+        if dumper.enabled:
+            dumper.json("07_evidence_admitted", [e.model_dump() for e in ctx.evidence])
+            dumper.json("08_conflicts_final", [c.model_dump() for c in ctx.conflicts])
         _layer("Retrieve", "evidence=%d calcs=%d conflicts=%d degraded=%s",
                 len(ctx.evidence), len(ctx.calcs), len(ctx.conflicts), ctx.degraded)
 
         cites, withheld = citations_mod.bind(ctx.evidence, ctx.calcs)
         conf = None
+        graph = None
         if frame.intent != "unknown":
             conf = self.confidence.score(
                 evidence=ctx.evidence, calcs=ctx.calcs, conflicts=ctx.conflicts,
@@ -183,6 +222,13 @@ class FinancialIntelligenceEngine:
             )
             graph = synthesis.build_graph(frame, ctx.evidence, ctx.calcs, ctx.conflicts)
             ctx.llm_analysis = self.synthesizer.narrate(frame, graph, audience=audience)
+        # per-layer dump: confidence (json), reasoning graph (json), narration (text)
+        if dumper.enabled:
+            if conf is not None:
+                dumper.json("09_confidence", conf)
+            if graph is not None:
+                dumper.json("10_reasoning_graph", graph)
+            dumper.text("11_llm_analysis", ctx.llm_analysis or "(no narration)")
 
         coverage = {
             "degraded": ctx.degraded,
@@ -195,6 +241,9 @@ class FinancialIntelligenceEngine:
         }
         _layer("Respond", "conf=%s citations=%d coverage=%s",
                 (conf.band if conf else "n/a"), len(cites), coverage)
+        if dumper.enabled:
+            dumper.json("12_citations", {"citations": [c.model_dump() for c in cites],
+                                         "withheld": [w.model_dump() for w in withheld]})
 
         resp = response.render(
             frame, ctx.evidence, ctx.calcs, cites, conf,
@@ -202,6 +251,17 @@ class FinancialIntelligenceEngine:
             audience=audience, llm_analysis=ctx.llm_analysis, extra=ctx.extra,
             coverage=coverage,
         )
+        if dumper.enabled:
+            dumper.json("13_response", resp)
+            dumper.json("00_summary", {
+                "trace_id": trace_id, "query": query, "audience": audience,
+                "intent": frame.intent, "company": frame.company, "year": frame.year,
+                "formula": frame.formula, "confidence": conf.band if conf else None,
+                "evidence": len(ctx.evidence), "calcs": len(ctx.calcs),
+                "conflicts": len(ctx.conflicts), "citations": len(cites),
+                "degraded": ctx.degraded, "partial_coverage": ctx.partial_coverage,
+                "elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
+            })
         return frame, plan, ctx, resp
 
     # ------------------------------------------------------------ handlers
@@ -563,6 +623,7 @@ class FinancialIntelligenceEngine:
 
 class _Ctx:
     def __init__(self) -> None:
+        self.trace_id: str | None = None
         self.evidence: list[EvidenceItem] = []
         self.calcs: list[CalcResult] = []
         self.conflicts = []
