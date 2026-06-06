@@ -9,7 +9,7 @@ See docs/fie_implementation_plan.md §Phase 1 (1.7) / §Phase 2.
 
 from __future__ import annotations
 
-from . import safety
+from . import citation_enforce, evidence_rank, safety
 from .models import (
     CalcResult,
     Citation,
@@ -84,7 +84,7 @@ def render(
     elif frame.intent == "risk_assessment":
         direct = (f"Identified {len(evidence)} risk-related insight(s) for {company}"
                   + (f" ({frame.year})." if frame.year else "."))
-        findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence[:8]]
+        findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence_rank.top(evidence, 8)]
         if conflicts:
             analysis = (f"{len(conflicts)} insight conflict(s) resolved by recency/"
                         f"confidence; superseded views retained as caveats.")
@@ -189,7 +189,7 @@ def render(
     elif frame.intent in ("news_impact", "earnings_review"):
         if evidence:
             direct = f"{len(evidence)} recent item(s) for {company}."
-            findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence[:8]]
+            findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence_rank.top(evidence, 8)]
         else:
             direct = f"No recent external items available for {company}."
 
@@ -208,6 +208,21 @@ def render(
             prose_source = "llm"
         # else: silently fall back — the LLM tried to introduce an unbacked number
 
+    # --- claim-level citation enforcement (L8a) ---------------------------
+    # drop any finding whose backing citation lacks resolvable provenance; if a
+    # findings-bearing answer loses ALL of them (and no computed value remains),
+    # degrade to a clean insufficient-evidence response rather than ship uncited.
+    valid_refs = citation_enforce.valid_ref_ids(citations)
+    n_findings_before = len(findings)
+    findings, dropped_claims = citation_enforce.enforce_findings(findings, valid_refs)
+    insufficient = (n_findings_before > 0 and not findings
+                    and not (primary and primary.value is not None))
+    if insufficient:
+        direct = (f"Insufficient citable evidence to answer this query for {company}"
+                  + (f" (FY{frame.year})" if frame.year else "") + ".")
+        analysis = ""
+        prose_source = "deterministic"
+
     used = sorted({f.sheet for ev in evidence for f in ev.fact_refs})
     evidence_used = [f"Workbook sheet: {s}" for s in used]
     if any(e.kind == "insight" for e in evidence):
@@ -218,6 +233,16 @@ def render(
 
     withheld_labels = [f"{w.metric or w.label} {w.year}" for w in withheld]
 
+    cov = dict(coverage or {})
+    if dropped_claims:
+        cov["dropped_claims"] = len(dropped_claims)
+    conf_out = confidence
+    if insufficient:
+        cov["insufficient_evidence"] = True
+        conf_out = ConfidenceReport(
+            band="Low", score=0.0,
+            reasons=["all candidate claims lacked resolvable citations"])
+
     return Response(
         direct_answer=direct,
         key_findings=findings,
@@ -227,7 +252,7 @@ def render(
         citations=citations,
         conflicts=conflicts,
         withheld=withheld_labels,
-        confidence=confidence,
+        confidence=conf_out,
         prose_source=prose_source,
-        coverage=coverage or {},
+        coverage=cov,
     )

@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     news_similarity_floor: float = 0.20  # min cosine(query, chunk) to keep a chunk
     news_top_k: int = 8                 # max chunks fed to the LLM / surfaced in the response
     news_dedup_similarity: float = 0.92  # cosine >= this -> near-duplicate chunk (keep best)
+    news_same_story_similarity: float = 0.85  # cosine >= this -> same story across outlets
+                                              # (syndication) -> fold to one independent source
     news_recency_weight: float = 0.2    # blended score = (1-w)*cosine + w*recency
     news_recency_halflife_days: int = 14  # recency half-life for the decay term
 

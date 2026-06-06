@@ -150,14 +150,36 @@ def retrieve(articles: list[EvidenceItem], query_text: str, *, settings=None,
         scored.append((((1 - w) * cos + w * rec), cos, i, ev, ctext, vecs[i]))
     scored.sort(key=lambda t: t[0], reverse=True)
 
-    # dedup near-identical chunks (keep the higher-scored one), then cap top-K
+    # Independence-aware dedup: cluster by "same story" similarity and keep one
+    # representative per story. A near-identical story carried by several outlets is
+    # SYNDICATION (one origin), not independent corroboration — fold the outlets into
+    # the representative's `syndicated_in` rather than counting them as separate
+    # confirmations (legacy MSIL circular-evidence rule). Each surviving item is then
+    # a distinct (independent) story; the count drives a corroboration strength.
+    threshold = settings.news_same_story_similarity
     kept_vecs, out = [], []
-    dedup = settings.news_dedup_similarity
     for blended, _cos, _i, ev, ctext, v in scored:
-        if any(float(np.dot(v, kv)) >= dedup for kv in kept_vecs):
+        dup_idx = next((j for j, kv in enumerate(kept_vecs)
+                        if float(np.dot(v, kv)) >= threshold), None)
+        if dup_idx is not None:                       # same story -> fold the outlet
+            rep_loc = out[dup_idx].citations[0].locator if out[dup_idx].citations else {}
+            src = (ev.citations[0].locator.get("source") if ev.citations else None)
+            syn = rep_loc.setdefault("syndicated_in", [rep_loc.get("source")])
+            if src and src not in syn:
+                syn.append(src)
             continue
         kept_vecs.append(v)
         out.append(_emit(ev, ctext, len(out), blended))
         if len(out) >= settings.news_top_k:
             break
+
+    # corroboration counts INDEPENDENT stories (reps), not articles: n reprints of one
+    # wire => 1 independent story => no inflated confidence.
+    n = len(out)
+    strength = round(1 - 0.5 ** (n - 1), 4) if n else 0.0
+    for it in out:
+        loc = it.citations[0].locator if it.citations else {}
+        loc.setdefault("syndicated_in", [loc.get("source")])
+        loc["independent_stories"] = n
+        loc["corroboration_strength"] = strength
     return out

@@ -47,4 +47,14 @@ def bind(evidence: list[EvidenceItem], calcs: list[CalcResult]
     # renumber with stable inline handles C1..Cn
     for i, c in enumerate(ordered, start=1):
         c.ref_id = f"C{i}"
+    # propagate the canonical handle to de-duped citation objects so EVERY evidence/
+    # calc citation resolves to a real Cn (not a stale 'C?') — required for claim-level
+    # citation enforcement to map a finding's handle back to its citation.
+    ref_by_key = {_locator_key(c): c.ref_id for c in ordered}
+    for ev in evidence:
+        for c in ev.citations:
+            c.ref_id = ref_by_key.get(_locator_key(c), c.ref_id)
+    for cr in calcs:
+        for c in cr.citations:
+            c.ref_id = ref_by_key.get(_locator_key(c), c.ref_id)
     return ordered, withheld

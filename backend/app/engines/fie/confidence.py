@@ -85,6 +85,13 @@ class ConfidenceScorer:
             cap_ceiling = min(cap_ceiling, _BAND_SCORE["Medium"])
             caps.append("single uncorroborated source")
 
+        # admission: an answer resting ONLY on non-authoritative evidence (news /
+        # sentiment) is context, not fact — cap at Medium however well cited it is.
+        if evidence and not calcs and all(
+                getattr(e, "role", None) == "non_authoritative" for e in evidence):
+            cap_ceiling = min(cap_ceiling, _BAND_SCORE["Medium"])
+            caps.append("non-authoritative sources only")
+
         score = min(score, cap_ceiling)
         band = _band_from_score(score)
         return ConfidenceReport(band=band, score=round(score, 3),

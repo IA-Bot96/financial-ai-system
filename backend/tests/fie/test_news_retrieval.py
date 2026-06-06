@@ -31,6 +31,7 @@ class FakeEmbedder:
 def _settings(**over):
     base = dict(news_min_body_chars=600, news_chunk_chars=500, news_chunk_overlap=100,
                 news_similarity_floor=0.2, news_top_k=8, news_dedup_similarity=0.92,
+                news_same_story_similarity=0.85,
                 news_recency_weight=0.2, news_recency_halflife_days=14,
                 embedding_model="fake")
     base.update(over)
@@ -88,6 +89,31 @@ def test_retrieve_ranks_dedupes_and_drops_irrelevant():
     for e in out:
         loc = e.citations[0].locator
         assert loc["link"] and loc["source"] and "relevance" in loc
+
+
+def test_news_independence_folds_syndication_and_counts_origins():
+    # one story carried by 3 outlets (near-identical) + one genuinely distinct story
+    arts = [
+        _article("MLCF announces expansion", "significant expansion in capacity",
+                 "Reuters", "u_r", "2026-06-05"),
+        _article("MLCF expansion update", "significant expansion in capacity",
+                 "WSJ", "u_w", "2026-06-05"),
+        _article("MLCF expansion confirmed", "significant expansion in capacity",
+                 "Dawn", "u_d", "2026-06-05"),
+        _article("MLCF quarterly profit rises", "quarterly profit rises sharply",
+                 "Bloomberg", "u_b", "2026-06-04"),
+    ]
+    out = NR.retrieve(arts, "MLCF expansion profit", settings=_settings(),
+                      embedder=FakeEmbedder(), anchor_date="2026-06-06")
+    # 3 reprints collapse to ONE independent story; profit is a second -> 2 reps
+    assert len(out) == 2
+    by = {e.citations[0].locator["source"]: e for e in out}
+    rep = next(e for e in out if "expansion" in e.claim.lower())
+    syn = rep.citations[0].locator["syndicated_in"]
+    assert set(syn) >= {"Reuters", "WSJ", "Dawn"}          # all 3 outlets folded into one origin
+    # independence metric: 2 distinct stories, not 4 "confirmations"
+    assert rep.citations[0].locator["independent_stories"] == 2
+    assert out[0].citations[0].locator["corroboration_strength"] == 0.5  # 1 - 0.5^(2-1)
 
 
 def test_retrieve_fallback_without_model(monkeypatch):

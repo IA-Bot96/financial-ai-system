@@ -8,9 +8,10 @@ See docs/fie_phase0_foundation.md §4.
 
 from __future__ import annotations
 
+import re as _re
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # --- enums (closed sets) ---------------------------------------------------
 
@@ -74,6 +75,7 @@ class EvidenceItem(BaseModel):
     reliability: float = 1.0
     freshness: Optional[str] = None  # ISO date
     as_of: Optional[str] = None
+    role: Optional[str] = None  # admission role (baseline|supporting|event_fact|…); see admission.py
 
 
 class NewsArticle(BaseModel):
@@ -211,3 +213,13 @@ class Response(BaseModel):
     confidence: Optional[ConfidenceReport] = None
     prose_source: Literal["deterministic", "llm"] = "deterministic"
     coverage: dict = Field(default_factory=dict)  # partial_coverage, degraded, dropped_insights, …
+
+    @model_validator(mode="after")
+    def _findings_must_cite(self) -> "Response":
+        """Boundary invariant ("no citation, no claim"): every shipped key finding
+        must carry a resolvable inline citation handle [Cn]. The renderer enforces
+        this upstream (dropping uncitable claims); this is the structural backstop."""
+        for f in self.key_findings:
+            if not _re.search(r"\[C\d+\]", f):
+                raise ValueError(f"key finding lacks a citation handle: {f!r}")
+        return self

@@ -14,7 +14,7 @@ from typing import Callable
 
 from . import citations as citations_mod
 from . import insights as insights_mod
-from . import news_retrieval, planner, response, retrieval, scale, synthesis, understanding
+from . import admission, news_retrieval, planner, response, retrieval, scale, synthesis, understanding
 from .apis import ExternalSources
 from .calc import CalcEngine
 from .conflicts import ConflictResolver
@@ -125,6 +125,12 @@ class FinancialIntelligenceEngine:
         elif frame.intent in ("news_impact", "earnings_review"):
             self._news(frame, ctx, plan)
 
+        # admission role (L6): tag every datum so the trust model is explicit —
+        # workbook facts = baseline; external = supporting/event/context; news =
+        # non-authoritative. External numbers can never be a baseline (admission.py).
+        for e in ctx.evidence:
+            e.role = admission.classify_evidence(e).value
+
         _layer("Retrieve", "evidence=%d calcs=%d conflicts=%d degraded=%s",
                 len(ctx.evidence), len(ctx.calcs), len(ctx.conflicts), ctx.degraded)
 
@@ -146,6 +152,7 @@ class FinancialIntelligenceEngine:
                                  if ctx.total_insights else 0),
             "superseded_insights": ctx.superseded,
             "withheld": len(withheld),
+            "admission": admission.audit(ctx.evidence),  # role distribution
         }
         _layer("Respond", "conf=%s citations=%d coverage=%s",
                 (conf.band if conf else "n/a"), len(cites), coverage)
@@ -265,7 +272,14 @@ class FinancialIntelligenceEngine:
             ratio = scale.magnitude_ratio(md["market_cap"], units.get("market_cap") or wb_unit,
                                           equity, wb_unit)
             pb = round(ratio, 4) if ratio is not None else None
+        elif price and md.get("shares") and equity:
+            # no market cap on the page: derive it from price × share count (both
+            # absolute PKR / count), then normalize equity (thousands) to canonical PKR.
+            ratio = scale.magnitude_ratio(price * md["shares"], "PKR", equity, wb_unit)
+            pb = round(ratio, 4) if ratio is not None else None
         elif price and bvps and bvps.value:
+            # last resort (no market cap, no share count): per-share book value, assumed
+            # already in the workbook's PKR/share scale.
             pb = round(price / bvps.value, 4)
             ctx.evidence += retrieval.evidence_from_facts(self.store, bvps.inputs)
 
@@ -287,8 +301,14 @@ class FinancialIntelligenceEngine:
             eb_c = scale.to_canonical_pkr(ebitda, wb_unit)
             if mc_c is not None and eb_c:
                 ev = {"ev_ebitda": round((mc_c + (nd_c or 0.0)) / eb_c, 4)}
-        elif price and shares and ebitda:
-            ev = ev_over_ebitda(price, shares, ebitda, debt, cash)
+        elif price and md.get("shares") and ebitda:
+            # derive market cap from price × share count (absolute PKR); normalize the
+            # workbook magnitudes (EBITDA / debt / cash) to canonical PKR before mixing.
+            ev = ev_over_ebitda(
+                price, md["shares"],
+                scale.to_canonical_pkr(ebitda, wb_unit),
+                scale.to_canonical_pkr(debt, wb_unit) if debt is not None else None,
+                scale.to_canonical_pkr(cash, wb_unit) if cash is not None else None)
 
         if pe is not None:
             ctx.calcs.append(CalcResult(formula_id="pe_ratio", value=pe, unit="x",
