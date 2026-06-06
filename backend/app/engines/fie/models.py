@@ -1,0 +1,190 @@
+"""Core data types for the Financial Intelligence Engine (FIE).
+
+These are the frozen contract every later layer depends on. All models are
+pydantic v2 and JSON/dict-serializable via ``model_dump()`` / ``model_validate()``.
+
+See docs/fie_phase0_foundation.md §4.
+"""
+
+from __future__ import annotations
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, Field
+
+# --- enums (closed sets) ---------------------------------------------------
+
+ValidationStatus = Literal["CLEAN", "MISMATCH", "WITHHELD", "NO_FACE_TRUTH"]
+PeriodType = Literal["historical", "forecasted"]
+Statement = Literal["pl", "bs", "cf", "equity", "other"]
+Level = Literal["headline", "detail"]
+ProvenanceBasis = Literal["direct", "via_detail", "workbook", "none"]
+CitationKind = Literal["financial", "insight", "external", "forecast"]
+EvidenceKind = Literal["statement", "detail", "insight", "external", "calc"]
+
+
+class FactRef(BaseModel):
+    """Immutable identity of a single financial value plus its provenance.
+
+    A ``FactRef`` travels with every number from the moment it is read so that
+    citations and confidence can be read off it rather than reconstructed.
+    """
+
+    company: str
+    metric: Optional[str]  # canonical id; None when the label is unmapped
+    label: str  # raw workbook label (kept verbatim, even with encoding artifacts)
+    year: int
+    period_type: PeriodType = "historical"
+    value: Optional[float]  # None when absent / withheld
+    unit: str = "Rupees in thousand"
+    statement: Statement
+    level: Level
+    sheet: str
+    cell: str
+
+    # provenance (resolved via the Source Ledger; see §6)
+    source_ref: Optional[str] = None  # "<report_file>:p<page>:<table_id>"
+    report_year: Optional[int] = None
+    provenance_basis: ProvenanceBasis = "none"
+
+    # dev-only annotation; runtime ignores this (architecture §0.3)
+    validation_status: ValidationStatus = "CLEAN"
+
+
+class Citation(BaseModel):
+    """A resolvable, human-displayable pointer to a source for a claim."""
+
+    ref_id: str  # inline handle, e.g. "C7"
+    kind: CitationKind
+    display: str  # e.g. "MTL Annual Report 2024-25, p108"
+    locator: dict = Field(default_factory=dict)  # {report_file, page, table_id, sheet, cell, year}
+    confidence: Optional[float] = None  # Source Ledger confidence, if present
+    retrieved_at: Optional[str] = None  # external only
+
+
+class EvidenceItem(BaseModel):
+    """A normalized unit of evidence: internal cell, insight, external datum, or calc."""
+
+    claim: str
+    value: Optional[float] = None
+    unit: Optional[str] = None
+    kind: EvidenceKind
+    fact_refs: list[FactRef] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    reliability: float = 1.0
+    freshness: Optional[str] = None  # ISO date
+    as_of: Optional[str] = None
+
+
+# --- query understanding / planning (L1/L2) --------------------------------
+
+ConfidenceBand = Literal["High", "Medium", "Low"]
+
+
+class QueryFrame(BaseModel):
+    """Structured intent + entities extracted from the user query (L1).
+
+    Phase 1 fills this with rules only; Phase 3 adds an LLM builder behind the
+    same schema.
+    """
+
+    raw_query: str
+    intent: str
+    company: Optional[str] = None
+    companies: list[str] = Field(default_factory=list)  # peer_comparison targets
+    year: Optional[int] = None
+    years: list[int] = Field(default_factory=list)  # explicit multi-year range (trend)
+    window: Optional[int] = None  # "last N years" — resolved against the store in the engine
+    aggregation: Optional[str] = None  # trend operator: "average" | "cagr" | None
+    formula: Optional[str] = None  # e.g. "current_ratio"
+    metrics: list[str] = Field(default_factory=list)  # required canonical metrics
+    level: Level = "headline"
+    period_type: PeriodType = "historical"
+    # restatement-aware temporal resolution (architecture §2.4): default to the
+    # newest report's view of a (possibly restated) prior year.
+    report_year_preference: Literal["latest", "as_reported"] = "latest"
+    source: Literal["rules", "llm"] = "rules"  # which builder produced this frame
+
+
+class SourceRequirement(BaseModel):
+    kind: Literal["internal", "external"] = "internal"
+    metric: str
+    year: int
+    level: Level = "headline"
+    period_type: PeriodType = "historical"
+
+
+class SourcePlan(BaseModel):
+    """A (Phase 1: linear) set of retrieval requirements + an optional calc (L2)."""
+
+    requirements: list[SourceRequirement] = Field(default_factory=list)
+    formula: Optional[str] = None
+    external_sources: list[str] = Field(default_factory=list)  # which external adapters to consult
+    notes: list[str] = Field(default_factory=list)
+
+
+# --- calculation / confidence / response (L4/L7/L8) ------------------------
+
+
+class CalcResult(BaseModel):
+    formula_id: str
+    value: Optional[float]
+    unit: str = "ratio"
+    inputs: list[FactRef] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    confidence: ConfidenceBand = "Medium"
+    expression: Optional[str] = None  # human-readable, e.g. "current_assets / current_liabilities"
+    note: Optional[str] = None
+
+
+class ConfidenceReport(BaseModel):
+    band: ConfidenceBand
+    score: float = 0.0
+    reasons: list[str] = Field(default_factory=list)
+    caps_applied: list[str] = Field(default_factory=list)
+
+
+ConflictType = Literal[
+    "insight_vs_insight", "restatement", "forecast_vs_actual",
+    "internal_vs_external", "cross_api", "insight_vs_disclosure",
+]
+
+
+class Conflict(BaseModel):
+    """A runtime conflict (insights / restatement / external) — NOT computed-vs-stated.
+
+    The financial core is trusted, so there is no computed-vs-stated conflict at
+    runtime (architecture §0.3 / §8).
+    """
+
+    type: ConflictType
+    topic: str  # metric, area, or claim subject
+    year: Optional[int] = None
+    values: list[dict] = Field(default_factory=list)  # competing items (insight/fact summaries)
+    resolution: Optional[str] = None  # winner + rationale, or None if exposed
+    resolved: bool = False
+
+
+class ReasoningGraph(BaseModel):
+    """Explicit premises → inferences → conclusion (L5). Every premise references
+    cited evidence; the LLM narrates *over* this, it does not invent it."""
+
+    premises: list[str] = Field(default_factory=list)
+    inferences: list[str] = Field(default_factory=list)
+    conclusion: str = ""
+
+
+class Response(BaseModel):
+    """The structured, cited answer (L8)."""
+
+    direct_answer: str
+    key_findings: list[str] = Field(default_factory=list)
+    supporting_analysis: str = ""
+    calculations: list[CalcResult] = Field(default_factory=list)
+    evidence_used: list[str] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    conflicts: list["Conflict"] = Field(default_factory=list)
+    withheld: list[str] = Field(default_factory=list)
+    confidence: Optional[ConfidenceReport] = None
+    prose_source: Literal["deterministic", "llm"] = "deterministic"
+    coverage: dict = Field(default_factory=dict)  # partial_coverage, degraded, dropped_insights, …

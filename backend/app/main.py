@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import extraction
+from app.api.routes import extraction, fie
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
@@ -19,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(extraction.router, prefix="/api")
+app.include_router(fie.router, prefix="/api")
 
 
 @app.get("/health")
