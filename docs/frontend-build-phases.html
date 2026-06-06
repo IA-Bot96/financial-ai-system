@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Financial Intelligence — Frontend Build Phases</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --card2:#1d2129; --ink:#e7ebf0; --muted:#9aa4b2;
+    --line:#2a2f3a; --accent:#4f8cff; --green:#3fb950; --amber:#d29922; --purple:#a371f7;
+    --red:#f85149; --chip:#222936;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:32px 40px 18px;border-bottom:1px solid var(--line);
+         background:linear-gradient(180deg,#141925,#0f1115)}
+  h1{margin:0 0 6px;font-size:24px}
+  .sub{color:var(--muted);font-size:14px;max-width:880px}
+  .wrap{padding:26px 40px 80px;max-width:1040px;margin:0 auto}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 4px}
+  .legend span{font-size:12px;color:var(--muted)}
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 26px}
+  .toc a{font-size:12.5px;color:var(--ink);text-decoration:none;background:var(--chip);
+         border:1px solid var(--line);padding:5px 10px;border-radius:999px}
+  .toc a:hover{border-color:var(--accent)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+        padding:22px 24px;margin:18px 0;scroll-margin-top:16px}
+  .card h2{margin:0 0 4px;font-size:19px;display:flex;align-items:center;gap:10px}
+  .pnum{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;
+        padding:0 8px;border-radius:8px;background:var(--accent);color:#fff;font-weight:700;font-size:13px}
+  .badges{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 14px}
+  .b{font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+  .b.be{background:rgba(163,113,247,.12);color:#c9b3ff;border-color:#3a2f57}
+  .b.fe{background:rgba(79,140,255,.12);color:#a9c7ff;border-color:#274069}
+  .b.dep{background:rgba(210,153,34,.12);color:#e7c879;border-color:#5a4a1f}
+  .b.spec{background:rgba(63,185,80,.10);color:#8fe39a;border-color:#27502c}
+  .goal{color:var(--ink);margin:2px 0 14px}
+  .sec{margin:14px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  ul{margin:6px 0 6px;padding-left:20px} li{margin:4px 0}
+  code{background:#0c0f15;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:12.5px}
+  .accept{background:var(--card2);border-left:3px solid var(--green);border-radius:0 8px 8px 0;
+          padding:10px 14px;margin-top:12px;color:#cfe6d2;font-size:13.5px}
+  .note{background:var(--card2);border-left:3px solid var(--amber);border-radius:0 8px 8px 0;
+        padding:10px 14px;margin-top:12px;color:#e9d9ac;font-size:13.5px}
+  .feed{color:var(--muted);font-size:12px;border-top:1px dashed var(--line);margin-top:16px;padding-top:10px}
+  footer{color:var(--muted);font-size:12.5px;padding:0 40px 50px;max-width:1040px;margin:0 auto}
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Financial Intelligence — Frontend Build Phases</h1>
+  <div class="sub">Dependency-ordered build plan for the Electron + React desktop app over the
+  existing Python FIE backend. Feed one card per turn. Full detail lives in
+  <code>docs/frontend-spec.md</code>; each card cites the relevant spec section.</div>
+  <div class="legend">
+    <span><b class="b be">BACKEND</b> Python work</span>
+    <span><b class="b fe">FRONTEND</b> Electron/React work</span>
+    <span><b class="b dep">DEPENDS</b> prerequisite phases</span>
+    <span><b class="b spec">SPEC</b> spec section(s)</span>
+  </div>
+</header>
+<div class="wrap">
+
+<div class="toc">
+  <a href="#p0">0 · Backend session layer</a>
+  <a href="#p1">1 · Electron+React skeleton</a>
+  <a href="#p2">2 · Sheet + Excel open</a>
+  <a href="#p3">3 · OCR/PDF extraction</a>
+  <a href="#p4">4 · Ask AI panel</a>
+  <a href="#p5">5 · PDF panel + citation nav</a>
+  <a href="#p6">6 · Dashboard</a>
+  <a href="#p7">7 · Save, reload, recovery</a>
+  <a href="#p8">8 · Packaging + E2E</a>
+</div>
+
+<!-- ───────────────────────── PHASE 0 ───────────────────────── -->
+<div class="card" id="p0">
+  <h2><span class="pnum">0</span> Backend session layer (prerequisite)</h2>
+  <div class="badges">
+    <span class="b be">BACKEND</span><span class="b dep">none — do first</span>
+    <span class="b spec">§4.2</span>
+  </div>
+  <div class="goal">Let the engine answer against an <b>arbitrary user-opened workbook</b> via a
+  session, instead of the hardcoded company→file map. This unblocks Sheet, Ask AI, and Dashboard.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li>In-memory session registry <code>{session_id: FinancialFactStore}</code> (uuid keys).</li>
+    <li><code>POST /api/fie/sessions</code> (multipart <code>.xlsx</code>) → ingest once via
+        <code>from_workbook</code>, return <code>{session_id, company, years, sheets[], metrics[]}</code>.</li>
+    <li><code>POST /api/fie/sessions/{id}/answer</code> <code>{query, audience?}</code> → FIE
+        <code>Response</code>. <b>Look up the resident store — never call <code>from_workbook</code> on this path.</b></li>
+    <li><code>POST /api/fie/sessions/{id}/reload</code> (multipart) → re-ingest + bust cache (after Save).</li>
+    <li><code>DELETE /api/fie/sessions/{id}</code>; reuse <code>assert_safe_upload</code> on every upload.</li>
+    <li>Add the Electron origin to <code>CORS_ALLOW_ORIGINS</code>.</li>
+  </ul>
+
+  <div class="sec">Deliverables</div>
+  <ul><li>New session router + registry; tests (create/answer/reload/delete, no-reparse-on-answer, cache-bust).</li></ul>
+
+  <div class="note"><b>Regression guard:</b> a test must assert <code>answer</code> does not call
+  <code>from_workbook</code> (parse only on create/reload). A 50-question chat = 1 ingest.</div>
+  <div class="accept"><b>Accept when:</b> upload an xlsx → get a session_id; 3 questions answer
+  correctly with citations; edit+reload changes the answers; full suite green.</div>
+  <div class="feed">Feed me: “Phase 0 — backend session layer”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 1 ───────────────────────── -->
+<div class="card" id="p1">
+  <h2><span class="pnum">1</span> Electron + React skeleton</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b dep">Phase 0</span>
+    <span class="b spec">§2 §3 §5 §7</span>
+  </div>
+  <div class="goal">Bootable shell: Electron spawns the Python sidecar, renderer waits for
+  readiness, app frame renders.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li><code>electron-vite</code> + React + TypeScript; main / preload / renderer split.</li>
+    <li>Main spawns the FIE backend on a <b>free port chosen at launch</b>; kills it on <code>before-quit</code>.</li>
+    <li>Preload exposes typed <code>window.api</code> via <code>contextBridge</code>
+        (<code>contextIsolation:true</code>, no <code>nodeIntegration</code>): file open/save dialogs, fs writes, backend port.</li>
+    <li>Splash → poll <code>GET /readiness</code> until 200 → mount app; error screen + log path on failure.</li>
+    <li>Tailwind + shadcn/ui; Zustand store skeleton (<code>backend</code>, <code>session</code>,
+        <code>workbook</code>, <code>panels</code>, <code>view</code>, <code>chat</code>, <code>jobs</code>, <code>toasts</code>).</li>
+    <li>Left rail (Home · Sheet · PDF · Ask AI · Dashboard · Save) + empty Home with centered <code>+</code>.</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> <code>npm run dev</code> launches; splash shows; backend
+  becomes ready; left rail + empty Home render; closing the app kills the backend.</div>
+  <div class="feed">Feed me: “Phase 1 — Electron + React skeleton”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 2 ───────────────────────── -->
+<div class="card" id="p2">
+  <h2><span class="pnum">2</span> Sheet + Excel open path</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b dep">Phase 1</span>
+    <span class="b spec">§6.1 §6.2 §6.4 §6.5 §10</span>
+  </div>
+  <div class="goal">Open an Excel workbook end-to-end and edit it in an Excel-like grid.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li>Univer grid (center, primary) + SheetJS for I/O.</li>
+    <li><code>+</code> → centered <b>Upload modal</b> (state A: drag-drop + “Drop PDFs to extract,
+        or an Excel to analyze”); routing rules (one Excel → analyze; reject mixed/multiple-Excel).</li>
+    <li>Excel path: state B progress → <code>POST /api/fie/sessions</code> → on done, load sheet, enable Ask AI + Dashboard.</li>
+    <li>Multi-sheet: financial sheets editable; meta-sheets (ledgers/insights) hidden + read-only behind a “Show source sheets” toggle.</li>
+    <li>Edit → <b>dirty</b>: top Save bar appears; edited cells diff-highlighted; undo/redo; shared number formatter (§10).</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> drop an xlsx → progress → grid loads with correct
+  numbers/sheets; editing a cell raises the Save bar; meta-sheets toggle works.</div>
+  <div class="feed">Feed me: “Phase 2 — Sheet + Excel open”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 3 ───────────────────────── -->
+<div class="card" id="p3">
+  <h2><span class="pnum">3</span> OCR / PDF extraction path</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b dep">Phase 2</span>
+    <span class="b spec">§6.2 §6.3 §6.6</span>
+  </div>
+  <div class="goal">Drop annual-report PDFs, watch extraction, review, and load the generated workbook.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li>PDF route in the upload modal → <code>POST /api/extraction/jobs</code> (multipart) → poll
+        <code>GET /api/extraction/jobs/{id}</code>.</li>
+    <li>Per-file list: name · size · progress bar · status; overall progress; <b>Cancel</b>; per-file error + <b>retry</b>.</li>
+    <li>Surface OCR confidence; flag low-confidence pages.</li>
+    <li>On complete → <b>Review</b>: close modal → <code>GET …/download</code> xlsx →
+        <code>POST /api/fie/sessions</code> → load sheet + open PDF panel.</li>
+    <li><b>Validation overlay</b>: tint cells by <code>validation_status</code> (CLEAN/MISMATCH/WITHHELD) + legend + toggle.</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> drop 2 PDFs → per-file progress → Review → sheet loads
+  with validation tints; a failed file can be retried.</div>
+  <div class="feed">Feed me: “Phase 3 — OCR/PDF extraction”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 4 ───────────────────────── -->
+<div class="card" id="p4">
+  <h2><span class="pnum">4</span> Ask AI panel (right dock)</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b dep">Phase 2</span>
+    <span class="b spec">§5 §6.8</span>
+  </div>
+  <div class="goal">The payoff: chat with cited, confidence-scored answers — the full FIE surfaced.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li>Right-docked, resizable panel; chat thread + input; suggested-question chips.</li>
+    <li><code>POST /api/fie/sessions/{id}/answer</code>; render the <b>structured Response</b>:
+        direct answer, key findings with inline citation chips <code>[Cn]</code>, confidence badge,
+        coverage caveats (degraded / insufficient-evidence / suppressed ratios), surfaced conflicts.</li>
+    <li>Loading spinner; graceful “insufficient citable evidence” + degraded states.</li>
+    <li>Render markdown via <code>react-markdown</code>.</li>
+  </ul>
+  <div class="note">Citation chips are wired to <i>navigate</i> in Phase 5 — here just render them as chips.</div>
+  <div class="accept"><b>Accept when:</b> asking “current ratio for 2024” returns a cited answer
+  with a confidence badge; an unanswerable query shows the insufficient-evidence state.</div>
+  <div class="feed">Feed me: “Phase 4 — Ask AI panel”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 5 ───────────────────────── -->
+<div class="card" id="p5">
+  <h2><span class="pnum">5</span> PDF panel (left dock) + citation navigation</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b dep">Phase 3, Phase 4</span>
+    <span class="b spec">§5 §6.7 §6.8</span>
+  </div>
+  <div class="goal">Side-by-side PDF review and the cross-panel citation jump.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li><code>react-pdf</code> viewer, left dock, resizable; page nav + zoom; coexists with Ask AI (min-widths; drawer fallback on narrow windows).</li>
+    <li>Citation chip click routes by kind: <b>financial</b> → scroll+highlight the cell in the Sheet;
+        <b>insight</b> → jump to the PDF page (left); <b>external</b> → open the article link.</li>
+    <li>(Optional) click a sheet cell → jump to its <code>source_ref</code> page.</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> a financial <code>[Cn]</code> highlights the right cell;
+  an insight <code>[Cn]</code> opens the right PDF page; both panels resize and coexist.</div>
+  <div class="feed">Feed me: “Phase 5 — PDF panel + citation nav”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 6 ───────────────────────── -->
+<div class="card" id="p6">
+  <h2><span class="pnum">6</span> Dashboard</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b dep">Phase 2</span>
+    <span class="b spec">§4.3 §6.9</span>
+  </div>
+  <div class="goal">Power-BI-style dashboard, computed client-side from the loaded workbook so it always matches edits.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li>ECharts grid; <b>KPI card row</b> (Revenue, PAT, margins, YoY) + ratio / balance-sheet / working-capital charts.</li>
+    <li>Two multi-select filters: <b>Graph type</b> and <b>Year</b> (years derived from the workbook) + <b>Apply</b> / <b>Reset</b> (explicit apply).</li>
+    <li>Data computed client-side from the workbook JSON (no backend call in v1).</li>
+    <li>Export to PNG/PDF; light/dark theme.</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> filters populate from the workbook; Apply redraws;
+  editing a cell + reopening Dashboard reflects the change; export works.</div>
+  <div class="feed">Feed me: “Phase 6 — Dashboard”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 7 ───────────────────────── -->
+<div class="card" id="p7">
+  <h2><span class="pnum">7</span> Save, reload/cache-bust, recovery, polish</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b be">BACKEND</span><span class="b dep">Phases 2–6</span>
+    <span class="b spec">§6.10 §8 §9 §11 §13</span>
+  </div>
+  <div class="goal">Persist edits everywhere consistently; guard data loss; finish the UX.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li><b>Save semantics:</b> OCR path → Save As (<code>.xlsx</code> + extracted <code>.json</code>);
+        Excel path → overwrite original (Save As = copy). JSON travels with the xlsx.</li>
+    <li>On Save: produce xlsx bytes (Univer/SheetJS) → <code>window.api</code> writes to disk →
+        <code>POST /api/fie/sessions/{id}/reload</code> (re-ingest + cache-bust) → clear dirty + “Saved” toast.</li>
+    <li><b>Unsaved-changes guard</b>: intercept window close (<code>before-quit</code>), new-file open, view switches that drop edits.</li>
+    <li>Crash recovery: <code>state.json</code> in Electron <code>userData</code> (last path, autosave draft, window bounds).</li>
+    <li>Toasts (top-right) for info/warning/error; save bar (top); keyboard shortcuts (Ctrl+S/Z/Y/O); native menu (File/Edit/View/Help).</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> edit → Save writes both files and Ask AI/Dashboard reflect
+  the new numbers; closing with unsaved edits prompts; a crash recovers the draft.</div>
+  <div class="feed">Feed me: “Phase 7 — Save, reload, recovery, polish”.</div>
+</div>
+
+<!-- ───────────────────────── PHASE 8 ───────────────────────── -->
+<div class="card" id="p8">
+  <h2><span class="pnum">8</span> Packaging + end-to-end integration</h2>
+  <div class="badges">
+    <span class="b fe">FRONTEND</span><span class="b be">BACKEND</span><span class="b dep">Phases 0–7</span>
+    <span class="b spec">§14 §15</span>
+  </div>
+  <div class="goal">Ship a single installable desktop app with the backend bundled — no Docker, no external services.</div>
+
+  <div class="sec">Tasks</div>
+  <ul>
+    <li>Bundle the FIE backend via <b>PyInstaller</b>; main launches the bundled exe as the sidecar.</li>
+    <li><b>electron-builder</b> Windows target (installer + portable).</li>
+    <li>First-run smoke: install → launch → open Excel → ask → dashboard → save, on a clean machine.</li>
+    <li>End-to-end dry run across all intents + ops endpoints (mirror the backend dry run).</li>
+    <li>Defer: Windows code-signing, auto-update.</li>
+  </ul>
+  <div class="accept"><b>Accept when:</b> the built installer runs the full flow on a machine
+  without Python/Docker installed.</div>
+  <div class="feed">Feed me: “Phase 8 — Packaging + E2E”.</div>
+</div>
+
+</div>
+<footer>
+  Order is dependency-driven: <b>Phase 0 (backend session)</b> must land first; Phases 4 and 6
+  both depend on Phase 2; Phase 5 needs 3 + 4. Each card is self-contained — feed it verbatim
+  and I'll implement that phase against <code>docs/frontend-spec.md</code>.
+</footer>
+</body>
+</html>
