@@ -13,6 +13,8 @@ import json
 import os
 from typing import Optional, Protocol, runtime_checkable
 
+_MISS = object()  # cache sentinel (distinguish "no entry" from a cached None)
+
 
 @runtime_checkable
 class LLMClient(Protocol):
@@ -40,18 +42,34 @@ class OpenAILLM:
     degrades to None so the engine falls back to deterministic behavior.
     """
 
-    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None) -> None:
+    def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None,
+                 *, max_input_chars: int = 24_000, max_output_tokens: int = 800,
+                 cache_max: int = 256) -> None:
         self.model = model
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._client = None
         # cost guards: truncate oversized prompts, cap completion length
         self.max_input_chars = max_input_chars
         self.max_output_tokens = max_output_tokens
+        # bounded in-process response cache: identical prompts (json is temperature=0,
+        # i.e. deterministic) reuse the prior completion instead of re-billing the API.
+        self.cache_max = cache_max
+        self._cache: dict[tuple, object] = {}
 
     def _clip(self, text: str) -> str:
         if text and len(text) > self.max_input_chars:
             return text[:self.max_input_chars]
         return text
+
+    def _cache_get(self, key: tuple):
+        return self._cache.get(key, _MISS)
+
+    def _cache_put(self, key: tuple, value) -> None:
+        if value is None:
+            return                                  # don't cache failures (allow retry)
+        if len(self._cache) >= self.cache_max:
+            self._cache.pop(next(iter(self._cache)))  # simple FIFO eviction
+        self._cache[key] = value
 
     def _ensure(self):
         if self._client is None:
@@ -60,6 +78,10 @@ class OpenAILLM:
         return self._client
 
     def complete_json(self, system: str, user: str, schema: dict) -> Optional[dict]:
+        key = ("json", system, user, repr(sorted((schema or {}).items())))
+        hit = self._cache_get(key)
+        if hit is not _MISS:
+            return hit
         try:
             client = self._ensure()
             resp = client.chat.completions.create(
@@ -70,11 +92,17 @@ class OpenAILLM:
                 temperature=0,
                 max_tokens=self.max_output_tokens,
             )
-            return json.loads(resp.choices[0].message.content)
+            out = json.loads(resp.choices[0].message.content)
+            self._cache_put(key, out)
+            return out
         except Exception:
             return None
 
     def complete_text(self, system: str, user: str) -> Optional[str]:
+        key = ("text", system, user)
+        hit = self._cache_get(key)
+        if hit is not _MISS:
+            return hit
         try:
             client = self._ensure()
             resp = client.chat.completions.create(
@@ -84,6 +112,8 @@ class OpenAILLM:
                 temperature=0.2,
                 max_tokens=self.max_output_tokens,
             )
-            return resp.choices[0].message.content
+            out = resp.choices[0].message.content
+            self._cache_put(key, out)
+            return out
         except Exception:
             return None

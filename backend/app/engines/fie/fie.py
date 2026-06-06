@@ -15,7 +15,7 @@ from contextlib import ExitStack
 from typing import Callable
 
 from app.core.debug import make_fie_dumper
-from app.core.logging import per_document_log
+from app.core.logging import per_query_log
 from . import citations as citations_mod
 from . import insights as insights_mod
 from .debug_dump import restore_llms, wrap_llms
@@ -70,6 +70,21 @@ class FinancialIntelligenceEngine:
         self._registry = None              # lazy EntityRegistry over PSX symbols
         self._last_entity_verdict = None   # last company->ticker resolution verdict
 
+    # intent -> handler method name (uniform signature: (frame, ctx, plan)).
+    # Adding an intent means adding one row here + the method — no ladder edits.
+    _INTENT_HANDLERS = {
+        "ratio_analysis": "_h_ratio_analysis",
+        "metric_lookup": "_h_metric_lookup",
+        "risk_assessment": "_h_risk_assessment",
+        "peer_comparison": "_h_peer_comparison",
+        "valuation": "_h_valuation",
+        "forecast_validation": "_h_forecast_validation",
+        "trend_analysis": "_h_trend",
+        "dividend_analysis": "_h_dividends",
+        "news_impact": "_h_news",
+        "earnings_review": "_h_news",
+    }
+
     def answer(self, query: str, *, audience: str = "analyst") -> Response:
         _frame, _plan, _ctx, resp = self._run(query, audience)
         return resp
@@ -93,7 +108,7 @@ class FinancialIntelligenceEngine:
         dumper = make_fie_dumper(trace_id)
         with ExitStack() as stack:
             if dumper.enabled:
-                stack.enter_context(per_document_log(trace_id))  # logs/<ts>_<id>.log
+                stack.enter_context(per_query_log(trace_id))  # logs/<ts>_<id>.log
                 dumper.subject(trace_id)
                 stack.callback(restore_llms, wrap_llms(self, dumper))  # capture LLM calls
             return self._pipeline(query, audience, trace_id, dumper)
@@ -113,64 +128,14 @@ class FinancialIntelligenceEngine:
         ctx = _Ctx()
         ctx.trace_id = trace_id
 
-        if frame.intent == "ratio_analysis" and frame.formula and frame.year is not None:
-            cr = self.calc.evaluate(frame.formula, frame.year)
-            ctx.calcs = [cr]
-            ctx.evidence = retrieval.evidence_from_facts(self.store, cr.inputs)
-            ctx.conflicts = self.conflicts.detect(
-                facts=cr.inputs, report_year_preference=frame.report_year_preference)
-
-        elif frame.intent == "metric_lookup":
-            # availability-gated resolution + clarification on ambiguous terms
-            mr = metric_resolve.resolve(frame.raw_query, frame.metrics,
-                                        self.store.available_metrics())
-            if mr["clarify"]:
-                ctx.extra = {"clarify": True, "candidates": mr["candidates"],
-                             "suggestions": mr["suggestions"]}
-            else:
-                if mr["resolved"] and mr["resolved"] not in (frame.metrics or []):
-                    frame.metrics = [mr["resolved"]]      # prefer an available canonical
-                    for req in plan.requirements:
-                        req.metric = mr["resolved"]
-                ctx.extra = {"suggestions": mr["suggestions"], "available": mr["available"]}
-                ctx.evidence = retrieval.fetch(self.store, plan)
-                ctx.conflicts = self.conflicts.detect(
-                    facts=[f for e in ctx.evidence for f in e.fact_refs],
-                    report_year_preference=frame.report_year_preference)
-
-        elif frame.intent == "risk_assessment":
-            all_insights = self.store.insights(include_review=True)
-            ctx.selected_insights, ctx.insight_resolutions = self.insights.select_and_resolve(
-                frame, all_insights)
-            ctx.evidence = [insights_mod.insight_evidence(r) for r in ctx.selected_insights]
-            ctx.conflicts = self.conflicts.detect(
-                insight_resolutions=ctx.insight_resolutions,
-                insights=ctx.selected_insights)  # + cross-Area semantic (LLM, if present)
-            ctx.total_insights = len(all_insights)
-            ctx.superseded = sum(len(r["superseded"]) for r in ctx.insight_resolutions)
-            # taxonomy themes + coverage gate over the selected insights (L5/L6)
-            ctx.extra = {
-                "themes": qualitative.assemble_themes(ctx.selected_insights),
-                "qual_coverage": qualitative.coverage(ctx.selected_insights),
-            }
-
-        elif frame.intent == "peer_comparison":
-            self._peer_comparison(frame, ctx)
-
-        elif frame.intent == "valuation":
-            self._valuation(frame, ctx)
-
-        elif frame.intent == "forecast_validation":
-            self._forecast_validation(frame, ctx)
-
-        elif frame.intent == "trend_analysis":
-            self._trend(frame, ctx)
-
-        elif frame.intent == "dividend_analysis":
-            self._dividends(frame, ctx)
-
-        elif frame.intent in ("news_impact", "earnings_review"):
-            self._news(frame, ctx, plan)
+        # intent -> handler dispatch (registry, not an if/elif ladder): a new intent
+        # without a registered handler degrades EXPLICITLY (logged), never silently.
+        handler = self._INTENT_HANDLERS.get(frame.intent)
+        if handler is not None:
+            getattr(self, handler)(frame, ctx, plan)
+        elif frame.intent != "unknown":
+            _layer("Route", "no handler registered for intent=%r; degrading to empty answer",
+                   frame.intent)
 
         # per-layer dump: intent-stage outputs (evidence / calcs / conflicts / extras)
         if dumper.enabled:
@@ -239,6 +204,9 @@ class FinancialIntelligenceEngine:
             "withheld": len(withheld),
             "admission": admission.audit(ctx.evidence),  # role distribution
         }
+        if conf and conf.caps_applied:   # decision log: why confidence was capped
+            _layer("Confidence", "band=%s limited_by=%s caps=%s",
+                    conf.band, getattr(conf, "limited_by", None), conf.caps_applied)
         _layer("Respond", "conf=%s citations=%d coverage=%s",
                 (conf.band if conf else "n/a"), len(cites), coverage)
         if dumper.enabled:
@@ -263,6 +231,69 @@ class FinancialIntelligenceEngine:
                 "elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
             })
         return frame, plan, ctx, resp
+
+    # ------------------------------------------------------ intent handlers
+    # Uniform signature (frame, ctx, plan); registered in _INTENT_HANDLERS.
+
+    def _h_ratio_analysis(self, frame, ctx, plan) -> None:
+        if not (frame.formula and frame.year is not None):
+            return                                  # nothing to compute -> empty (as before)
+        cr = self.calc.evaluate(frame.formula, frame.year)
+        ctx.calcs = [cr]
+        ctx.evidence = retrieval.evidence_from_facts(self.store, cr.inputs)
+        ctx.conflicts = self.conflicts.detect(
+            facts=cr.inputs, report_year_preference=frame.report_year_preference)
+
+    def _h_metric_lookup(self, frame, ctx, plan) -> None:
+        # availability-gated resolution + clarification on ambiguous terms
+        mr = metric_resolve.resolve(frame.raw_query, frame.metrics,
+                                    self.store.available_metrics())
+        if mr["clarify"]:
+            ctx.extra = {"clarify": True, "candidates": mr["candidates"],
+                         "suggestions": mr["suggestions"]}
+            return
+        if mr["resolved"] and mr["resolved"] not in (frame.metrics or []):
+            frame.metrics = [mr["resolved"]]        # prefer an available canonical
+            for req in plan.requirements:
+                req.metric = mr["resolved"]
+        ctx.extra = {"suggestions": mr["suggestions"], "available": mr["available"]}
+        ctx.evidence = retrieval.fetch(self.store, plan)
+        ctx.conflicts = self.conflicts.detect(
+            facts=[f for e in ctx.evidence for f in e.fact_refs],
+            report_year_preference=frame.report_year_preference)
+
+    def _h_risk_assessment(self, frame, ctx, plan) -> None:
+        all_insights = self.store.insights(include_review=True)
+        ctx.selected_insights, ctx.insight_resolutions = self.insights.select_and_resolve(
+            frame, all_insights)
+        ctx.evidence = [insights_mod.insight_evidence(r) for r in ctx.selected_insights]
+        ctx.conflicts = self.conflicts.detect(
+            insight_resolutions=ctx.insight_resolutions,
+            insights=ctx.selected_insights)  # + cross-Area semantic (LLM, if present)
+        ctx.total_insights = len(all_insights)
+        ctx.superseded = sum(len(r["superseded"]) for r in ctx.insight_resolutions)
+        ctx.extra = {
+            "themes": qualitative.assemble_themes(ctx.selected_insights),
+            "qual_coverage": qualitative.coverage(ctx.selected_insights),
+        }
+
+    def _h_peer_comparison(self, frame, ctx, plan) -> None:
+        self._peer_comparison(frame, ctx)
+
+    def _h_valuation(self, frame, ctx, plan) -> None:
+        self._valuation(frame, ctx)
+
+    def _h_forecast_validation(self, frame, ctx, plan) -> None:
+        self._forecast_validation(frame, ctx)
+
+    def _h_trend(self, frame, ctx, plan) -> None:
+        self._trend(frame, ctx)
+
+    def _h_dividends(self, frame, ctx, plan) -> None:
+        self._dividends(frame, ctx)
+
+    def _h_news(self, frame, ctx, plan) -> None:
+        self._news(frame, ctx, plan)
 
     # ------------------------------------------------------------ handlers
     def _store_for(self, company: str | None):
@@ -306,8 +337,12 @@ class FinancialIntelligenceEngine:
             try:
                 self._registry = entity_registry.EntityRegistry.from_symbols(
                     self.external.symbols)
-            except Exception:  # symbols fetch failed -> fall back to fuzzy/static
+            except Exception as exc:  # symbols fetch/parse failed -> static-map fallback
+                # log (not silent): a code bug here would otherwise masquerade as a
+                # benign network fallback and mask wrong-ticker binding.
                 self._registry = False
+                _log.warning("entity registry unavailable (%s: %s); using static ticker map",
+                             type(exc).__name__, exc, extra={"component": "Understand"})
         return self._registry or None
 
     def _ticker(self, company: str | None) -> str | None:
@@ -401,26 +436,40 @@ class FinancialIntelligenceEngine:
             ctx.extra = {"valuation": None, "note": "no market data", "ticker": ticker}
             return
 
-        # P/E: prefer the page's reported TTM P/E, else price / EPS
-        eps = md.get("eps")
-        pe = md.get("pe_ratio") or (round(price / eps, 4) if (price and eps) else None)
+        caveats: list[str] = []   # economic-meaning suppressions (surfaced + logged)
 
         # workbook magnitudes are "Rupees in thousand"; market data may be thousand
         # (overview) or absolute PKR (screener) — normalize both before any ratio.
         wb_unit = "Rupees in thousand"
         units = md.get("_units", {})
+        # market cap must carry a DECLARED unit — never assume a default (a missing unit
+        # would mis-scale P/B and EV/EBITDA by ~1000x). Absent -> skip market-cap paths.
+        mc_unit = units.get("market_cap")
+        if md.get("market_cap") is not None and not mc_unit:
+            caveats.append("market-cap unit undeclared; market-cap ratios skipped (no scale assumed)")
 
-        # P/B: market cap / total equity (preferred, both available), else price / BVPS
+        # P/E: prefer the page's reported TTM P/E, else price / EPS. Meaningful only for a
+        # profitable company — a negative/zero EPS (a loss) yields no P/E (suppressed).
+        eps = md.get("eps")
+        reported_pe = md.get("pe_ratio")
+        pe = None
+        if reported_pe is not None and reported_pe > 0:
+            pe = reported_pe
+        elif price and price > 0 and eps and eps > 0:
+            pe = round(price / eps, 4)
+        elif eps is not None and eps <= 0:
+            caveats.append("P/E not meaningful (EPS <= 0, i.e. a reported loss)")
+
+        # P/B: market cap / total equity (preferred), else price × shares, else price / BVPS.
         pb = None
         equity = self._safe_lookup("total_equity", frame.year)
         bvps = self.calc.evaluate("book_value_per_share", frame.year) if frame.year else None
-        if md.get("market_cap") and equity:
+        if md.get("market_cap") and mc_unit and equity:
             # canonical-PKR on both sides -> correct regardless of market-cap source scale
-            ratio = scale.magnitude_ratio(md["market_cap"], units.get("market_cap") or wb_unit,
-                                          equity, wb_unit)
+            ratio = scale.magnitude_ratio(md["market_cap"], mc_unit, equity, wb_unit)
             pb = round(ratio, 4) if ratio is not None else None
         elif price and md.get("shares") and equity:
-            # no market cap on the page: derive it from price × share count (both
+            # no (unit-declared) market cap: derive it from price × share count (both
             # absolute PKR / count), then normalize equity (thousands) to canonical PKR.
             ratio = scale.magnitude_ratio(price * md["shares"], "PKR", equity, wb_unit)
             pb = round(ratio, 4) if ratio is not None else None
@@ -430,8 +479,7 @@ class FinancialIntelligenceEngine:
             pb = round(price / bvps.value, 4)
             ctx.evidence += retrieval.evidence_from_facts(self.store, bvps.inputs)
 
-        # EV/EBITDA: market cap from the overview (× shares if only price), net debt
-        # proxy + internal EBITDA. Market cap/shares now come from the page.
+        # EV/EBITDA: meaningful only for positive EBITDA. Market cap requires a declared unit.
         ebitda_res = self.calc.evaluate("ebitda", frame.year) if frame.year else None
         ebitda = ebitda_res.value if ebitda_res else None
         market_cap = md.get("market_cap")
@@ -441,14 +489,16 @@ class FinancialIntelligenceEngine:
         cl = self._safe_lookup("current_liabilities", frame.year)
         debt = (ncl or 0.0) + (cl or 0.0) if (ncl is not None or cl is not None) else None
         ev = None
-        if market_cap and ebitda:
-            # bring market cap (its own scale) and the workbook magnitudes to canonical PKR
-            mc_c = scale.to_canonical_pkr(market_cap, units.get("market_cap") or wb_unit)
+        if ebitda is not None and ebitda <= 0:
+            caveats.append("EV/EBITDA not meaningful (EBITDA <= 0)")
+        elif market_cap and mc_unit and ebitda and ebitda > 0:
+            # bring market cap (its own declared scale) and workbook magnitudes to canonical PKR
+            mc_c = scale.to_canonical_pkr(market_cap, mc_unit)
             nd_c = scale.to_canonical_pkr((debt or 0.0) - (cash or 0.0), wb_unit)
             eb_c = scale.to_canonical_pkr(ebitda, wb_unit)
             if mc_c is not None and eb_c:
                 ev = {"ev_ebitda": round((mc_c + (nd_c or 0.0)) / eb_c, 4)}
-        elif price and md.get("shares") and ebitda:
+        elif price and md.get("shares") and ebitda and ebitda > 0:
             # derive market cap from price × share count (absolute PKR); normalize the
             # workbook magnitudes (EBITDA / debt / cash) to canonical PKR before mixing.
             ev = ev_over_ebitda(
@@ -471,8 +521,10 @@ class FinancialIntelligenceEngine:
                 expression="(market_cap + net_debt) / EBITDA  [net_debt ~= total liabilities - cash]",
                 confidence="Medium",
                 citations=cites + (ebitda_res.citations if ebitda_res else [])))
+        if caveats:
+            _layer("Valuation", "suppressed ratios: %s", "; ".join(caveats))
         ctx.extra = {"valuation": pe, "pb": pb, "ev_ebitda": (ev or {}).get("ev_ebitda"),
-                     "ticker": ticker}
+                     "ticker": ticker, "caveats": caveats}
 
     def _forecast_validation(self, frame, ctx) -> None:
         repo = self.external.forecast

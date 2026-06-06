@@ -9,9 +9,72 @@ See docs/fie_phase0_foundation.md §4.
 from __future__ import annotations
 
 import re as _re
-from typing import Literal, Optional
+from typing import Literal, Optional, TypedDict
 
 from pydantic import BaseModel, Field, model_validator
+
+# --- documented shapes for the heterogeneous provenance/coverage dicts ------
+# The fields below stay plain `dict`/`list[dict]` at RUNTIME (pydantic couples a typed
+# field to both validation AND serialization, and these dicts are intentionally open
+# and heterogeneous — enforcing a schema either rejects None/coerces ints on input or
+# drops source-specific keys on model_dump). These TypedDicts (`total=False`) document
+# the known keys in ONE place and give static checkers / IDEs a typo-checkable schema
+# when a local or helper is annotated with them. They are NOT used as pydantic field
+# types — see the field comments that reference them.
+
+class Locator(TypedDict, total=False):
+    # workbook / insight provenance
+    report_file: Optional[str]
+    page: Optional[int]
+    table_id: Optional[str]
+    sheet: Optional[str]
+    cell: Optional[str]
+    year: Optional[int]
+    report_year: Optional[int]
+    insight_id: Optional[str]
+    basis: Optional[str]
+    # external provenance (market data / news / datasets)
+    source: Optional[str]
+    provider: Optional[str]
+    author: Optional[str]
+    link: Optional[str]
+    url: Optional[str]
+    field: Optional[str]
+    metric: Optional[str]
+    symbol: Optional[str]
+    company: Optional[str]
+    retrieved_at: Optional[str]
+
+
+class Coverage(TypedDict, total=False):
+    degraded: bool
+    partial_coverage: bool
+    dropped_insights: int
+    superseded_insights: int
+    withheld: int
+    admission: dict
+    dropped_claims: int
+    qualitative: dict
+    insufficient_evidence: bool
+
+
+class ConfidenceComponent(TypedDict, total=False):
+    name: str
+    value: float
+    rationale: str
+
+
+class ConflictValue(TypedDict, total=False):
+    source: Optional[str]
+    value: Optional[float]
+    unit: Optional[str]
+    canonical: Optional[float]
+    authority: Optional[str]
+    insight_id: Optional[str]
+    area: Optional[str]
+    year: Optional[int]
+    takeaway: Optional[str]
+
 
 # --- enums (closed sets) ---------------------------------------------------
 
@@ -58,7 +121,7 @@ class Citation(BaseModel):
     ref_id: str  # inline handle, e.g. "C7"
     kind: CitationKind
     display: str  # e.g. "MTL Annual Report 2024-25, p108"
-    locator: dict = Field(default_factory=dict)  # {report_file, page, table_id, sheet, cell, year}
+    locator: dict = Field(default_factory=dict)  # shape: Locator (see TypedDicts above)
     confidence: Optional[float] = None  # Source Ledger confidence, if present
     retrieved_at: Optional[str] = None  # external only
 
@@ -170,7 +233,7 @@ class ConfidenceReport(BaseModel):
     # min-weakest-link composition: the final score is min(component values); the
     # binding (lowest) component is named so the band is explainable.
     limited_by: Optional[str] = None
-    components: list[dict] = Field(default_factory=list)  # [{name, value, rationale}]
+    components: list[dict] = Field(default_factory=list)  # shape: ConfidenceComponent
 
 
 ConflictType = Literal[
@@ -189,7 +252,7 @@ class Conflict(BaseModel):
     type: ConflictType
     topic: str  # metric, area, or claim subject
     year: Optional[int] = None
-    values: list[dict] = Field(default_factory=list)  # competing items (insight/fact summaries)
+    values: list[dict] = Field(default_factory=list)  # shape: ConflictValue (competing items)
     resolution: Optional[str] = None  # winner + rationale, or None if exposed
     resolved: bool = False
 
@@ -216,7 +279,7 @@ class Response(BaseModel):
     withheld: list[str] = Field(default_factory=list)
     confidence: Optional[ConfidenceReport] = None
     prose_source: Literal["deterministic", "llm"] = "deterministic"
-    coverage: dict = Field(default_factory=dict)  # partial_coverage, degraded, dropped_insights, …
+    coverage: dict = Field(default_factory=dict)  # shape: Coverage (see TypedDicts above)
 
     @model_validator(mode="after")
     def _findings_must_cite(self) -> "Response":

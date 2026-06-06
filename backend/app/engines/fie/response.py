@@ -9,6 +9,8 @@ See docs/fie_implementation_plan.md §Phase 1 (1.7) / §Phase 2.
 
 from __future__ import annotations
 
+import logging
+
 from . import citation_enforce, divergence, evidence_rank, safety
 from .models import (
     CalcResult,
@@ -20,6 +22,9 @@ from .models import (
     QueryFrame,
     Response,
 )
+
+
+_log = logging.getLogger("app.engines.fie")
 
 
 def _fmt(value: float | None, unit: str) -> str:
@@ -54,6 +59,16 @@ def render(
     withheld = withheld or []
     extra = extra or {}
     company = frame.company or "The company"
+
+    # proactive citation check (L8a): evidence carrying a VALUE but no resolvable citation
+    # would become an uncitable claim (dropped later by enforce_findings). Surfacing it
+    # here makes a downstream INSUFFICIENT_EVIDENCE explainable instead of mysterious.
+    uncitable = [e for e in evidence if e.value is not None and not e.citations]
+    if uncitable:
+        _log.warning("%d valued evidence item(s) lack a citation (intent=%s): %s",
+                     len(uncitable), frame.intent,
+                     [str(e.claim)[:60] for e in uncitable][:3],
+                     extra={"component": "Respond"})
 
     findings: list[str] = []
     analysis = ""
@@ -144,12 +159,15 @@ def render(
             parts.append(f"P/B {_fmt(pb, 'x')}")
         if ev is not None:
             parts.append(f"EV/EBITDA {_fmt(ev, 'x')}")
+        caveats = extra.get("caveats") or []
         if parts:
             direct = f"{company}'s valuation ({extra.get('ticker')}): " + "; ".join(parts) + "."
             findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence]
         else:
             direct = (f"Unable to value {company}: {extra.get('note', 'market data unavailable')}. "
                       f"Internal financials remain available.")
+        if caveats:   # surface suppressed-ratio reasons (negative EPS/EBITDA, missing unit)
+            analysis = ("Not reported: " + "; ".join(caveats) + ".") + (f" {analysis}" if analysis else "")
 
     elif frame.intent == "forecast_validation":
         fc, act = extra.get("forecast"), extra.get("latest_actual")
@@ -270,9 +288,16 @@ def render(
     valid_refs = citation_enforce.valid_ref_ids(citations)
     n_findings_before = len(findings)
     findings, dropped_claims = citation_enforce.enforce_findings(findings, valid_refs)
+    if dropped_claims:   # decision log: why claims didn't ship (uncitable provenance)
+        _log.info("dropped %d uncitable claim(s) for intent=%s: %s",
+                  len(dropped_claims), frame.intent, dropped_claims[:3],
+                  extra={"component": "Respond"})
     insufficient = (n_findings_before > 0 and not findings
                     and not (primary and primary.value is not None))
     if insufficient:
+        _log.info("INSUFFICIENT_EVIDENCE: all %d candidate claim(s) lacked resolvable "
+                  "citations (intent=%s, company=%s)", n_findings_before, frame.intent,
+                  company, extra={"component": "Respond"})
         direct = (f"Insufficient citable evidence to answer this query for {company}"
                   + (f" (FY{frame.year})" if frame.year else "") + ".")
         analysis = ""

@@ -34,11 +34,16 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_capacity: int = 3
     rate_limit_refill_seconds: float = 1.0
+    # shared rate-limit/quota backend for multi-instance deploys (blank = in-process)
+    redis_url: str = ""
     # LLM cost guard
     llm_max_input_chars: int = 24_000          # truncate prompt input above this
     llm_max_output_tokens: int = 800           # cap completion length
     # per-provider news daily call ceiling (0 = unlimited)
     news_daily_call_cap_per_provider: int = 200
+    # persist a per-query reasoning TraceRecord (audit trail) on the live FIE route
+    fie_trace_enabled: bool = True
+    fie_trace_dir: str = str(BACKEND_ROOT / "logs" / "traces")
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
@@ -162,3 +167,25 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.ensure_dirs()
     return settings
+
+
+# secret-bearing settings, by logical name -> attribute (values are NEVER exposed)
+_SECRET_ATTRS = {
+    "openai": "openai_api_key",
+    "news_marketaux": "news_marketaux_key",
+    "news_finnhub": "news_finnhub_key",
+    "news_alphavantage": "news_alphavantage_key",
+    "news_newsdata_io": "news_newsdata_io_key",
+    "news_newsapi_ai": "news_newsapi_ai_key",
+    "news_worldnewsapi": "news_worldnewsapi_key",
+    "news_gnews_io": "news_gnews_io_key",
+    "news_newsapi_org": "news_newsapi_org_key",
+}
+
+
+def secrets_status(settings: Settings | None = None) -> dict[str, bool]:
+    """Which secrets are configured (presence only — never the value). For startup
+    visibility and /readiness, so ops can see a missing key without leaking any."""
+    s = settings or get_settings()
+    return {name: bool((getattr(s, attr, "") or "").strip())
+            for name, attr in _SECRET_ATTRS.items()}

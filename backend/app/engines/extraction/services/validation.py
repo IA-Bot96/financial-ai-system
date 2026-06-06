@@ -289,6 +289,50 @@ def write_source_ledger(workbook_path, plan: MappingPlan, overrides=None) -> Non
     wb.save(workbook_path)
 
 
+def write_scope_note(workbook_path, *, cash_flow_in_scope: bool,
+                     detail_incomplete_sheets: list) -> None:
+    """Add a first-tab 'Scope & Notes' sheet that explicitly states the delivery scope —
+    headline P&L/BS are audited-exact; cash flow is in/out of scope; and which detail
+    schedules carry MATERIAL unmapped detail. Makes the workbook self-describing so a
+    reader never mistakes a supporting note for a fully-mapped, reliable schedule."""
+    from openpyxl import load_workbook
+
+    from app.engines.extraction.services import styles as S
+    wb = load_workbook(workbook_path)
+    name = "Scope & Notes"
+    if name in wb.sheetnames:
+        del wb[name]
+    ws = wb.create_sheet(name, 0)        # first tab -> most visible
+    cf = ("IN SCOPE" if cash_flow_in_scope
+          else "OUT OF SCOPE — the template defines no cash-flow output sheet.")
+    lines = [
+        ("DELIVERY SCOPE", True),
+        ("Headline statements (Profit & Loss, Balance Sheet) tie EXACTLY to the audited "
+         "PDF face statements for all reporting years.", False),
+        ("", False),
+        (f"Cash Flow: {cf}", False),
+        ("", False),
+        ("Detail schedules (BS1–BS5, PL1–PL7) are SUPPORTING notes — not all are fully "
+         "mapped from the source. Subtotals off by >5% are NOT plugged; they are disclosed "
+         "as DETAIL_INCOMPLETE in the 'Validation Ledger'. Use headline statements for "
+         "reliance; treat detail tabs as indicative where flagged.", False),
+        ("", False),
+        ("Sheets with MATERIAL unmapped detail:" if detail_incomplete_sheets
+         else "No sheet carries material unmapped detail.", True),
+    ]
+    r = 1
+    for text, bold in lines:
+        cell = ws.cell(r, 1, text)
+        if bold:
+            cell.font = S.HEADER_FONT
+        r += 1
+    for sh in detail_incomplete_sheets:
+        ws.cell(r, 1, f"   • {sh}")
+        r += 1
+    ws.column_dimensions["A"].width = 110
+    wb.save(workbook_path)
+
+
 def recalc_workbook(workbook_path) -> bool:
     """Make formula cells readable by NON-Excel consumers. Always sets `fullCalcOnLoad`
     so Excel/LibreOffice recalculate on open; if a LibreOffice binary is found, headless-
@@ -337,32 +381,41 @@ def recalc_workbook(workbook_path) -> bool:
     return False
 
 
+# Plug materiality (gap as a fraction of the audited total). A subtotal off by more than
+# MATERIAL is NOT plugged — forcing a near-empty section to its audited total is fake
+# precision; it's disclosed as DETAIL_INCOMPLETE instead. Small gaps (rounding / a little
+# unmapped leaf detail) are plugged so the schedule still foots, flagged minor/warning.
+_PLUG_MINOR = 0.01     # <=1% gap: rounding -> plug, minor
+_PLUG_MATERIAL = 0.05  # >5% gap: material -> DO NOT plug, disclose as DETAIL_INCOMPLETE
+
+
 def reconcile_breakdown_subtotals(workbook_path, company: CompanyResult, tieout,
                                   output_sheets: set, annotate: bool = True) -> tuple[list[LedgerRow], int]:
-    """Make each BREAKDOWN-sheet subtotal tie to its audited total, with the unmapped
-    portion explicitly documented.
+    """Reconcile each BREAKDOWN-sheet subtotal to its audited total, MATERIALITY-GATED and
+    honestly graded — never forcing a near-empty section to match (no fake precision).
 
-    For a breakdown (note) sheet's subtotal that resolves to a KEY metric and does NOT
-    reconcile to face truth (incomplete/older-year leaf detail), append a literal plug to
-    the subtotal formula so it equals the audited total, and annotate the cell with how
-    much was unmapped. Keeps the cell a FORMULA (works for any subtotal shape; no risky
-    row insertion) and never touches the mapped leaves themselves. Output sheets are
-    skipped (handled by the headline override). Returns (RECONCILED rows, count).
+    The audited reference is the DetailTruthIndex (the schedules' OWN note totals; primary
+    face totals fall back only when a note total is absent), so detail is checked against
+    detail, not against a primary total masquerading as detail.
 
-    Honesty: this is run AFTER `detail_reconciliation` is measured, so that metric stays
-    the genuine 'leaves actually sum' number; the returned count is the separate 'how many
-    subtotals had to be plugged' signal. Breakdown subtotals follow the positive-magnitude
-    convention, so comparison/target use abs(audited)."""
+    Per subtotal that doesn't already tie (those are MAPPED_OK in the computed ledger):
+      * gap <= 5% of audited -> append a literal plug so the schedule foots; status
+        DETAIL_PLUG (minor if <=1%, else warning), variance disclosed in the comment;
+      * gap > 5% -> NOT plugged; status DETAIL_INCOMPLETE (material) with the variance
+        disclosed — the leaves are genuinely unmapped and we say so.
+    Output sheets are skipped (headline override handles them). Returns (rows, plug_count);
+    DETAIL_INCOMPLETE rows are in `rows` for the manifest to count separately."""
     from openpyxl import load_workbook
     from openpyxl.cell.cell import MergedCell
     from openpyxl.comments import Comment
 
-    from app.engines.extraction.pipeline.template_map import _KEY_METRICS, _row_metric
+    from app.engines.extraction.pipeline.template_map import _row_metric
     from app.engines.extraction.services.formula_eval import evaluate
     from app.engines.extraction.services.formula_repair import _year_columns
 
     face = build_face_truth(company.tables)
-    if not face:
+    detail_truth = build_face_truth(company.tables, notes_only=True)   # DetailTruthIndex
+    if not face and not detail_truth:
         return [], 0
     wb = load_workbook(workbook_path, data_only=False)
     rows: list[LedgerRow] = []
@@ -380,11 +433,6 @@ def reconcile_breakdown_subtotals(workbook_path, company: CompanyResult, tieout,
             if not isinstance(label, str) or not label.strip():
                 continue
             cm = _row_metric(label.strip())
-            # Reconcile BOTH grand totals (KEY metrics) AND section subtotals — any row
-            # resolving to a canonical with audited face truth (e.g. 'Total Long-term
-            # Investments' -> long_term_investments). Fixing sections first makes the grand
-            # total reconcile GENUINELY (sum of correct sections), shrinking the opaque
-            # grand-total plug. (face.get below still filters to metrics we actually have.)
             if cm is None:
                 continue
             for c in band:
@@ -393,23 +441,37 @@ def reconcile_breakdown_subtotals(workbook_path, company: CompanyResult, tieout,
                     continue
                 if not (isinstance(cell.value, str) and cell.value.startswith("=")):
                     continue                  # only aggregate FORMULA subtotals
-                pair = face.get((cm, year_of[c]))
+                # DetailTruthIndex first (note's own total); fall back to face for grand
+                # totals that only exist on the primary statement.
+                pair = detail_truth.get((cm, year_of[c])) or face.get((cm, year_of[c]))
                 if not pair:
                     continue
                 audited = abs(pair[0])        # breakdown positive-magnitude convention
                 ev = evaluate(wb, ws.title, cell.coordinate)
                 if ev is None or tieout(abs(ev), audited):
-                    continue                  # unevaluable, or already reconciles
+                    continue                  # unevaluable, or already ties (MAPPED_OK)
                 gap = audited - abs(ev)
+                pct = abs(gap) / audited if audited else 1.0
+                if pct > _PLUG_MATERIAL:
+                    # Material -> do NOT plug; disclose the unmapped detail honestly.
+                    if annotate:
+                        cell.comment = Comment(
+                            f"DETAIL INCOMPLETE: mapped leaves = {abs(ev):,.0f} vs audited "
+                            f"{cm} = {audited:,.0f} ({pct:.0%} unmapped) — NOT plugged.", "validation")
+                    rows.append(LedgerRow("DETAIL_INCOMPLETE", ws.title, cell.coordinate, cm,
+                                          year_of[c], round(audited, 2), round(abs(ev), 2), "",
+                                          f"{pct:.0%} unmapped (MATERIAL) — left unreconciled"))
+                    continue
                 plug = audited - ev           # orig + plug evaluates to the audited magnitude
+                sev = "minor" if pct <= _PLUG_MINOR else "warning"
                 cell.value = f"{cell.value}+{plug:.2f}" if plug >= 0 else f"{cell.value}-{abs(plug):.2f}"
                 if annotate:
                     cell.comment = Comment(
-                        f"Reconciliation: mapped breakdown leaves = {abs(ev):,.0f}; +{gap:,.0f} "
-                        f"unmapped to reach audited {cm} = {audited:,.0f}", "validation")
-                rows.append(LedgerRow("RECONCILED", ws.title, cell.coordinate, cm, year_of[c],
+                        f"DETAIL PLUG ({sev}, {pct:.1%}): mapped leaves = {abs(ev):,.0f}; "
+                        f"+{gap:,.0f} unmapped to reach audited {cm} = {audited:,.0f}", "validation")
+                rows.append(LedgerRow("DETAIL_PLUG", ws.title, cell.coordinate, cm, year_of[c],
                                       round(audited, 2), round(abs(ev), 2), "",
-                                      f"subtotal plugged by {gap:,.0f} (unmapped breakdown detail)"))
+                                      f"plugged {gap:,.0f} ({pct:.1%}, {sev})"))
                 reconciled += 1
                 dirty = True
     if dirty:

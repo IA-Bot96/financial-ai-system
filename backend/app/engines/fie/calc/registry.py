@@ -121,7 +121,7 @@ _SPECS: list[FormulaSpec] = [
                 expression="pat / revenue", domain_guards=["revenue != 0"],
                 inputs=[_i("pat", "pat"), _i("revenue", "revenue")]),
     FormulaSpec(id="roe", category="profitability", output_unit="percent",
-                expression="pat / ((eq_t + eq_t1) / 2)", domain_guards=["(eq_t + eq_t1) != 0"],
+                expression="pat / ((eq_t + eq_t1) / 2)", domain_guards=["(eq_t + eq_t1) > 0"],
                 inputs=[_i("pat", "pat"), _i("eq_t", "total_equity"),
                         _i("eq_t1", "total_equity", -1)],
                 description="Return on average equity"),
@@ -151,7 +151,7 @@ _SPECS: list[FormulaSpec] = [
     # leverage
     FormulaSpec(id="debt_to_equity", category="leverage", output_unit="x",
                 expression="(non_current_liabilities + current_liabilities) / total_equity",
-                domain_guards=["total_equity != 0"],
+                domain_guards=["total_equity > 0"],   # negative equity -> ratio not meaningful
                 inputs=[_i("non_current_liabilities", "non_current_liabilities"),
                         _i("current_liabilities", "current_liabilities"),
                         _i("total_equity", "total_equity")]),
@@ -162,7 +162,7 @@ _SPECS: list[FormulaSpec] = [
                         _i("current_liabilities", "current_liabilities"),
                         _i("total_assets", "total_assets")]),
     FormulaSpec(id="equity_multiplier", category="leverage", output_unit="x",
-                expression="total_assets / total_equity", domain_guards=["total_equity != 0"],
+                expression="total_assets / total_equity", domain_guards=["total_equity > 0"],
                 inputs=[_i("total_assets", "total_assets"), _i("total_equity", "total_equity")]),
     FormulaSpec(id="interest_coverage", category="leverage", output_unit="x",
                 expression="operating_profit / abs(finance_cost)",

@@ -9,18 +9,23 @@ operator configures adapters; the engine degrades gracefully (architecture §0.3
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from app.core.config import STORAGE_ROOT, get_settings
+from app.core.metrics import METRICS
 from app.engines.fie import ExternalSources, FinancialFactStore, FinancialIntelligenceEngine
 from app.engines.fie.apis import ApiClient, HttpTransport, News, Symbols
+from app.engines.fie.trace import TraceStore
 
 _MAX_QUERY = get_settings().fie_max_query_chars
 _MAX_AUDIENCE = 32
+_log = logging.getLogger("app.api.fie")
 
 router = APIRouter(prefix="/fie", tags=["fie"])
 
@@ -94,13 +99,41 @@ def _engine(company: str) -> FinancialIntelligenceEngine:
 @router.post("/answer")
 def answer(req: AnswerRequest) -> dict:
     company = req.company or _DEFAULT_COMPANY
+    settings = get_settings()
     try:
         engine = _engine(company)
     except (KeyError, FileNotFoundError):
         raise HTTPException(status_code=404, detail=f"No workbook for company {company!r}")
     # cap external-adapter fan-out for this request (cost / abuse guard)
-    _external_client().begin_request(get_settings().max_external_calls_per_request)
-    resp = engine.answer(req.query, audience=req.audience)
+    _external_client().begin_request(settings.max_external_calls_per_request)
+
+    # capture the full reasoning chain; persist it as an audit trail when enabled
+    t0 = time.monotonic()
+    resp, trace = engine.answer_with_trace(req.query, audience=req.audience)
+    elapsed = time.monotonic() - t0
+    cov = resp.coverage or {}
+    band = resp.confidence.band if resp.confidence else "n/a"
+
+    # metrics: volume by intent + outcome rates + latency
+    METRICS.inc("fie_queries_total", intent=trace.frame.intent, confidence=band)
+    METRICS.observe_latency("fie_answer_seconds", elapsed, intent=trace.frame.intent)
+    if cov.get("degraded"):
+        METRICS.inc("fie_degraded_total", intent=trace.frame.intent)
+    if cov.get("dropped_claims"):
+        METRICS.inc("fie_claims_dropped_total", cov["dropped_claims"])
+    if cov.get("insufficient_evidence"):
+        METRICS.inc("fie_insufficient_total", intent=trace.frame.intent)
+
+    _log.info("fie answer trace=%s intent=%s conf=%s degraded=%s dropped_claims=%s %.0fms",
+              trace.trace_id, trace.frame.intent, band,
+              cov.get("degraded"), cov.get("dropped_claims", 0), elapsed * 1000,
+              extra={"component": "fie-api"})
+    if settings.fie_trace_enabled:
+        try:
+            TraceStore(settings.fie_trace_dir).persist(trace)
+        except Exception:  # never let audit persistence break the response
+            _log.warning("trace persist failed for %s", trace.trace_id,
+                         extra={"component": "fie-api"})
     return resp.model_dump()
 
 

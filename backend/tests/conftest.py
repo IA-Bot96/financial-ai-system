@@ -9,6 +9,8 @@ import pytest
 # client IP); set before any app import so get_settings() picks it up. The limiter
 # itself is unit-tested directly in tests/test_security.py.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+# don't write trace JSON files for every API-test request
+os.environ.setdefault("FIE_TRACE_ENABLED", "false")
 
 _BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BACKEND not in sys.path:

@@ -153,6 +153,12 @@ def process_documents(
         # 'leaves actually sum' number; this only makes the workbook subtotals correct.
         reconcile_rows, breakdown_reconciled = reconcile_breakdown_subtotals(
             output_path, company_result, _tieout, output_set)
+        # Materiality-gated honesty: minor gaps (<=5%) are plugged (DETAIL_PLUG); material
+        # ones are NOT (DETAIL_INCOMPLETE) — disclosed, not faked. Surface both + which
+        # sheets carry material unmapped detail, so the workbook can't overclaim.
+        detail_material_unmapped = sum(1 for r in reconcile_rows if r.status == "DETAIL_INCOMPLETE")
+        detail_incomplete_sheets = sorted({r.sheet for r in reconcile_rows
+                                           if r.status == "DETAIL_INCOMPLETE"})
         ledger_rows = template_ledger(plan) + computed_rows + coverage_rows + identity_rows + reconcile_rows
         append_ledger_sheet(output_path, ledger_rows)
         write_source_ledger(output_path, plan, overrides)    # traceability (#9) incl. output overrides
@@ -203,6 +209,8 @@ def process_documents(
         overrides_applied = 0
         coverage_gaps = 0
         breakdown_reconciled = 0
+        detail_material_unmapped = 0
+        detail_incomplete_sheets = []
 
     # Fit columns so large figures don't render as '######' (cosmetic, both modes).
     from app.engines.extraction.services.validation import recalc_workbook, widen_columns
@@ -215,6 +223,13 @@ def process_documents(
     # CF data that WAS extracted still feeds the cash-flow identity checks in the ledger.
     output_titles = (out.plan.formula_sheets if out.plan else [])
     cash_flow_in_scope = any("cash" in s.lower() and "flow" in s.lower() for s in output_titles)
+    # Self-describing scope note (#4): a first-tab sheet stating P&L/BS-only scope, cash-flow
+    # status, and which detail schedules carry material unmapped detail — so the workbook
+    # never reads as a fully-mapped three-statement deliverable when it isn't.
+    if out.plan:
+        from app.engines.extraction.services.validation import write_scope_note
+        write_scope_note(output_path, cash_flow_in_scope=cash_flow_in_scope,
+                         detail_incomplete_sheets=detail_incomplete_sheets)
 
     # Observability (#8): populate the result + write a manifest beside the workbook.
     # A run is production-ready only if every key metric tied out AND none was left
@@ -245,9 +260,13 @@ def process_documents(
         # Objective detail-sheet accuracy: breakdown subtotals GENUINELY reconciling to
         # audited totals (leaves actually sum), measured before any gap-filling.
         "detail_reconciliation": f"{detail_ok}/{detail_checked}" if detail_checked else "0/0",
-        # Breakdown subtotals that didn't genuinely reconcile and were plugged to the
-        # audited total (unmapped leaf detail) — the honest 'how much detail is missing'.
+        # Subtotals with a MINOR gap (<=5%) plugged so the schedule foots (DETAIL_PLUG).
         "breakdown_reconciled": breakdown_reconciled,
+        # MATERIAL unmapped detail (>5% gap) — NOT plugged, disclosed honestly. This is the
+        # real "weak detail" signal; subtotals here show their incomplete leaf-sum, not a
+        # forced total. Plus the sheets that carry it.
+        "detail_material_unmapped": detail_material_unmapped,
+        "detail_incomplete_sheets": detail_incomplete_sheets,
         # Advisory: face-truth values failing an accounting identity (P&L waterfall / BS
         # composition) — flags suspect extraction the external tie-out can't catch.
         "identity_failures": identity_failures,

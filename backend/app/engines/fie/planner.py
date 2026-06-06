@@ -8,10 +8,17 @@ from __future__ import annotations
 
 from .models import QueryFrame, SourcePlan, SourceRequirement
 
-# the external adapter catalog the planner may select from
-SOURCE_CATALOG = {"psx", "news", "forecast", "macro", "psx_announcements", "secp"}
+# the external adapter catalog the planner may select from (LLM augmentation is
+# validated against this set). Every value used in _INTENT_SOURCES must appear here.
+SOURCE_CATALOG = {"psx", "news", "forecast", "macro", "psx_announcements", "secp",
+                  "company_payouts"}
 
-# rule-based intent -> external sources
+# rule-based intent -> external sources.
+# NOTE (deliberate): only intents that benefit from a *named* external feed are mapped.
+# ratio_analysis / metric_lookup / trend_analysis / peer_comparison are intentionally
+# internal-only here — they are still corroborated against same-period external actuals
+# by the engine's analysis_reports path (fie._corroborate), which is orthogonal to this
+# planner source list. risk_assessment is qualitative (internal insights).
 _INTENT_SOURCES: dict[str, list[str]] = {
     "valuation": ["psx"],
     "news_impact": ["news", "psx_announcements"],

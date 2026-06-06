@@ -192,7 +192,7 @@ def _table_basis(table: FinancialTable) -> str:
 
 
 def build_face_truth(tables: list[FinancialTable], prefer_basis: str = "unconsolidated",
-                     trace: list | None = None,
+                     trace: list | None = None, notes_only: bool = False,
                      ) -> dict[tuple[str, int], tuple[float, object]]:
     """{(canonical_metric, year): (value, source)} from face statements, primary-first.
 
@@ -220,6 +220,11 @@ def build_face_truth(tables: list[FinancialTable], prefer_basis: str = "unconsol
     for ti, t in enumerate(tables):
         role = table_role_of(t)
         if role == "analytical" or not _is_currency_scale(t):
+            continue
+        # DetailTruthIndex: a note-only truth (the schedules' OWN totals), so detail
+        # reconciliation checks leaves against the note total — not the primary face total
+        # masquerading as detail. Primary tables are excluded entirely in this mode.
+        if notes_only and role != "note":
             continue
         tier = 0 if role == "primary" else 1
         basis = _table_basis(t)

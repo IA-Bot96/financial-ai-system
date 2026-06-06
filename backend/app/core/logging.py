@@ -92,19 +92,21 @@ def _unique_log_path(log_dir: Path, document_id: str) -> Path:
 
 
 @contextmanager
-def per_document_log(document_id: str, log_dir: str | Path | None = None, debug: bool | None = None):
-    """Capture all logs emitted within the block into a per-document file.
+def _scoped_log(subject_id: str, *, kind: str, subject_label: str,
+                log_dir: str | Path | None = None, debug: bool | None = None):
+    """Capture all logs emitted within the block into a per-subject file.
 
-    Yields the log file path. The file handler is attached to the root logger
-    for the duration, then removed — so each PDF produces its own log file while
-    console logging continues unchanged.
+    Yields the log file path. The file handler is attached to the root logger for the
+    duration, then removed — so each subject (a PDF, or one FIE query) produces its own
+    log file while console logging continues unchanged. ``kind``/``subject_label`` set
+    the wording (e.g. "extraction run | document=" vs "FIE query | trace=").
     """
     from app.core.config import get_settings
 
     settings = get_settings()
     log_dir = Path(log_dir or settings.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
-    path = _unique_log_path(log_dir, _slugify(document_id))
+    path = _unique_log_path(log_dir, _slugify(subject_id))
     level = logging.DEBUG if (debug if debug is not None else settings.debug) else logging.INFO
 
     handler = logging.FileHandler(path, encoding="utf-8")
@@ -117,14 +119,26 @@ def per_document_log(document_id: str, log_dir: str | Path | None = None, debug:
         root.setLevel(level)
     root.addHandler(handler)
 
-    get_logger("run").info("Starting extraction run | document=%s | log=%s", document_id, path.name)
+    get_logger("run").info("Starting %s | %s=%s | log=%s", kind, subject_label, subject_id, path.name)
     try:
         yield path
     except Exception:
-        get_logger("run").exception("Extraction run failed | document=%s", document_id)
+        get_logger("run").exception("%s failed | %s=%s", kind.capitalize(), subject_label, subject_id)
         raise
     finally:
-        get_logger("run").info("Finished extraction run | document=%s", document_id)
+        get_logger("run").info("Finished %s | %s=%s", kind, subject_label, subject_id)
         root.removeHandler(handler)
         handler.close()
         root.setLevel(prev_level)
+
+
+def per_document_log(document_id: str, log_dir: str | Path | None = None, debug: bool | None = None):
+    """Per-document (PDF) log file — used by the extraction pipeline."""
+    return _scoped_log(document_id, kind="extraction run", subject_label="document",
+                       log_dir=log_dir, debug=debug)
+
+
+def per_query_log(trace_id: str, log_dir: str | Path | None = None, debug: bool | None = None):
+    """Per-query log file — used by the FIE engine (one file per answered query)."""
+    return _scoped_log(trace_id, kind="FIE query", subject_label="trace",
+                       log_dir=log_dir, debug=debug)

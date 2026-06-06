@@ -23,6 +23,20 @@ def test_source_ledger_records_output_overrides(tmp_path):
     assert "OVERRIDE" in rows[0][-1]
 
 
+def test_scope_note_sheet_is_explicit(tmp_path):
+    from app.engines.extraction.services.validation import write_scope_note
+    wb = openpyxl.Workbook(); wb.active.title = "P&L"
+    p = tmp_path / "wb.xlsx"; wb.save(p)
+    write_scope_note(p, cash_flow_in_scope=False,
+                     detail_incomplete_sheets=["BS1 - Non-Current Assets", "PL4 - Other Income"])
+    out = openpyxl.load_workbook(p)
+    assert out.sheetnames[0] == "Scope & Notes"        # first, most-visible tab
+    text = " ".join(str(c.value) for row in out["Scope & Notes"].iter_rows()
+                    for c in row if c.value)
+    assert "DELIVERY SCOPE" in text and "OUT OF SCOPE" in text
+    assert "BS1 - Non-Current Assets" in text and "PL4 - Other Income" in text
+
+
 def test_recalc_sets_full_calc_on_load(tmp_path):
     wb = openpyxl.Workbook(); ws = wb.active
     ws["A1"], ws["A2"], ws["A3"] = 1, 2, "=A1+A2"

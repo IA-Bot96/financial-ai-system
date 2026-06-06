@@ -27,11 +27,19 @@ deploy. Auth (per-user identity / RBAC) is **not** yet implemented — see "Defe
 1. **Secrets** → set every key as a Heroku config var (`heroku config:set OPENAI_API_KEY=… NEWS_*_KEY=…`). Never commit `.env` (already git-ignored). `.env.example` documents all vars.
 2. **HTTPS** → `FORCE_HTTPS=true` (emits HSTS). Heroku terminates TLS at the router; rely on that + HSTS.
 3. **CORS** → `CORS_ALLOW_ORIGINS=https://your-frontend` (no `*`).
-4. **Rate limit** → tune `RATE_LIMIT_CAPACITY` / `RATE_LIMIT_REFILL_SECONDS`. Note: in-memory per dyno — for multi-dyno, move to a shared store (Redis) when auth lands.
+4. **Rate limit** → set `REDIS_URL` for a shared limiter across dynos (auto-selected; falls back to in-process if unset/unreachable). Tune `RATE_LIMIT_CAPACITY` / `RATE_LIMIT_REFILL_SECONDS`.
 5. **Dependency scan** → run `scripts/security_audit` (pip-audit) in CI; patch findings. Pin versions in `requirements.txt`.
-6. **PSX connectivity** → run `scripts/analysis_reports_smoke.py` *from a dyno* (datacenter IPs may be blocked); add a static-IP proxy add-on if a provider needs allowlisting.
+6. **PSX connectivity** → run `scripts/psx_adapters_smoke.py` (all PSX adapters) and `scripts/analysis_reports_smoke.py` *from a dyno* (datacenter IPs may be blocked); add a static-IP proxy add-on if a provider needs allowlisting.
+7. **Deploy** → `Procfile` runs `uvicorn app.main:app`. Health/ops probes: `/liveness`, `/readiness` (workbooks + secret presence + limiter backend), `/metrics` (Prometheus text).
+
+### Operability endpoints
+- `GET /liveness` — process up.
+- `GET /readiness` — 200 when a workbook is present + boot contracts passed; reports `secrets` presence (booleans, never values) and the active `rate_limiter` backend; 503 otherwise.
+- `GET /metrics` — Prometheus text: `fie_queries_total{intent,confidence}`, `fie_answer_seconds_{sum,count}`, `fie_degraded_total`, `fie_claims_dropped_total`, `fie_insufficient_total`, `app_unhandled_errors_total`.
 
 ## Licensing gates (legal, not code)
+
+Full detail + a pre-launch checklist in [`../docs/LICENSING.md`](../docs/LICENSING.md). Summary:
 
 - **PSX data** (`dps.psx.com.pk`) carries an "Unauthorized Use of PSX Data" notice — settle a license before commercial use, regardless of host.
 - **newsapi.org** free tier is **development-only / non-commercial** — needs a paid plan for a deployed app, or rely on the other providers in the failover chain.
