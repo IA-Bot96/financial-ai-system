@@ -17,6 +17,7 @@ _INTENT_SOURCES: dict[str, list[str]] = {
     "news_impact": ["news", "psx_announcements"],
     "earnings_review": ["news", "psx_announcements"],
     "forecast_validation": ["forecast"],
+    "dividend_analysis": ["company_payouts"],
 }
 # intents where the LLM may *augment* the rule-chosen sources
 _EXTERNAL_INTENTS = set(_INTENT_SOURCES)

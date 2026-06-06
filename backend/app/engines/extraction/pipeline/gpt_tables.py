@@ -51,6 +51,21 @@ def _looks_primary_statement(text: str) -> bool:
     return bool(_PRIMARY_STMT_RE.search(text or ""))
 
 
+# Prepended to the user prompt when a page image is attached (vision mode).
+_VISION_NOTE = (
+    "An image of this page is attached. Treat the IMAGE as the authoritative source: use "
+    "it to resolve any OCR ambiguity in the text below — exact digits, negative signs and "
+    "parentheses, decimal points, column/year alignment, merged or multi-line cells, and "
+    "the consolidated vs unconsolidated heading. Read exact figures from the page text "
+    "where it agrees with the image; trust the image when they conflict.\n\n"
+)
+
+
+def _render_page_png(pdf, page_number: int, dpi: int) -> bytes:
+    """Rasterize a 1-based page of an OPEN fitz document to PNG bytes."""
+    return pdf[page_number - 1].get_pixmap(dpi=dpi).tobytes("png")
+
+
 def _candidate_pages(doc: IngestedDoc, context: dict, region_start: int,
                      skip_consolidated: bool, min_money: int, dense_digits: int) -> list:
     """Financial pages to send to GPT. On template runs the consolidated set is skipped
@@ -122,7 +137,7 @@ def gpt_structure_grid(raw, gpt) -> FinancialTable | None:
         report_file=(raw.source.report_file if raw.source else ""),
         report_year=(raw.source.report_year if raw.source else ""),
         page=(raw.source.pages if raw.source else []),
-        page_text=rows_text,
+        page_text=rows_text, vision_note="",
     )
     try:
         result = gpt.complete_structured(system, user, FinancialTableList)
@@ -140,11 +155,17 @@ def gpt_structure_grid(raw, gpt) -> FinancialTable | None:
             table.years = sorted({v.year for li in table.line_items for v in li.values if v.year})
         _resolve_canonicals(table, resolver)
         table.table_role = table.table_role or infer_table_role(table)  # C2/P3
+        from app.engines.extraction.services.cell_parse import normalize_table_values
+        norm = normalize_table_values(table)       # harden signs/note-refs from raw (complements GPT)
+        if norm.get("sign_fixed") or norm.get("note_ref_dropped"):
+            logger.info("normalize grid %s: sign_fixed=%d note_ref_dropped=%d", raw.table_id,
+                        norm.get("sign_fixed", 0), norm.get("note_ref_dropped", 0))
         return table
     return None
 
 
-def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = False) -> list[FinancialTable]:
+def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = False,
+                             pdf_path=None) -> list[FinancialTable]:
     """Extract financial tables from the document's financial pages via GPT.
 
     Scoped tightly to keep GPT calls low:
@@ -184,20 +205,42 @@ def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = Fa
 
     total = len(candidates)
     workers = max(1, min(settings.gpt_table_workers, total))
+
+    # Vision: render an image of each candidate page (once, in the main thread — fitz
+    # Documents aren't thread-safe) so GPT can read the page, not just its lossy OCR.
+    page_images: dict[int, bytes] = {}
+    if settings.use_vision_extraction and pdf_path:
+        cap = settings.vision_max_pages or total
+        try:
+            import fitz  # PyMuPDF
+            pdf = fitz.open(pdf_path)
+            try:
+                for p in candidates[:cap]:
+                    page_images[p.page] = _render_page_png(pdf, p.page, settings.vision_dpi)
+            finally:
+                pdf.close()
+            logger.info("Vision: attached %d page image(s) (dpi=%d) in %s",
+                        len(page_images), settings.vision_dpi, doc.file_name)
+        except Exception as exc:  # noqa: BLE001 — never let rendering break extraction
+            logger.warning("Vision rendering failed in %s (%s); text-only fallback.",
+                           doc.file_name, exc)
+            page_images = {}
+
     logger.info(
         "GPT table extraction: %d financial page(s) from p%d onward in %s "
-        "(skip_consolidated=%s, workers=%d)",
-        total, region_start, doc.file_name, skip_consolidated, workers,
+        "(skip_consolidated=%s, workers=%d, vision=%s)",
+        total, region_start, doc.file_name, skip_consolidated, workers, bool(page_images),
     )
 
     def _call(page):
+        imgs = [page_images[page.page]] if page.page in page_images else None
         system, user = prompts.render(
             "extract_tables", allowed_types=_ALLOWED,
             report_file=doc.file_name, report_year=doc.report_year, page=page.page,
-            page_text=page.text,
+            page_text=page.text, vision_note=(_VISION_NOTE if imgs else ""),
         )
         try:
-            return page, gpt.complete_structured(system, user, FinancialTableList)
+            return page, gpt.complete_structured(system, user, FinancialTableList, images=imgs)
         except Exception as exc:  # noqa: BLE001
             logger.warning("GPT table extraction failed on page %s: %s", page.page, exc)
             return page, None
@@ -235,6 +278,12 @@ def extract_financial_tables(doc: IngestedDoc, gpt, skip_consolidated: bool = Fa
                 table.years = sorted({v.year for li in table.line_items for v in li.values if v.year})
             _resolve_canonicals(table, resolver)
             table.table_role = table.table_role or infer_table_role(table)  # C2/P3
+            from app.engines.extraction.services.cell_parse import normalize_table_values
+            norm = normalize_table_values(table)   # harden signs/note-refs from raw (complements GPT)
+            if norm.get("sign_fixed") or norm.get("note_ref_dropped"):
+                logger.info("normalize p%d %r: sign_fixed=%d note_ref_dropped=%d",
+                            page.page, (table.title or "")[:40],
+                            norm.get("sign_fixed", 0), norm.get("note_ref_dropped", 0))
             out.append(table)
 
     logger.info("GPT extracted %d financial table(s) from %d page(s) in %s",

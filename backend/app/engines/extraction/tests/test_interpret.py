@@ -20,7 +20,7 @@ class FakeGPT:
         self._batch = batch
         self._page_tables = page_tables  # FinancialTableList for page extraction
 
-    def complete_structured(self, system, user, schema):
+    def complete_structured(self, system, user, schema, images=None):
         if schema is InsightList:
             return self._insights
         if schema is BatchClassification:
@@ -169,7 +169,7 @@ def test_parallel_extraction_preserves_page_order():
     doc.page_count = 3
 
     class PerPageGPT:  # fresh object per call (thread-safe, like the real client)
-        def complete_structured(self, system, user, schema):
+        def complete_structured(self, system, user, schema, images=None):
             return FinancialTableList(tables=[FinancialTable(
                 statement_type=StatementType.income_statement,
                 line_items=[LineItem(label="Revenue", values=[LineItemValue(year=2025, value=1.0)])])])
@@ -190,7 +190,7 @@ def test_parallel_extraction_stable_when_pages_finish_out_of_order():
     doc.page_count = 3
 
     class OutOfOrderGPT:  # earlier pages return LATER -> forces out-of-order completion
-        def complete_structured(self, system, user, schema):
+        def complete_structured(self, system, user, schema, images=None):
             page = int(re.search(r"Page:\s*(\d+)", user).group(1))
             time.sleep((102 - page) * 0.02)   # p102 finishes first, p100 last
             return FinancialTableList(tables=[FinancialTable(

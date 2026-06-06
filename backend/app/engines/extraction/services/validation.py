@@ -273,6 +273,111 @@ def write_source_ledger(workbook_path, plan: MappingPlan) -> None:
     wb.save(workbook_path)
 
 
+def reconcile_breakdown_subtotals(workbook_path, company: CompanyResult, tieout,
+                                  output_sheets: set, annotate: bool = True) -> tuple[list[LedgerRow], int]:
+    """Make each BREAKDOWN-sheet subtotal tie to its audited total, with the unmapped
+    portion explicitly documented.
+
+    For a breakdown (note) sheet's subtotal that resolves to a KEY metric and does NOT
+    reconcile to face truth (incomplete/older-year leaf detail), append a literal plug to
+    the subtotal formula so it equals the audited total, and annotate the cell with how
+    much was unmapped. Keeps the cell a FORMULA (works for any subtotal shape; no risky
+    row insertion) and never touches the mapped leaves themselves. Output sheets are
+    skipped (handled by the headline override). Returns (RECONCILED rows, count).
+
+    Honesty: this is run AFTER `detail_reconciliation` is measured, so that metric stays
+    the genuine 'leaves actually sum' number; the returned count is the separate 'how many
+    subtotals had to be plugged' signal. Breakdown subtotals follow the positive-magnitude
+    convention, so comparison/target use abs(audited)."""
+    from openpyxl import load_workbook
+    from openpyxl.cell.cell import MergedCell
+    from openpyxl.comments import Comment
+
+    from app.engines.extraction.pipeline.template_map import _KEY_METRICS, _row_metric
+    from app.engines.extraction.services.formula_eval import evaluate
+    from app.engines.extraction.services.formula_repair import _year_columns
+
+    face = build_face_truth(company.tables)
+    if not face:
+        return [], 0
+    wb = load_workbook(workbook_path, data_only=False)
+    rows: list[LedgerRow] = []
+    reconciled = 0
+    dirty = False
+    for ws in wb.worksheets:
+        if ws.title in output_sheets:        # breakdown/note sheets only
+            continue
+        header_row, band = _year_columns(ws)
+        if not band:
+            continue
+        year_of = {c: int(ws.cell(header_row, c).value) for c in band}
+        for r in range(header_row + 1, ws.max_row + 1):
+            label = ws.cell(r, 1).value
+            if not isinstance(label, str) or not label.strip():
+                continue
+            cm = _row_metric(label.strip())
+            if cm not in _KEY_METRICS:        # subtotals resolve to a KEY metric
+                continue
+            for c in band:
+                cell = ws.cell(r, c)
+                if isinstance(cell, MergedCell):
+                    continue
+                if not (isinstance(cell.value, str) and cell.value.startswith("=")):
+                    continue                  # only aggregate FORMULA subtotals
+                pair = face.get((cm, year_of[c]))
+                if not pair:
+                    continue
+                audited = abs(pair[0])        # breakdown positive-magnitude convention
+                ev = evaluate(wb, ws.title, cell.coordinate)
+                if ev is None or tieout(abs(ev), audited):
+                    continue                  # unevaluable, or already reconciles
+                gap = audited - abs(ev)
+                plug = audited - ev           # orig + plug evaluates to the audited magnitude
+                cell.value = f"{cell.value}+{plug:.2f}" if plug >= 0 else f"{cell.value}-{abs(plug):.2f}"
+                if annotate:
+                    cell.comment = Comment(
+                        f"Reconciliation: mapped breakdown leaves = {abs(ev):,.0f}; +{gap:,.0f} "
+                        f"unmapped to reach audited {cm} = {audited:,.0f}", "validation")
+                rows.append(LedgerRow("RECONCILED", ws.title, cell.coordinate, cm, year_of[c],
+                                      round(audited, 2), round(abs(ev), 2), "",
+                                      f"subtotal plugged by {gap:,.0f} (unmapped breakdown detail)"))
+                reconciled += 1
+                dirty = True
+    if dirty:
+        wb.save(workbook_path)
+    wb.close()
+    return rows, reconciled
+
+
+def identity_ledger(company: CompanyResult) -> tuple[list[LedgerRow], int]:
+    """Accounting-identity consistency of the audited face truth (P&L waterfall + BS
+    composition). Catches face-truth EXTRACTION errors that the external tie-out can't
+    see (we override output to face, so output==face passes while face itself is wrong).
+    Advisory: surfaced as IDENTITY_OK/IDENTITY_FAIL rows; failures count toward the
+    strict `fully_reconciled` flag, not the headline production gate."""
+    from app.engines.extraction.services.identity_checks import check_identities, check_sign_sanity
+
+    face = build_face_truth(company.tables)
+    findings = check_identities(face, company.fiscal_years) \
+        + check_sign_sanity(face, company.fiscal_years)
+    rows: list[LedgerRow] = []
+    fails = 0
+    for f in findings:
+        if not f.ok:
+            fails += 1
+        if f.ok:
+            note = ""
+        elif f.statement == "SANITY":
+            note = "emitted value is negative on a must-be-positive metric (sign/extraction error)"
+        else:
+            note = "face-truth values do not satisfy this accounting identity"
+        rows.append(LedgerRow(
+            "IDENTITY_OK" if f.ok else "IDENTITY_FAIL", f.statement, f.name, "", f.year,
+            round(f.actual, 2), round(f.expected, 2), "", note,
+        ))
+    return rows, fails
+
+
 def widen_columns(workbook_path) -> None:
     """Fit each column to its widest value so large figures don't render as '######'.
     Year data columns ship from the template at the default ~8.4 chars, too narrow for

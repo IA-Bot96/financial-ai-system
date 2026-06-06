@@ -78,6 +78,22 @@ def process_documents(
     dumper.subject(company_result.company or "company")
     dumper.json("04_multiyear", company_result)
 
+    # Face truth is the most decision-dense layer (candidate selection, basis choice,
+    # identity reconciliation) and what the headline override ships — so dump it with
+    # provenance, plus a trace of every value-changing decision, to localize corruption.
+    if dumper.enabled:
+        from app.engines.extraction.services.face_truth import build_face_truth
+        ft_trace: list = []
+        ft = build_face_truth(company_result.tables, trace=ft_trace)
+        dumper.json("06_face_truth", [
+            {"metric": m, "year": y, "value": val,
+             "source_table": getattr(src, "table_id", None),
+             "pages": getattr(src, "pages", None),
+             "title": getattr(src, "table_title", None)}
+            for (m, y), (val, src) in sorted(ft.items())
+        ])
+        dumper.json("07_facetruth_decisions", ft_trace)
+
     if template_path:
         # Lazy import keeps openpyxl-template logic out of the no-template path.
         from app.engines.extraction.pipeline.template_map import apply_plan, build_plan
@@ -115,7 +131,7 @@ def process_documents(
         from app.engines.extraction.pipeline.template_map import _tieout
         from app.engines.extraction.services.validation import (
             append_ledger_sheet, computed_output_ledger, headline_coverage_gaps,
-            template_ledger, write_source_ledger,
+            identity_ledger, reconcile_breakdown_subtotals, template_ledger, write_source_ledger,
         )
         # Sign sensitivity: output statements (the formula/computed sheets) and any
         # cross-sheet pull are validated signed; intra-sheet breakdown subtotals by
@@ -128,9 +144,22 @@ def process_documents(
         # silently pass it just because there's nothing to compare against.
         coverage_rows, coverage_gaps = headline_coverage_gaps(
             output_path, company_result, output_set)
-        ledger_rows = template_ledger(plan) + computed_rows + coverage_rows
+        # Accounting-identity consistency of face truth (advisory; catches face-truth
+        # extraction errors the external tie-out can't, e.g. PAT != PBT - tax).
+        identity_rows, identity_failures = identity_ledger(company_result)
+        # Reconciliation-row gap-filling: make each breakdown subtotal tie to its audited
+        # total, documenting the unmapped portion. Run AFTER detail_reconciliation is
+        # captured from computed_rows (above) so that metric stays the genuine
+        # 'leaves actually sum' number; this only makes the workbook subtotals correct.
+        reconcile_rows, breakdown_reconciled = reconcile_breakdown_subtotals(
+            output_path, company_result, _tieout, output_set)
+        ledger_rows = template_ledger(plan) + computed_rows + coverage_rows + identity_rows + reconcile_rows
         append_ledger_sheet(output_path, ledger_rows)
         write_source_ledger(output_path, plan)               # traceability (#9)
+        if dumper.enabled:                                   # validation layer as JSON (greppable)
+            from dataclasses import asdict, is_dataclass
+            dumper.json("08_validation_ledger",
+                        [asdict(r) if is_dataclass(r) else r for r in ledger_rows])
         # Production gate certifies the HEADLINE statements (output sheets): every key
         # metric there must tie out to audited face truth, be evaluable, AND have face
         # truth to validate against. Breakdown-note gaps (incomplete leaves) + withheld
@@ -161,15 +190,19 @@ def process_documents(
         out = ExtractionOutput(output_path=output_path, company=company_result, mode="no_template")
         # P4 / C3: validate no-template key metrics against audited face truth.
         from app.engines.extraction.pipeline.template_map import _tieout
-        from app.engines.extraction.services.validation import append_ledger_sheet, no_template_ledger
+        from app.engines.extraction.services.validation import (
+            append_ledger_sheet, identity_ledger, no_template_ledger,
+        )
         ledger_rows, production_fail = no_template_ledger(company_result, _tieout)
-        append_ledger_sheet(output_path, ledger_rows)
+        identity_rows, identity_failures = identity_ledger(company_result)
+        append_ledger_sheet(output_path, ledger_rows + identity_rows)
         unevaluable = 0
         detail_incomplete = 0
         detail_checked = detail_ok = 0
         formulas_repaired = 0
         overrides_applied = 0
         coverage_gaps = 0
+        breakdown_reconciled = 0
 
     # Fit columns so large figures don't render as '######' (cosmetic, both modes).
     from app.engines.extraction.services.validation import widen_columns
@@ -183,7 +216,7 @@ def process_documents(
     # true only when EVERY ledger row reconciles — headline ties AND no breakdown
     # mismatch / withheld / unevaluable / coverage gap. `production_ready` certifies the
     # headline statements (the deliverable); `fully_reconciled` certifies the whole book.
-    out.fully_reconciled = out.production_ready and detail_incomplete == 0
+    out.fully_reconciled = out.production_ready and detail_incomplete == 0 and identity_failures == 0
     out.validation_failures = production_fail
     out.detail_incomplete = detail_incomplete
     out.withheld = len(out.plan.withheld) if out.plan else 0
@@ -201,8 +234,15 @@ def process_documents(
         "unevaluable_formulas": unevaluable,
         # Non-blocking: breakdown-note gaps + withheld leaves (flagged, not shipped silently).
         "detail_incomplete": detail_incomplete,
-        # Objective detail-sheet accuracy: breakdown subtotals reconciling to audited totals.
+        # Objective detail-sheet accuracy: breakdown subtotals GENUINELY reconciling to
+        # audited totals (leaves actually sum), measured before any gap-filling.
         "detail_reconciliation": f"{detail_ok}/{detail_checked}" if detail_checked else "0/0",
+        # Breakdown subtotals that didn't genuinely reconcile and were plugged to the
+        # audited total (unmapped leaf detail) — the honest 'how much detail is missing'.
+        "breakdown_reconciled": breakdown_reconciled,
+        # Advisory: face-truth values failing an accounting identity (P&L waterfall / BS
+        # composition) — flags suspect extraction the external tie-out can't catch.
+        "identity_failures": identity_failures,
         # Production-blocking subset of validation_failures: headline metrics emitted with
         # no audited face truth (e.g. a mis-classified statement -> no primary table).
         "headline_coverage_gaps": coverage_gaps,
@@ -242,7 +282,7 @@ def process_reports(
 ) -> ExtractionOutput:
     """Full pipeline from PDFs to workbook (requires OPENAI_API_KEY for L3)."""
     # Imports here so the heavy/optional deps load only when actually extracting.
-    from app.engines.extraction.pipeline.ingest import ingest_pdf
+    from app.engines.extraction.pipeline.ingest import ingest_pdfs
     from app.engines.extraction.pipeline.interpret import interpret_document
     from app.engines.extraction.pipeline.tables import detect_tables
     from app.engines.extraction.services.gpt_client import GPTClient
@@ -260,22 +300,41 @@ def process_reports(
     dumper = make_dumper(datetime.now().strftime("%Y%m%d_%H%M%S"))
     recording_gpt = GPTRecorder(gpt, dumper) if dumper.enabled else gpt
 
+    from time import perf_counter
+
     results: list[DocumentResult] = []
-    for pdf in pdf_paths:
-        pdf = Path(pdf)
+    # Ingest/OCR is the bottleneck, so OCR every scanned page of every PDF through
+    # one flat process pool up front (page- AND document-level parallelism). The
+    # per-report detect+interpret stages then run serially on the ingested docs.
+    t_ing = perf_counter()
+    ingested = ingest_pdfs([Path(p) for p in pdf_paths])
+    logger.info("Parallel ingest of %d PDF(s) completed in %.1fs", len(ingested), perf_counter() - t_ing)
+    for pdf, doc in ingested:
         # Each PDF gets its own log file (logs/<timestamp>_<pdf>.log).
         with per_document_log(pdf.stem):
             logger.info("Processing report %s", pdf.name)
             dumper.subject(pdf.stem)
-            doc = ingest_pdf(pdf)
-            dumper.json("01_ingest", doc)
-            table_set = detect_tables(pdf, doc)
-            dumper.json("02_tables", table_set)
-            result = interpret_document(doc, table_set, recording_gpt, has_template=has_template)
-            dumper.json("03_interpret", result)
-            dumper.json("00_summary", _document_summary(doc, table_set, result))
-            results.append(result)
+            # Per-report isolation: one bad PDF must not kill a multi-report run. Per-stage
+            # timing makes each bottleneck measurable instead of inferred from log timestamps.
+            try:
+                dumper.json("01_ingest", doc)
+                t1 = perf_counter()
+                table_set = detect_tables(pdf, doc)
+                dumper.json("02_tables", table_set)
+                t2 = perf_counter()
+                result = interpret_document(doc, table_set, recording_gpt,
+                                            has_template=has_template, pdf_path=pdf)
+                dumper.json("03_interpret", result)
+                t3 = perf_counter()
+                logger.info("Stage timings for %s: detect=%.1fs interpret=%.1fs (post-ingest total=%.1fs)",
+                            pdf.name, t2 - t1, t3 - t2, t3 - t1)
+                dumper.json("00_summary", _document_summary(doc, table_set, result))
+                results.append(result)
+            except Exception as exc:  # noqa: BLE001 — skip a failed report, keep the run alive
+                logger.error("Skipping report %s — extraction failed: %s", pdf.name, exc, exc_info=True)
 
+    if not results:
+        raise RuntimeError("No reports could be processed (all failed); see logs.")
     return process_documents(
         results, output_path, template_path=template_path, company=company, dumper=dumper,
     )

@@ -119,6 +119,9 @@ class FinancialIntelligenceEngine:
         elif frame.intent == "trend_analysis":
             self._trend(frame, ctx)
 
+        elif frame.intent == "dividend_analysis":
+            self._dividends(frame, ctx)
+
         elif frame.intent in ("news_impact", "earnings_review"):
             self._news(frame, ctx, plan)
 
@@ -201,59 +204,92 @@ class FinancialIntelligenceEngine:
                 return t
         return COMPANY_TICKER.get(name)
 
+    def _market_data(self, ticker, ctx):
+        """Gather price/eps/pe/market_cap/shares from company_overview (preferred,
+        richer) or the PSX quote stub. Returns a dict; appends cited evidence."""
+        md: dict = {}
+        cites: list = []
+        ov = self.external.company_overview
+        if ov is not None:
+            res = ov.fetch(symbol=ticker)
+            if res.items:
+                ctx.evidence += res.items
+                cites += [c for i in res.items for c in i.citations]
+                if res.status == "cached":
+                    ctx.degraded = True
+                for i in res.items:
+                    md[i.citations[0].locator.get("field")] = i.value
+        if "price" not in md and self.external.psx is not None:
+            q = self.external.psx.quote(ticker)
+            if q.items:
+                ctx.evidence += q.items
+                cites += [c for i in q.items for c in i.citations]
+                if q.status == "cached":
+                    ctx.degraded = True
+                for i in q.items:
+                    md[i.citations[0].locator.get("field")] = i.value
+        md["_cites"] = cites
+        return md
+
     def _valuation(self, frame, ctx) -> None:
-        psx = self.external.psx
         ticker = self._ticker(frame.company)
-        if psx is None or ticker is None:
+        if ticker is None or (self.external.company_overview is None and self.external.psx is None):
             ctx.degraded = True
             ctx.extra = {"valuation": None, "note": "market data unavailable"}
             return
-        res = psx.quote(ticker)
-        if res.status == "failed" or not res.items:
+        md = self._market_data(ticker, ctx)
+        cites = md.get("_cites", [])
+        price = md.get("price")
+        if price is None and md.get("market_cap") is None:
             ctx.degraded = True
-            ctx.extra = {"valuation": None, "note": res.note or "no quote"}
+            ctx.extra = {"valuation": None, "note": "no market data", "ticker": ticker}
             return
-        ctx.evidence += res.items
-        if res.status == "cached":
-            ctx.degraded = True  # stale data -> cap confidence
-        price = next((i.value for i in res.items if i.citations[0].locator.get("field") == "price"), None)
-        eps = next((i.value for i in res.items if i.citations[0].locator.get("field") == "eps"), None)
-        psx_cites = [c for i in res.items for c in i.citations]
 
-        pe = round(price / eps, 4) if (price and eps) else None
-        # P/B = price / book value per share (book value per share is internal, §0.3)
+        # P/E: prefer the page's reported TTM P/E, else price / EPS
+        eps = md.get("eps")
+        pe = md.get("pe_ratio") or (round(price / eps, 4) if (price and eps) else None)
+
+        # P/B: market cap / total equity (preferred, both available), else price / BVPS
         pb = None
+        equity = self._safe_lookup("total_equity", frame.year)
         bvps = self.calc.evaluate("book_value_per_share", frame.year) if frame.year else None
-        if price and bvps and bvps.value:
+        if md.get("market_cap") and equity:
+            pb = round(md["market_cap"] / equity, 4)
+        elif price and bvps and bvps.value:
             pb = round(price / bvps.value, 4)
             ctx.evidence += retrieval.evidence_from_facts(self.store, bvps.inputs)
 
-        # EV/EBITDA = (market cap + net debt) / EBITDA — assembled from PSX price ×
-        # internal shares + internal EBITDA and a total-liabilities debt proxy.
-        # Computes only when price, shares and EBITDA are all present (else absent).
+        # EV/EBITDA: market cap from the overview (× shares if only price), net debt
+        # proxy + internal EBITDA. Market cap/shares now come from the page.
         ebitda_res = self.calc.evaluate("ebitda", frame.year) if frame.year else None
-        shares = self._safe_lookup("shares_outstanding", frame.year)
+        ebitda = ebitda_res.value if ebitda_res else None
+        market_cap = md.get("market_cap")
+        shares = md.get("shares") or self._safe_lookup("shares_outstanding", frame.year)
         cash = self._safe_lookup("cash_and_bank", frame.year)
         ncl = self._safe_lookup("non_current_liabilities", frame.year)
         cl = self._safe_lookup("current_liabilities", frame.year)
         debt = (ncl or 0.0) + (cl or 0.0) if (ncl is not None or cl is not None) else None
-        ev = ev_over_ebitda(price, shares, ebitda_res.value if ebitda_res else None, debt, cash)
+        ev = None
+        if market_cap and ebitda:
+            net_debt = (debt or 0.0) - (cash or 0.0)
+            ev = {"ev_ebitda": round((market_cap + net_debt) / ebitda, 4)}
+        elif price and shares and ebitda:
+            ev = ev_over_ebitda(price, shares, ebitda, debt, cash)
 
         if pe is not None:
             ctx.calcs.append(CalcResult(formula_id="pe_ratio", value=pe, unit="x",
-                                        expression="price / eps", confidence="Medium",
-                                        citations=psx_cites))
+                                        expression="P/E (TTM, reported) or price / eps",
+                                        confidence="Medium", citations=cites))
         if pb is not None:
             ctx.calcs.append(CalcResult(formula_id="pb_ratio", value=pb, unit="x",
                                         expression="price / book_value_per_share",
-                                        confidence="Medium",
-                                        citations=psx_cites + bvps.citations))
+                                        confidence="Medium", citations=cites + bvps.citations))
         if ev is not None:
             ctx.calcs.append(CalcResult(
                 formula_id="ev_ebitda", value=ev["ev_ebitda"], unit="x",
                 expression="(market_cap + net_debt) / EBITDA  [net_debt ~= total liabilities - cash]",
                 confidence="Medium",
-                citations=psx_cites + (ebitda_res.citations if ebitda_res else [])))
+                citations=cites + (ebitda_res.citations if ebitda_res else [])))
         ctx.extra = {"valuation": pe, "pb": pb, "ev_ebitda": (ev or {}).get("ev_ebitda"),
                      "ticker": ticker}
 
@@ -333,6 +369,25 @@ class FinancialIntelligenceEngine:
                      "avg_abs_increase": avg_abs_increase,
                      "avg_growth_pct": avg_growth_pct,
                      "flagged_years": flagged}
+
+    def _dividends(self, frame, ctx) -> None:
+        adapter = self.external.payouts
+        if adapter is None:
+            ctx.degraded = True
+            ctx.extra = {"payouts": [], "note": "payout data unavailable"}
+            return
+        ticker = self._ticker(frame.company)
+        res = adapter.payouts(symbol=ticker, company=frame.company)
+        if res.status == "failed" or not res.items:
+            ctx.degraded = True
+            ctx.extra = {"payouts": [], "note": res.note or "no payouts"}
+            return
+        if res.status == "cached":
+            ctx.degraded = True
+        ctx.evidence += res.items
+        ctx.extra = {"payouts": [{"claim": i.claim, "pct": i.value,
+                                  "date": i.citations[0].locator.get("date")}
+                                 for i in res.items]}
 
     def _news(self, frame, ctx, plan) -> None:
         sources = set(plan.external_sources)

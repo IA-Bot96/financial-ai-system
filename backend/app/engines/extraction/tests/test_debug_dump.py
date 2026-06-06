@@ -34,7 +34,7 @@ def test_dumper_serializes_pydantic(tmp_path):
 
 def test_gpt_recorder_captures_request_and_response(tmp_path):
     class StubGPT:
-        def complete_structured(self, system, user, schema):
+        def complete_structured(self, system, user, schema, images=None):
             return InsightList()
 
     d = DebugDumper(tmp_path).subject("millat-2025")
@@ -67,7 +67,7 @@ def test_gpt_recorder_records_request_even_on_failure(tmp_path):
 
 def test_gpt_capture_can_be_disabled(tmp_path):
     class StubGPT:
-        def complete_structured(self, system, user, schema):
+        def complete_structured(self, system, user, schema, images=None):
             return InsightList()
 
     d = DebugDumper(tmp_path, dump_gpt=False).subject("r")

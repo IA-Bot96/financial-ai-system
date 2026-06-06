@@ -49,6 +49,16 @@ class Settings(BaseSettings):
     gpt_table_dense_digits: int = 120       # OCR fallback: very digit-dense page (commas lost)
     gpt_table_workers: int = 8              # concurrent page-extraction GPT calls (1 = sequential)
 
+    # --- Vision-assisted reconstruction (send the page image with the text) ---
+    # When on, each financial page sent to GPT for reconstruction also gets a rendered
+    # image of that page; GPT treats the image as authoritative to resolve OCR ambiguity
+    # (digits, signs, column alignment, merged cells, consolidated/unconsolidated header)
+    # while the text supplies exact figures. Requires a vision-capable model.
+    use_vision_extraction: bool = False
+    vision_dpi: int = 180                    # render DPI for the page image (legibility vs tokens)
+    vision_detail: str = "high"             # OpenAI image detail: "high" | "low" | "auto"
+    vision_max_pages: int = 0               # cap images/report (0 = all candidate pages)
+
     # --- Metric resolution (line-item label -> canonical metric) ---
     metric_registry_path: str = ""           # empty -> packaged registry file
     metric_fuzzy_threshold: float = 0.90     # rapidfuzz ratio (0-1) to accept
@@ -72,6 +82,11 @@ class Settings(BaseSettings):
     # A page with fewer than this many extractable characters is treated as
     # scanned/image-only and sent to OCR.
     min_text_chars: int = 40
+    # Max worker processes for OCR. Scanned-page OCR (render + tesseract) is the
+    # ingest bottleneck; a flat process pool drains all PDFs' scanned pages at once
+    # (page- AND document-level parallelism under one core budget). 0 = auto
+    # (cpu_count - 1); 1 = serial (the original in-process path).
+    ocr_max_workers: int = 0
 
     # --- Layer 2: table & section detection / classification ---
     # Local, free embedding model (sentence-transformers). No API cost.

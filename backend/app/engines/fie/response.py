@@ -174,6 +174,18 @@ def render(
                 analysis = (f"Data caveat: {yrs} flagged in the workbook's validation "
                             f"ledger - included but may distort the average.")
 
+    elif frame.intent == "dividend_analysis":
+        payouts = extra.get("payouts", [])
+        if payouts:
+            latest = payouts[0]
+            direct = (f"{company}'s most recent payout: {latest['claim']} "
+                      f"({latest.get('date')}). {len(payouts)} payout(s) on record.")
+            findings = [f"{p['claim']} ({p.get('date')}) [{_cite_of(e)}]"
+                        for p, e in zip(payouts, evidence)]
+        else:
+            direct = (f"No payout history available for {company}: "
+                      f"{extra.get('note', 'unavailable')}.")
+
     elif frame.intent in ("news_impact", "earnings_review"):
         if evidence:
             direct = f"{len(evidence)} recent item(s) for {company}."

@@ -154,7 +154,106 @@ def test_announcements_entry_matches_real_contract():
     a = BY_NAME["company_announcements"]
     assert a.method == "POST" and a.content_type == "form" and a.response_type == "html"
     assert a.params["type"] == "C"
-    assert {"symbol", "query", "date_from", "date_to"} <= set(a.dynamic_params)
+    # company-scoped: uses symbol (not query)
+    assert a.scope == "company" and "symbol" in a.dynamic_params
+    assert "query" not in a.dynamic_params
+
+
+def test_company_vs_sector_scoped_entries():
+    comp = BY_NAME["company_announcements"]
+    sect = BY_NAME["sector_announcements"]
+    # same endpoint + type + parser; differ only by scope/param (symbol vs query)
+    assert comp.endpoint == sect.endpoint
+    assert comp.params["type"] == sect.params["type"] == "C"
+    assert comp.parser_fn is sect.parser_fn          # same parser function
+    assert comp.scope == "company" and "symbol" in comp.dynamic_params
+    assert sect.scope == "sector" and sect.dynamic_params == ("query", "date_from", "date_to")
+    assert "symbol" not in sect.dynamic_params         # sector path has no symbol
+
+
+def test_sector_secp_entry():
+    c = BY_NAME["secp_notices"]
+    s = BY_NAME["sector_secp_notices"]
+    assert c.params["type"] == s.params["type"] == "B"
+    assert c.scope == "company" and s.scope == "sector"
+    assert c.parser_fn is s.parser_fn
+    assert s.dynamic_params == ("query", "date_from", "date_to")
+
+
+def test_sector_query_shortlists_sector_entry():
+    # a sector query should surface the sector-scoped announcement API
+    ranked = [a.name for a, _ in shortlist("cement sector announcements", top_k=4)]
+    assert "sector_announcements" in ranked
+
+
+def test_registry_matches_curl_contracts():
+    """Lock each entry's calling metadata to the real curl-bash evidence (method,
+    encoding, endpoint, key params). Entries with no captured curl are listed as
+    unverified so the split is explicit."""
+    # (method, content_type-or-None, response_type, endpoint-substr, required static/dynamic keys)
+    confirmed = {
+        "symbols_master":      ("GET",  None,   "json", "/symbols", set()),
+        "company_announcements": ("POST", "form", "html", "/announcements",
+                                  {"type", "count", "offset", "page", "symbol"}),
+        "sector_announcements":  ("POST", "form", "html", "/announcements",
+                                  {"type", "query"}),
+        "secp_notices":          ("POST", "form", "html", "/announcements",
+                                  {"type", "symbol"}),
+        "company_overview":      ("GET",  None,   "html", "/company/{symbol}", {"symbol"}),
+        "company_payouts":       ("POST", "form", "html", "/company/payouts", {"symbol"}),
+        "market_watch":          ("GET",  None,   "html", "/market-watch", set()),
+        "deliverable_futures_market_watch": ("GET", None, "html", "/market-watch-futures", set()),
+        "cash_settled_futures_market_watch": ("GET", None, "html", "/market-watch-csf", set()),
+        "daily_market_summary": ("GET", None, "html", "/market-summary/", set()),
+        "sector_summary": ("GET", None, "html", "/sector-summary/sectorwise", set()),
+        # api_info + real year-2025.xlsx sample (no curl, but response/parser verified)
+        "analysis_reports": ("GET", None, "xlsx", "/download/analysis_report/", {"year"}),
+        "stock_screener": ("GET", None, "html", "/screener", {"symbol"}),
+    }
+    for name, (method, ct, resp, ep_sub, keys) in confirmed.items():
+        a = BY_NAME[name]
+        assert a.method == method, f"{name} method"
+        if ct is not None:
+            assert a.content_type == ct, f"{name} content_type"
+        assert a.response_type == resp, f"{name} response_type"
+        assert ep_sub in a.endpoint, f"{name} endpoint"
+        present = set(a.params) | set(a.dynamic_params)
+        assert keys <= present, f"{name} missing params {keys - present}"
+
+    # announcements static defaults observed verbatim in the curl body
+    ann = BY_NAME["company_announcements"]
+    assert ann.params["type"] == "C" and ann.params["count"] == 50
+    assert ann.params["offset"] == 0 and ann.params["page"] == "annc"
+    assert BY_NAME["secp_notices"].params["type"] == "B"
+
+    # the 3 remaining entries are shared-endpoint variants (same endpoint+parser as a
+    # confirmed base, differing only by scope/param — covered by the scope tests).
+    shared_variants = {"sector_market_watch", "sector_secp_notices",
+                       "company_deliverable_futures_market_watch",
+                       "sector_stock_screener"}
+    # every entry is therefore accounted for — none left spec-only/unverified
+    assert set(confirmed) | shared_variants == set(BY_NAME)
+
+
+def test_scope_classification_consistent():
+    """Company/sector separation: every symbol-driven entry is scope 'company';
+    every query/sector-driven entry is scope 'sector'."""
+    for api in REGISTRY:
+        if "symbol" in api.dynamic_params:
+            assert api.scope == "company", f"{api.name} takes a symbol but scope={api.scope}"
+        if "query" in api.dynamic_params or "sector" in api.dynamic_params:
+            assert api.scope == "sector", f"{api.name} is query/sector-driven but scope={api.scope}"
+
+
+def test_company_scoped_entries_carry_no_sector_vocab():
+    """A company-scoped API must not advertise sector/industry in its provides tags,
+    or it would get pulled into sector shortlisting."""
+    for api in REGISTRY:
+        if api.scope != "company":
+            continue
+        tags = {t.lower() for t in api.provides}
+        assert "sector" not in tags and "industry" not in tags, \
+            f"{api.name} (company) leaks sector vocab: {api.provides}"
 
 
 # --- symbols -> announcements chain: symbol acquired from the symbols API ---

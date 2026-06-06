@@ -39,7 +39,7 @@ report into strict JSON. Rules:
   into a single "operating fixed assets" total.
 
 USER:
-Report file: {report_file}
+{vision_note}Report file: {report_file}
 Report year: {report_year}
 Page: {page}
 

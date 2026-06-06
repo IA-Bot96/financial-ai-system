@@ -71,10 +71,12 @@ _TYPE_FAMILY = {
 
 
 def tieout(value: float, truth: float) -> bool:
-    """A populated total agrees with the audited face value (5% + abs epsilon).
-    Gross mis-maps (cash vs share capital, a 15x PAT error) are far outside this;
-    legitimate rounding/restatement is well inside it."""
-    return abs(value - truth) <= 1.0 + 0.05 * abs(truth)
+    """A populated value agrees with the audited face value within ROUNDING (1% + abs
+    epsilon), not the old loose 5%. A face-statement figure should reconcile near-exactly;
+    a 1.4% gap (e.g. revenue 52.85M vs 52.11M) is a real error, not rounding, and the old
+    5% band silently passed it. Genuine rounding/restatement stays inside 1%; gross
+    mis-maps and digit slips are far outside. Matches the identity-check tolerance."""
+    return abs(value - truth) <= max(1.0, 0.01 * abs(truth))
 
 
 def metric_incompatible(metric: str | None, category: str | None,
@@ -166,7 +168,26 @@ def _is_currency_scale(table: FinancialTable) -> bool:
     return unit not in {"%", "percent", "ratio"}
 
 
-def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tuple[float, object]]:
+# Reporting basis, read from the table TITLE (reliable) rather than the `consolidated`
+# flag (found to be mislabelled in carry-forward). "unconsolidated" is checked first so
+# it never matches the "consolidated" substring it contains.
+_UNCONSOLIDATED_RE = re.compile(r"\b(?:un\s*-?\s*consolidated|stand[\s-]?alone|separate)\b", re.I)
+_CONSOLIDATED_RE = re.compile(r"\bconsolidated\b", re.I)
+
+
+def _table_basis(table: FinancialTable) -> str:
+    """'unconsolidated' | 'consolidated' | 'unknown', from the statement title."""
+    title = table.title or ""
+    if _UNCONSOLIDATED_RE.search(title):
+        return "unconsolidated"
+    if _CONSOLIDATED_RE.search(title):
+        return "consolidated"
+    return "unknown"
+
+
+def build_face_truth(tables: list[FinancialTable], prefer_basis: str = "unconsolidated",
+                     trace: list | None = None,
+                     ) -> dict[tuple[str, int], tuple[float, object]]:
     """{(canonical_metric, year): (value, source)} from face statements, primary-first.
 
     Candidates are collected from primary (tier 0) AND note (tier 1) tables; analytical
@@ -178,14 +199,24 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
     Within the chosen tier: newest report wins; ties broken by closeness to the metric's
     median (never larger magnitude — that would bless an extra-digit error). The
     magnitude-outlier filter's median is anchored to PRIMARY values so a mis-tagged note
-    partial can't shift the reference."""
-    # Collect primary + note candidates, tagged by tier (0=primary, 1=note).
-    cand: dict[tuple[str, int], list[tuple[float, int, object, int]]] = {}
-    for t in tables:
+    partial can't shift the reference.
+
+    Finally, face truth is made source-consistent for the accounting identities (the
+    cash-flow roll-forward and PAT = PBT + tax): a consolidating group files the same
+    statement on two bases, and the per-metric selection above can mix them (e.g. an
+    unconsolidated PBT/PAT with a consolidated tax, or a consolidated closing cash with
+    unconsolidated flows). Where an identity fails, the involved metrics are replaced
+    with the values from a SINGLE source statement whose own figures reconcile it —
+    guarded by the identity, so it can only fix, never regress."""
+    # Collect primary + note candidates, tagged by tier (0=primary, 1=note), basis, and
+    # the index of the source TABLE (so an identity can be reconciled from one statement).
+    cand: dict[tuple[str, int], list[tuple[float, int, object, int, str, int]]] = {}
+    for ti, t in enumerate(tables):
         role = table_role_of(t)
         if role == "analytical" or not _is_currency_scale(t):
             continue
         tier = 0 if role == "primary" else 1
+        basis = _table_basis(t)
         for li in t.line_items:
             cm = _METRIC_ALIASES.get(li.canonical_metric, li.canonical_metric)
             if not cm:
@@ -193,7 +224,7 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
             for v in li.values:
                 if v.year and v.value is not None:
                     ry = v.source_report_year or (t.source.report_year if t.source else 0) or 0
-                    cand.setdefault((cm, v.year), []).append((v.value, ry, v.source or t.source, tier))
+                    cand.setdefault((cm, v.year), []).append((v.value, ry, v.source or t.source, tier, basis, ti))
 
     # Per-metric magnitude reference: median of |value|. Anchored to PRIMARY candidates
     # when the metric has any (so note partials don't move it); else fall back to all.
@@ -237,10 +268,131 @@ def build_face_truth(tables: list[FinancialTable]) -> dict[tuple[str, int], tupl
         best_tier = min(c[3] for c in chosen)
         tiered = [c for c in chosen if c[3] == best_tier]
         # Newest report wins; then prefer the value CLOSEST to the metric's median.
-        value, _ry, src, _tier = max(tiered, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
+        value, _ry, src, _tier, _basis, _ti = max(tiered, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
         # Normalise expense metrics to the additive-P&L convention (always negative) so
         # face truth, the output formula, and the override all share one sign.
         if cm in _EXPENSE_KEY_METRICS:
             value = -abs(value)
         truth[(cm, year)] = (value, src)
+        # Debug trace (only when a list is supplied): record KEY-metric selections that
+        # had a genuine choice — multiple candidates or magnitude-outliers dropped — so a
+        # wrong pick is localizable from the dump rather than re-derived by hand.
+        if trace is not None and cm in KEY_METRICS:
+            dropped = [round(c[0], 2) for c in lst if c not in plausible]
+            alts = sorted({round(c[0], 2) for c in lst} - {round(value, 2)})
+            if dropped or alts:
+                trace.append({
+                    "kind": "select", "metric": cm, "year": year, "chosen": round(value, 2),
+                    "alternatives": alts, "outliers_dropped": dropped, "n_candidates": len(lst),
+                })
+
+    # Source-consistent identities: a consolidating group files each statement on two
+    # bases and the per-metric pick can mix them, breaking an identity (a consolidated
+    # tax with an unconsolidated PBT/PAT; a consolidated closing cash with unconsolidated
+    # flows). Where one fails, adopt the values from a single statement that reconciles.
+    _reconcile_identities(truth, cand, prefer_basis, trace)
     return truth
+
+
+_TAX_METRICS = ("tax_expense", "taxation", "income_tax")
+
+# Sum identities used for source-consistent reconciliation: target == sum(terms). A term
+# may be a tuple of alternative metric names (first present in a table is used).
+_RECONCILE_IDENTITIES = (
+    ("cash_at_end_of_period",
+     ("cash_at_beginning_of_period", "operating_cash_flow", "investing_cash_flow", "financing_cash_flow")),
+    ("profit_after_tax", ("profit_before_tax", _TAX_METRICS)),
+)
+
+_MAX_COMBOS = 256          # bound the per-table candidate search
+
+
+def _identity_tol(target_val: float) -> float:
+    return max(1.0, 0.01 * abs(target_val))
+
+
+def _norm(metric: str, value: float) -> float:
+    """Apply the additive-P&L expense convention so the sum matches stored face truth."""
+    return -abs(value) if metric in _EXPENSE_KEY_METRICS else value
+
+
+def _table_candidates(cand, metric_or_alts, year, ti):
+    """All (metric, normalised_value, source) candidates for a term in ONE table/year."""
+    metrics = metric_or_alts if isinstance(metric_or_alts, tuple) else (metric_or_alts,)
+    out = []
+    for m in metrics:
+        for c in cand.get((m, year), []):
+            if c[5] == ti:
+                out.append((m, _norm(m, c[0]), c[2]))
+    return out
+
+
+def _table_combo(cand, target, terms, year, ti):
+    """Find a (target, terms) value combo from table `ti` that satisfies target==sum(terms).
+    Returns {metric: (value, source)} or None. Bounded by _MAX_COMBOS."""
+    import itertools
+    import math
+    target_cs = _table_candidates(cand, target, year, ti)
+    term_cs = [_table_candidates(cand, t, year, ti) for t in terms]
+    if not target_cs or any(not tc for tc in term_cs):
+        return None
+    if len(target_cs) * math.prod(len(tc) for tc in term_cs) > _MAX_COMBOS:
+        # Too many combos: collapse each term to its single distinct value if unambiguous.
+        term_cs = [tc if len({round(v, 2) for _m, v, _s in tc}) > 1 else tc[:1] for tc in term_cs]
+    for tgt in target_cs:
+        for combo in itertools.product(*term_cs):
+            if abs(sum(v for _m, v, _s in combo) - tgt[1]) <= _identity_tol(tgt[1]):
+                picks = {target: (tgt[1], tgt[2])}
+                for m, v, s in combo:
+                    picks[m] = (v, s)
+                return picks
+    return None
+
+
+def _reconcile_identities(truth, cand, prefer_basis: str, trace: list | None = None) -> None:
+    """In-place: for each identity/year that currently fails, replace the involved metrics
+    with the values from a single source statement that reconciles it. Among reconciling
+    statements, prefer the fewest changes to current face truth, then the model's basis.
+    Strictly guarded: only adopts on a reconcile, so it can never regress a company."""
+    ti_basis = {}
+    for lst in cand.values():
+        for c in lst:
+            ti_basis[c[5]] = c[4]
+
+    for target, terms in _RECONCILE_IDENTITIES:
+        years = {y for (cm, y) in truth if cm == target}
+        for year in years:
+            cur_target = truth.get((target, year))
+            cur_terms = [_first_present(truth, t, year) for t in terms]
+            if cur_target is None or any(v is None for v in cur_terms):
+                continue                                   # identity not fully present
+            if abs(sum(cur_terms) - cur_target[0]) <= _identity_tol(cur_target[0]):
+                continue                                   # already reconciles
+            best = None
+            for ti in {c[5] for c in cand.get((target, year), [])}:
+                picks = _table_combo(cand, target, terms, year, ti)
+                if picks is None:
+                    continue
+                changes = sum(1 for m, (v, _s) in picks.items()
+                              if truth.get((m, year), (None,))[0] != v)
+                basis_rank = 0 if ti_basis.get(ti) == prefer_basis else 1
+                key = (changes, basis_rank)
+                if best is None or key < best[0]:
+                    best = (key, picks)
+            if best is not None:
+                for m, (v, s) in best[1].items():
+                    old = truth.get((m, year), (None,))[0]
+                    if trace is not None and old != v:
+                        trace.append({"kind": "identity_reconcile", "identity": target,
+                                      "year": year, "metric": m, "old": old, "new": v})
+                    truth[(m, year)] = (v, s)
+
+
+def _first_present(truth, metric_or_alts, year):
+    """Resolve a metric (or tuple of alternatives) from face truth for a year -> value|None."""
+    metrics = metric_or_alts if isinstance(metric_or_alts, tuple) else (metric_or_alts,)
+    for m in metrics:
+        pair = truth.get((m, year))
+        if pair is not None:
+            return pair[0]
+    return None

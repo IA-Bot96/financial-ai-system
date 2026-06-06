@@ -2,6 +2,8 @@
 
 from .apis import (
     ApiClient,
+    CompanyOverview,
+    CompanyPayouts,
     ExternalSources,
     ForecastRepo,
     Macro,
@@ -30,6 +32,8 @@ __all__ = [
     "FinancialIntelligenceEngine",
     "FinancialFactStore",
     "ApiClient",
+    "CompanyOverview",
+    "CompanyPayouts",
     "ExternalSources",
     "ForecastRepo",
     "Macro",

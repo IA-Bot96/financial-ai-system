@@ -1,0 +1,54 @@
+"""Tests for reconciliation-row gap-filling on breakdown subtotals."""
+import openpyxl
+
+from app.engines.extraction.models.common import StatementType
+from app.engines.extraction.models.company import CompanyResult
+from app.engines.extraction.models.financials import FinancialTable, LineItem, LineItemValue
+from app.engines.extraction.services.face_truth import tieout
+from app.engines.extraction.services.formula_eval import evaluate
+from app.engines.extraction.services.validation import reconcile_breakdown_subtotals
+
+
+def _company(nca_2025=8014208.0, nca_2024=8413955.0):
+    return CompanyResult(company="A", fiscal_years=[2024, 2025], tables=[
+        FinancialTable(statement_type=StatementType.balance_sheet,
+                       title="Statement of Financial Position",
+                       line_items=[LineItem(label="Total non-current assets",
+                           canonical_metric="non_current_assets", canonical_category="balance_sheet",
+                           values=[LineItemValue(year=2024, value=nca_2024),
+                                   LineItemValue(year=2025, value=nca_2025)])])])
+
+
+def _bs1(tmp_path, leaf_2025, leaf_2024=8413955):
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "BS1 - Non-Current Assets"
+    ws["A3"], ws["F3"], ws["G3"] = "Particulars", 2024, 2025
+    ws["A4"], ws["F4"], ws["G4"] = "Property, plant and equipment", leaf_2024, leaf_2025
+    ws["A6"], ws["F6"], ws["G6"] = "Total non-current assets", "=SUM(F4:F5)", "=SUM(G4:G5)"
+    p = tmp_path / "wb.xlsx"; wb.save(p); return p
+
+
+def test_subtotal_plugged_to_audited_total(tmp_path):
+    # Leaves sum to 7,000,000 but audited NCA 2025 is 8,014,208 -> plug the gap.
+    p = _bs1(tmp_path, leaf_2025=7000000)
+    rows, n = reconcile_breakdown_subtotals(p, _company(), tieout, output_sheets=set())
+    wb = openpyxl.load_workbook(p)
+    assert abs(evaluate(wb, "BS1 - Non-Current Assets", "G6") - 8014208.0) <= 1   # now ties
+    assert n == 1 and any(r.status == "RECONCILED" and r.year == 2025 for r in rows)
+    assert wb["BS1 - Non-Current Assets"]["G6"].comment is not None               # documented
+
+
+def test_subtotal_already_reconciles_not_touched(tmp_path):
+    # Leaves already sum to the audited total -> no plug, formula unchanged.
+    p = _bs1(tmp_path, leaf_2025=8014208)
+    before = openpyxl.load_workbook(p)["BS1 - Non-Current Assets"]["G6"].value
+    rows, n = reconcile_breakdown_subtotals(p, _company(), tieout, output_sheets=set())
+    after = openpyxl.load_workbook(p)["BS1 - Non-Current Assets"]["G6"].value
+    assert n == 0 and after == before
+
+
+def test_output_sheets_are_skipped(tmp_path):
+    # If BS1 were (wrongly) declared an output sheet, the breakdown pass skips it.
+    p = _bs1(tmp_path, leaf_2025=7000000)
+    rows, n = reconcile_breakdown_subtotals(p, _company(), tieout,
+                                            output_sheets={"BS1 - Non-Current Assets"})
+    assert n == 0 and rows == []

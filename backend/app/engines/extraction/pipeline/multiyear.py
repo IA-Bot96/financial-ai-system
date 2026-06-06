@@ -47,6 +47,65 @@ def _line_key(item: LineItem) -> str:
     return item.canonical_metric or squash(item.label)
 
 
+def _consolidate_split_lines(items: list[LineItem]) -> list[LineItem]:
+    """Fold line items that share a (squashed) label but were split across reports by
+    SECTION drift — e.g. 'Mark-up on short-term borrowings' filed under '38 Finance cost'
+    in one report, 'Finance cost' in another, and no section in a third — recovering all
+    year columns into one line so older-year leaf detail isn't lost.
+
+    GUARD: never fold when two members carry conflicting values for the SAME
+    (year, source_report) — that signals genuinely different lines that coexist in one
+    report (e.g. Distribution vs Administrative 'Salaries'), which must stay separate.
+    Restatement across DIFFERENT reports (same year, different source_report_year) is NOT
+    a conflict and folds, keeping the newest report's value per year."""
+    from collections import defaultdict
+
+    groups: dict[str, list[LineItem]] = defaultdict(list)
+    order: list[str] = []
+    for li in items:
+        k = squash(li.label or "")
+        if k not in groups:
+            order.append(k)
+        groups[k].append(li)
+
+    out: list[LineItem] = []
+    for k in order:
+        grp = groups[k]
+        # Only fold PURE note leaves (no canonical metric on any member). Canonical
+        # metrics are face truth — folding them on a squash(label) collision corrupts
+        # values (e.g. a BS 'Stock in trade' total vs a cash-flow movement of the same
+        # name), so they are left strictly untouched.
+        if not k or len(grp) == 1 or any(li.canonical_metric for li in grp):
+            out.extend(grp)
+            continue
+        by_yr_rpt: dict[tuple, list[float]] = defaultdict(list)
+        for li in grp:
+            for v in li.values:
+                if v.year is not None and v.value is not None:
+                    by_yr_rpt[(v.year, v.source_report_year)].append(v.value)
+        conflict = any(
+            (max(abs(x) for x in vs) - min(abs(x) for x in vs)) > max(1.0, 0.005 * max(abs(x) for x in vs))
+            for vs in by_yr_rpt.values() if len(vs) > 1
+        )
+        if conflict:
+            out.extend(grp)          # genuinely different lines that share a label
+            continue
+        best: dict[int, LineItemValue] = {}
+        for li in grp:
+            for v in li.values:
+                if v.year is None or v.value is None:
+                    continue
+                cur = best.get(v.year)
+                if cur is None or (v.source_report_year or 0) > (cur.source_report_year or 0):
+                    best[v.year] = v
+        rep = max(grp, key=lambda li: (li.canonical_metric is not None, len(li.label or "")))
+        folded = rep.model_copy(update={"values": [best[y] for y in sorted(best)]})
+        logger.debug("consolidated split leaf %r (%d lines) -> years %s",
+                     (rep.label or "")[:40], len(grp), [v.year for v in folded.values])
+        out.append(folded)
+    return out
+
+
 def _resolve_company(results: list[DocumentResult], fallback: str | None) -> str | None:
     """Company extracted from the documents is the source of truth; the caller's
     value is only a fallback when nothing was extracted."""
@@ -166,6 +225,7 @@ def resolve_multiyear(results: list[DocumentResult], company: str | None = None)
                     canonical_category=meta["canonical_category"],
                     values=values,
                 ))
+        items = _consolidate_split_lines(items)   # recover leaves split by section drift across reports
         title, currency, unit = group_info.get(gkey, ("", None, None))
         mt = FinancialTable(
             statement_type=st, title=title, currency=currency, unit_scale=unit,

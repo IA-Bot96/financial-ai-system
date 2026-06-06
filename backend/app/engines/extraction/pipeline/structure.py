@@ -22,17 +22,14 @@ _YEAR_ONLY = re.compile(r"^(?:19|20)\d{2}$")
 
 
 def _parse_value(text: str) -> tuple[float | None, str | None]:
-    """Parse an accounting number: '(1,234)' -> -1234, '–' -> None."""
+    """Parse an accounting number: '(1,234)' -> -1234, '–' -> None. Hardened parsing
+    (unicode-minus, currency/scale-word stripping, nil markers) is delegated to the
+    shared deterministic parser so the rule path matches the GPT-complement path. The
+    original printed token is preserved as `raw` for later sign reconciliation."""
+    from app.engines.extraction.services.cell_parse import parse_money
     s = (text or "").strip()
-    if s in _DASH:
-        return None, (s or None)
-    neg = "(" in s and ")" in s
-    cleaned = re.sub(r"[()]", "", s).replace(",", "").replace("%", "").strip()
-    try:
-        v = float(cleaned)
-    except ValueError:
-        return None, s
-    return (-v if neg else v), s
+    value, _neg = parse_money(s)
+    return value, (s or None)
 
 
 def _year_columns(header: list[str]) -> dict[int, int]:
@@ -126,6 +123,8 @@ def build_financial_table(raw: RawTable, resolver=None) -> FinancialTable:
         source=raw.source,
     )
     ft.table_role = infer_table_role(ft)  # C2/P3 (rule-based path)
+    from app.engines.extraction.services.cell_parse import normalize_table_values
+    normalize_table_values(ft)            # harden signs/note-refs from raw
     return ft
 
 

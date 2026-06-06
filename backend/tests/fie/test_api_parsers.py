@@ -40,11 +40,13 @@ def test_parse_market_watch_numeric_price():
 
 
 def test_parse_xlsx_records():
+    # precise parser keys off the real PSX header (Symbol/Name of Company/...); an
+    # arbitrary sheet without it yields [] rather than a generic column dump.
     wb = openpyxl.Workbook(); ws = wb.active
     ws.append(["Company", "PAT", "Assets"]); ws.append(["MTL", 6372928, 32988591])
     buf = io.BytesIO(); wb.save(buf)
-    rows = P.parse_analysis_report_xlsx(buf.getvalue())
-    assert rows == [{"Company": "MTL", "PAT": 6372928, "Assets": 32988591}]
+    assert P.parse_analysis_report_xlsx(buf.getvalue()) == []
+    # detailed structure/values are covered in test_analysis_reports.py
 
 
 def test_symbols_normalized_and_malformed_safe():

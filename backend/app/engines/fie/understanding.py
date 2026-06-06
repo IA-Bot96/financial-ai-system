@@ -119,6 +119,7 @@ _VALUATION_RE = re.compile(
     r"ev/?ebitda|enterprise value|valuation|how cheap|expensive", re.I)
 _FORECAST_RE = re.compile(r"forecast|guidance|on track|remain(ed)? valid|projection", re.I)
 _NEWS_RE = re.compile(r"\bnews\b|headlines|announcements?", re.I)
+_DIVIDEND_RE = re.compile(r"dividend|payout|book closure|bonus issue", re.I)
 _EARNINGS_RE = re.compile(r"earnings review|review (the )?earnings|latest results", re.I)
 
 
@@ -166,6 +167,9 @@ def build_frame(query: str) -> QueryFrame:
 
     if _NEWS_RE.search(query):
         return QueryFrame(raw_query=query, intent="news_impact", company=company, year=year)
+
+    if _DIVIDEND_RE.search(query):
+        return QueryFrame(raw_query=query, intent="dividend_analysis", company=company, year=year)
 
     # trend / multi-year: explicit range, a "last N years" window, an aggregation
     # operator ("average increase/growth"), or trend keywords

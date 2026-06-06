@@ -10,6 +10,8 @@ from .base import ApiClient, ApiSpec, CallResult, HttpTransport, Transport, mont
 from .forecast import ForecastRepo
 from .macro import Macro
 from .news import News
+from .overview import CompanyOverview
+from .payouts import CompanyPayouts
 from .psx import PSX
 from .registry import REGISTRY as API_REGISTRY, ApiInfo, shortlist
 from .symbols import Symbols
@@ -30,13 +32,15 @@ class ExternalSources:
     secp: Optional[SECPNotices] = None
     macro: Optional[Macro] = None
     symbols: Optional[Symbols] = None
+    company_overview: Optional[CompanyOverview] = None
+    payouts: Optional[CompanyPayouts] = None
     as_of: Optional[str] = None  # anchor date (ISO) for date-windowed calls
     peers: dict = field(default_factory=dict)  # {company_name: FinancialFactStore}
 
 
 __all__ = [
     "ApiClient", "ApiSpec", "CallResult", "HttpTransport", "Transport",
-    "monthly_windows", "PSX", "News", "Macro", "Symbols", "ForecastRepo",
-    "PSXAnnouncements", "SECPNotices", "ExternalSources",
-    "API_REGISTRY", "ApiInfo", "shortlist",
+    "monthly_windows", "PSX", "News", "Macro", "Symbols", "CompanyOverview",
+    "CompanyPayouts", "ForecastRepo", "PSXAnnouncements", "SECPNotices",
+    "ExternalSources", "API_REGISTRY", "ApiInfo", "shortlist",
 ]

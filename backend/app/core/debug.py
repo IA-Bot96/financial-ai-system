@@ -6,10 +6,13 @@ can be diagnosed by reading files instead of re-running:
     logs/debug/<run_id>/<subject>/00_summary.json
                                   01_ingest.json        (text-based pages also in .txt)
                                   02_tables.json
-                                  03_interpret.json
+                                  03_interpret.json     (GPT-reconstructed tables)
                                   gpt/001_<schema>_req.txt + _resp.json   (every GPT call)
-            <run_id>/<company>/   04_multiyear.json
+            <run_id>/<company>/   04_multiyear.json     (merged, leaf-consolidated tables)
                                   05_mapping_plan.json
+                                  06_face_truth.json    (decided value + provenance per metric/year)
+                                  07_facetruth_decisions.json  (selection / identity-reconcile deltas)
+                                  08_validation_ledger.json    (tie-out / withhold / reconcile rows)
                                   00_run_summary.json
 
 Pydantic objects -> .json; raw prompts/text -> .txt. Disabled = no-ops, so the
@@ -104,20 +107,23 @@ class GPTRecorder:
         self._gpt = gpt
         self._dumper = dumper
 
-    def complete_structured(self, system: str, user: str, schema):
-        base = self._dumper.gpt_request(getattr(schema, "__name__", "structured"), system, user)
+    def complete_structured(self, system: str, user: str, schema, images=None):
+        # Record an image reference (count), not the base64 blob, to keep dumps readable.
+        note = user if not images else f"{user}\n\n[+{len(images)} page image(s) attached]"
+        base = self._dumper.gpt_request(getattr(schema, "__name__", "structured"), system, note)
         try:
-            resp = self._gpt.complete_structured(system, user, schema)
+            resp = self._gpt.complete_structured(system, user, schema, images=images)
         except Exception as exc:  # noqa: BLE001
             self._dumper.gpt_response(base, {"error": str(exc)})
             raise
         self._dumper.gpt_response(base, resp)
         return resp
 
-    def complete_json(self, system: str, user: str):
-        base = self._dumper.gpt_request("json", system, user)
+    def complete_json(self, system: str, user: str, images=None):
+        note = user if not images else f"{user}\n\n[+{len(images)} page image(s) attached]"
+        base = self._dumper.gpt_request("json", system, note)
         try:
-            resp = self._gpt.complete_json(system, user)
+            resp = self._gpt.complete_json(system, user, images=images)
         except Exception as exc:  # noqa: BLE001
             self._dumper.gpt_response(base, {"error": str(exc)})
             raise

@@ -22,6 +22,7 @@ def interpret_document(
     table_set: TableSet,
     gpt,
     has_template: bool = False,
+    pdf_path=None,
 ) -> DocumentResult:
     """Structure tables + extract insights for one document.
 
@@ -44,7 +45,8 @@ def interpret_document(
     gpt_tables = []
     if gpt is not None and settings.use_gpt_table_extraction:
         # Template targets unconsolidated -> skip the consolidated set to halve calls.
-        gpt_tables = extract_financial_tables(doc, gpt, skip_consolidated=has_template)
+        gpt_tables = extract_financial_tables(
+            doc, gpt, skip_consolidated=has_template, pdf_path=pdf_path)
     gpt_types = {t.statement_type for t in gpt_tables}
 
     # Rule-based path only for NATIVE tables (scanned/OCR grids are unreliable —
