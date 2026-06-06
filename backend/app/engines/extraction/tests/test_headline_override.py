@@ -89,6 +89,26 @@ def test_sign_inferred_from_sibling_preserves_loss(tmp_path):
     assert out["G25"].value == -900.0          # negative sibling -> loss sign preserved
 
 
+def test_asset_total_forced_positive_despite_negative_sibling(tmp_path):
+    # Regression (#2): a 'Total Non-Current Assets' whose breakdown formula evaluates
+    # NEGATIVE (mis-extracted leaves) must NOT be emitted negative — assets use the fixed
+    # positive convention, never the sibling-formula sign.
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Balance Sheet"
+    ws["A3"], ws["F3"], ws["G3"] = "Particulars", 2024, 2025
+    ws["A14"], ws["F14"], ws["G14"] = "Total non-current assets", "=-8413955", "=-8014208"
+    p = tmp_path / "wb.xlsx"; wb.save(p)
+    company = CompanyResult(company="A", fiscal_years=[2024, 2025], tables=[
+        FinancialTable(statement_type=StatementType.balance_sheet,
+                       title="Statement of Financial Position",
+                       line_items=[LineItem(label="Total non-current assets",
+                           canonical_metric="non_current_assets", canonical_category="balance_sheet",
+                           values=[LineItemValue(year=2024, value=8413955.0),
+                                   LineItemValue(year=2025, value=8014208.0)])])])
+    override_headline_metrics(p, company, tieout, {"Balance Sheet"})
+    out = openpyxl.load_workbook(p)["Balance Sheet"]
+    assert out["F14"].value == 8413955.0 and out["G14"].value == 8014208.0   # positive, not negated
+
+
 def test_correct_headline_cell_keeps_its_formula(tmp_path):
     wb = openpyxl.Workbook()
     bs = wb.active; bs.title = "Balance Sheet"

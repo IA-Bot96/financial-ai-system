@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legacy Review — Upgrade Candidates for FIE</title>
+<style>
+  :root{
+    --bg:#0f1117; --card:#171a23; --line:#272b38; --txt:#e6e8ee; --mut:#9aa3b2;
+    --accent:#6ea8fe; --t1:#39d98a; --t2:#ffd166; --t3:#b794f6; --skip:#ff6b6b;
+    --code:#0b0d13;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+     margin:38px 0 14px;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .lede{color:var(--mut);margin:0 0 6px}
+  .meta{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);
+        border-radius:10px;padding:14px 18px;margin:18px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:18px 20px;margin:14px 0;position:relative}
+  .card::before{content:attr(data-id);position:absolute;top:14px;right:16px;
+        font:600 12px ui-monospace,Menlo,Consolas,monospace;color:var(--mut)}
+  .card h3{margin:0 0 8px;font-size:17px;padding-right:48px}
+  .tag{display:inline-block;font:600 11px ui-monospace,monospace;border-radius:6px;
+       padding:2px 8px;margin:0 6px 8px 0;vertical-align:middle}
+  .t1{background:rgba(57,217,138,.14);color:var(--t1);border:1px solid rgba(57,217,138,.4)}
+  .t2{background:rgba(255,209,102,.14);color:var(--t2);border:1px solid rgba(255,209,102,.4)}
+  .t3{background:rgba(183,148,246,.14);color:var(--t3);border:1px solid rgba(183,148,246,.4)}
+  .src{background:rgba(110,168,254,.12);color:var(--accent);border:1px solid rgba(110,168,254,.35)}
+  .reuse{background:#1d212c;color:var(--mut);border:1px solid var(--line)}
+  .card p{margin:8px 0}
+  .card .label{color:var(--mut);font-weight:600}
+  code{background:var(--code);border:1px solid var(--line);border-radius:5px;
+       padding:1px 6px;font:13px ui-monospace,Menlo,Consolas,monospace;color:#cbd5e1}
+  ul{margin:8px 0;padding-left:20px} li{margin:4px 0}
+  .skip h3{color:var(--skip)}
+  .seq{counter-reset:step}
+  .seq li{margin:6px 0}
+  .foot{color:var(--mut);font-size:13px;margin-top:30px;border-top:1px solid var(--line);padding-top:14px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Legacy Review — Upgrade Candidates for FIE</h1>
+  <p class="lede">Synthesis of four deep reviews (QAE, FVE, QE&nbsp;v2, MSIL&nbsp;+&nbsp;shared). Each card is self-contained — feed one at a time.</p>
+
+  <div class="meta">
+    <p style="margin:0 0 6px"><span class="label">Meta-insight.</span> Legacy was deterministic, contract-first, governance-heavy (no LLM in the answer path); ours is LLM-narrating with lighter governance. Its value to us is its <b>trust / reconciliation / citation spine</b>, not its answer generation. Plan: graft the governance spine onto our narration.</p>
+    <p style="margin:0"><span class="label">Convergence signal.</span> Three independently-built engines surfaced the same three ideas — claim-type-scoped authority (not flat reliability), min-weakest-link confidence, and surface-don't-resolve divergence. That convergence = real architectural truths, not one team's taste.</p>
+  </div>
+
+  <!-- ============ TIER 1 ============ -->
+  <h2>Tier 1 — Adopt (high value, self-contained, closes known gaps)</h2>
+
+  <div class="card" data-id="T1-1">
+    <h3>Scale-normalize before comparing</h3>
+    <span class="tag t1">Tier 1</span><span class="tag src">MSIL · financial_year_consolidator.py:879 · MetricValue</span><span class="tag reuse">drop-in</span>
+    <p>Detects ×10³/×10⁶/×10⁹ disagreements within a ~5% ratio tolerance and converts to canonical absolute PKR <em>before</em> any tolerance check.</p>
+    <p><span class="label">Fixes:</span> our ad-hoc "Rs thousand vs Rs million vs absolute" handling and the false <code>internal_vs_external</code> conflicts it causes.</p>
+    <p><span class="label">Why now:</span> highest value, lowest risk — the code already exists and has minimal deps.</p>
+  </div>
+
+  <div class="card" data-id="T1-2">
+    <h3>Claim-level citation enforcement + precision-capping</h3>
+    <span class="tag t1">Tier 1</span><span class="tag src">QE · v2_citation_enforcer.py</span><span class="tag reuse">self-contained (adapter)</span>
+    <p>Upgrades our <em>numeric-only</em> guard to a per-claim gate: every shipped claim must cite at a precision its provenance supports (CELL&gt;PAGE&gt;DATE&gt;REF); uncitable claims are <b>dropped</b>; if all drop → clean <code>INSUFFICIENT_EVIDENCE</code> off-ramp. Enforced twice (model boundary + enforcer).</p>
+    <p><span class="label">Fixes:</span> "no citation, no claim" currently only guards numbers, not every claim.</p>
+  </div>
+
+  <div class="card" data-id="T1-3">
+    <h3>Numeric admission role model</h3>
+    <span class="tag t1">Tier 1</span><span class="tag src">FVE · numeric_admission.py + numeric_admission_gate.py</span><span class="tag reuse">port pattern</span>
+    <p>Every external number gets a typed <b>role</b> (<code>baseline | supporting | event_fact | forecast_context | non_authoritative</code>); a validator makes "external → baseline" <em>unconstructable</em>. Only an audited, integrity-passed path may touch baseline math.</p>
+    <p><span class="label">Fixes:</span> structural enforcement of the trust model — far stronger than a string-level guard. Port the role enum + (source,authority,claim_type)→role policy onto our taxonomy.</p>
+  </div>
+
+  <div class="card" data-id="T1-4">
+    <h3>Deterministic evidence ranker</h3>
+    <span class="tag t1">Tier 1</span><span class="tag src">QE · v2_evidence_ranker.py</span><span class="tag reuse">self-contained</span>
+    <p>Multi-signal score (provenance-completeness×100, authority×20, recency, corroboration, relevance) with explicit <b>inclusion/exclusion + reason</b>.</p>
+    <p><span class="label">Fixes:</span> our "almost no ranking" gap; feeds a confidence ceiling.</p>
+  </div>
+
+  <div class="card" data-id="T1-5">
+    <h3>Independence / circular-evidence rejection (news)</h3>
+    <span class="tag t1">Tier 1</span><span class="tag src">MSIL · evidence_comparison.py:491</span><span class="tag reuse">port pattern</span>
+    <p>Corroboration only counts sources with <b>distinct authority classes and no shared lineage</b> (<code>derived_from</code>/<code>re_reported_from</code>). Strength = <code>1 − 0.5^(n−1)</code>.</p>
+    <p><span class="label">Fixes a real defect we introduced:</span> our 8-provider failover + cosine dedup still treats 5 outlets reprinting one Reuters wire as 5 confirmations. Track lineage on news items and gate corroboration on it.</p>
+  </div>
+
+  <!-- ============ TIER 2 ============ -->
+  <h2>Tier 2 — High value, re-implement on our models (algorithms transfer, contracts don't)</h2>
+
+  <div class="card" data-id="T2-6">
+    <h3>Qualitative taxonomy → themes → coverage gate</h3>
+    <span class="tag t2">Tier 2</span><span class="tag src">QAE · taxonomy JSON + theme_canonicalizer + coverage_gate</span><span class="tag reuse">JSON drop-in / port algos</span>
+    <p>Turns our flat "insights" into a structured <b>6-category / 27-theme</b> taxonomy (JSON already tuned for PSX/Pakistani report language), a deterministic 4-tier canonicalizer, and — most valuable — a <b>coverage gate</b> distinguishing "no risk found" from "risk section never read" (e.g. <em>"governance coverage: insufficient"</em>). Adds three orthogonal scores (confidence / evidence-weight / materiality) and non-dilutive risk ranking.</p>
+    <p><span class="label">Upgrades:</span> <code>risk_assessment</code> intent and what feeds the ReasoningGraph (narrate over ~10–20 themes, not N scattered insights).</p>
+  </div>
+
+  <div class="card" data-id="T2-7">
+    <h3>Volatility-adaptive forecast validation</h3>
+    <span class="tag t2">Tier 2</span><span class="tag src">FVE · revenue_*_validation_rule.py</span><span class="tag reuse">self-contained (drop metric hardcode)</span>
+    <p>Replaces our one-line "% above/below latest actual" with typed <b>PASS/WARNING/FAIL</b>: growth-band, trend-break with σ-adaptive thresholds + direction-reversal detection, and scale-plausibility — metric-agnostic, full calc trace.</p>
+    <p><span class="label">Upgrades:</span> the depth our <code>forecast_validation</code> intent lacks.</p>
+  </div>
+
+  <div class="card" data-id="T2-8">
+    <h3>Claim-type-scoped authority matrix</h3>
+    <span class="tag t2">Tier 2</span><span class="tag src">MSIL · models/authority.py:142</span><span class="tag reuse">self-contained</span>
+    <p>Replaces our <b>flat per-source reliability rating</b> with contextual trust: a broker's forecast outranks an annual report's outlook, but the audited report dominates facts. <code>effective_rank(claim_type, authority_class)</code> is the primitive our conflict resolver is missing.</p>
+  </div>
+
+  <div class="card" data-id="T2-9">
+    <h3>Surface-don't-resolve divergence</h3>
+    <span class="tag t2">Tier 2</span><span class="tag src">MSIL + FVE + QAE (all three)</span><span class="tag reuse">port pattern</span>
+    <p>Present <em>both sides</em> with an authority-weighted + chronology verdict and provenance, instead of silently picking by recency/confidence.</p>
+    <p><span class="label">Upgrades:</span> auditability of <code>conflicts.py</code>. (Cross-engine convergence — strong signal.)</p>
+  </div>
+
+  <div class="card" data-id="T2-10">
+    <h3>Min-weakest-link confidence composition</h3>
+    <span class="tag t2">Tier 2</span><span class="tag src">FVE · ConfidenceComposer · QAE · mapping_confidence.py</span><span class="tag reuse">port pattern</span>
+    <p><code>confidence = min(rule, gate, evidence)</code> with rationale strings and ceilings (e.g. keyword-only mapping can't claim 0.95).</p>
+    <p><span class="label">Upgrades:</span> makes High/Med/Low explainable; stops the narrated answer out-claiming its evidence. (Surfaced independently by two engines.)</p>
+  </div>
+
+  <!-- ============ TIER 3 ============ -->
+  <h2>Tier 3 — Targeted, smaller wins</h2>
+
+  <div class="card" data-id="T3-11">
+    <h3>value_year vs source_report_year split</h3>
+    <span class="tag t3">Tier 3</span><span class="tag src">MSIL · shared/models/metric_value.py</span><span class="tag reuse">small model change</span>
+    <p>Separate the year a number <em>represents</em> from the report it was <em>found in</em> — clean restatement / as-of / look-ahead-leakage handling.</p>
+  </div>
+
+  <div class="card" data-id="T3-12">
+    <h3>Availability-gated metric resolution + clarification</h3>
+    <span class="tag t3">Tier 3</span><span class="tag src">QE · metric_resolution_service.py</span><span class="tag reuse">layer onto ours</span>
+    <p>Refuse a high-confidence canonical match if the metric isn't actually in the dataset; emit a clarification signal on ties. Layer onto our rapidfuzz+embedding resolver (which still wins on recall).</p>
+  </div>
+
+  <div class="card" data-id="T3-13">
+    <h3>Entity registry with resolved/review/quarantine verdicts</h3>
+    <span class="tag t3">Tier 3</span><span class="tag src">MSIL · entity_resolver.py + default_entity_registry.py</span><span class="tag reuse">port model+resolver, repopulate</span>
+    <p>Typed aliases (ticker/legal/variant/historical) + parent/sector relationships + anti-contamination for ambiguous bare tokens and typo tickers. Richer than our rapidfuzz-only ticker map; repopulate from our PSX symbols list.</p>
+  </div>
+
+  <div class="card" data-id="T3-14">
+    <h3>Contract-integrity boot check + fixed-query regression corpus</h3>
+    <span class="tag t3">Tier 3</span><span class="tag src">QE · v2_real_bundle_validator.py · contract_integrity_validator.py</span><span class="tag reuse">adopt pattern</span>
+    <p>Boot-time self-test over trust/authority config + a fixed query corpus asserting per-answer invariants (all claims cited, metrics carry integrity status, <b>no confidence inflation above the evidence ceiling</b>).</p>
+    <p><span class="label">Fixes:</span> the "no CI gate" gap from the production-readiness review.</p>
+  </div>
+
+  <!-- ============ SKIP ============ -->
+  <h2>What to skip (reviewer consensus)</h2>
+  <div class="card skip" data-id="SKIP">
+    <h3>Leave behind</h3>
+    <ul>
+      <li>Multi-engine <b>ownership / version-pin ceremony</b> (frozen contract substrate, semver pins on every model).</li>
+      <li>Per-phase <b>self-audit scaffolding</b> (~200 lines of report-writing per service) — lift the invariants, not the scaffolding.</li>
+      <li>The <b>LLM-free answer assembly</b> — would regress our narrative quality. Take its guardrails, keep our synthesis.</li>
+      <li>Heavy <b>multi-provenance unions</b> (7 provenance types) and MVP <b>seed registries</b> (Lucky/Millat test data).</li>
+      <li>The <b>MSIL evidence adapters</b> — entangled with their frozen Phase contracts.</li>
+    </ul>
+  </div>
+
+  <!-- ============ SEQUENCE ============ -->
+  <h2>Suggested sequence</h2>
+  <div class="card" data-id="SEQ">
+    <h3>The "trust spine" first</h3>
+    <p>Mutually reinforcing, mostly self-contained, and each closes a gap we already identified:</p>
+    <ol class="seq">
+      <li><b>T1-1</b> scale-normalization → </li>
+      <li><b>T1-3</b> admission role model → </li>
+      <li><b>T2-8</b> authority matrix → </li>
+      <li><b>T1-2</b> citation enforcer → </li>
+      <li><b>T1-5</b> news independence.</li>
+    </ol>
+    <p>Tier 2's <b>taxonomy (T2-6)</b> and <b>forecast rules (T2-7)</b> are the bigger feature lifts after the spine is in. Enabling step for the "port pattern" items: introduce a small <b>signal envelope</b> carrying <code>authority_class / claim_type / subject_period / lineage</code>.</p>
+  </div>
+
+  <p class="foot">Generated from a review-only pass over <code>C:\LEGACY - AI Financial Intelligence</code>. No legacy or current code was modified. Reusability tags: <b>drop-in</b> = lift as-is · <b>self-contained</b> = thin adapter · <b>port pattern</b> = rebuild algorithm on our models.</p>
+
+</div>
+</body>
+</html>

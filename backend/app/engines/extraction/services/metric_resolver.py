@@ -29,6 +29,17 @@ logger = get_logger(__name__)
 _DEFAULT_REGISTRY = Path(__file__).resolve().parents[1] / "data" / "canonical_metric_registry.json"
 _NONALNUM = re.compile(r"[^a-z0-9]+")
 
+# Glossary §2: these modifiers create a SEPARATE accounting concept, so a caption
+# carrying one must NOT be fuzzy/embedding-matched onto a canonical that lacks it
+# (e.g. "Adjusted EBITDA" -> ebitda, "Forward P/E" -> price_to_earnings). Deliberately
+# limited to non-GAAP / forward-looking words with NO legitimate base-concept use — so it
+# never blocks "net sales", "current assets", or "diluted EPS" (handled by distinct
+# canonicals). NOTE: "trailing"/"ttm" are NOT here — the glossary says trailing/TTM P/E
+# IS the base (historical) P/E, so they must still map. An exact alias match is exempt.
+_CONCEPT_MODIFIERS = frozenset({
+    "adjusted", "normalized", "normalised", "underlying", "forward", "ntm",
+})
+
 
 def squash(text: str) -> str:
     """Lowercase, drop all non-alphanumerics (absorbs space/punct/mojibake garble)."""
@@ -72,6 +83,7 @@ class MetricResolver:
         self._exact: dict[str, str] = {}            # squashed alias -> canonical key
         self._choices: list[str] = []               # spaced aliases (fuzzy pool)
         self._choice_key: list[str] = []            # parallel canonical keys
+        self._key_modifiers: dict[str, set] = {}    # concept-modifiers a canonical legitimately owns
 
         for key, meta in registry.items():
             display = meta.get("display_name", key)
@@ -79,6 +91,7 @@ class MetricResolver:
             self._display[key] = display
             self._category[key] = category
             surfaces = {key, display, *meta.get("aliases", [])}
+            mods: set = set()
             for surface in surfaces:
                 sq = squash(surface)
                 if sq and sq not in self._exact:
@@ -87,6 +100,8 @@ class MetricResolver:
                 if sp:
                     self._choices.append(sp)
                     self._choice_key.append(key)
+                    mods |= _CONCEPT_MODIFIERS & set(sp.split())
+            self._key_modifiers[key] = mods
 
         self._embedder = None
         self._centroids = None
@@ -129,6 +144,12 @@ class MetricResolver:
 
     # --- main entry ---
 
+    def _modifier_mismatch(self, label: str, key: str) -> bool:
+        """True if `label` carries a concept-changing modifier that canonical `key`
+        does not own — i.e. mapping them would conflate two different concepts."""
+        label_mods = _CONCEPT_MODIFIERS & set(spaced(label).split())
+        return bool(label_mods - self._key_modifiers.get(key, set()))
+
     def resolve(self, label: str) -> MetricMatch | None:
         sq = squash(label)
         if not sq:
@@ -149,9 +170,19 @@ class MetricResolver:
         if match is not None:
             _, score, idx = match
             key = self._choice_key[idx]
+            # Modifier guard: don't let "Adjusted EBITDA"/"Forward P/E"/... collapse onto
+            # the base concept — that's a different row. Leave it untagged for review.
+            if self._modifier_mismatch(label, key):
+                logger.debug("modifier guard: %r not mapped to %r (modifier mismatch)", label, key)
+                return None
             return MetricMatch(key, self._display[key], self._category[key], score / 100.0, "fuzzy")
 
-        return self._embedding_match(label)
+        emb = self._embedding_match(label)
+        if emb is not None and self._modifier_mismatch(label, emb.canonical_key):
+            logger.debug("modifier guard: %r not mapped to %r (embedding, modifier mismatch)",
+                         label, emb.canonical_key)
+            return None
+        return emb
 
 
 @lru_cache(maxsize=1)

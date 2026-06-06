@@ -14,8 +14,12 @@ from .models import CalcResult, Citation, EvidenceItem, FactRef
 
 def _locator_key(c: Citation) -> tuple:
     loc = c.locator or {}
+    # external (news) items have no sheet/cell/page — identify them by article
+    # link/source so distinct articles aren't collapsed into one citation, while
+    # multiple chunks of the SAME article (same link) still merge to one cite.
     return (loc.get("report_file"), loc.get("page"), loc.get("table_id"),
-            loc.get("sheet"), loc.get("cell"), loc.get("year"))
+            loc.get("sheet"), loc.get("cell"), loc.get("year"),
+            loc.get("link") or loc.get("url"), loc.get("source"), loc.get("insight_id"))
 
 
 def bind(evidence: list[EvidenceItem], calcs: list[CalcResult]

@@ -170,9 +170,15 @@ def _is_currency_scale(table: FinancialTable) -> bool:
 
 # Reporting basis, read from the table TITLE (reliable) rather than the `consolidated`
 # flag (found to be mislabelled in carry-forward). "unconsolidated" is checked first so
-# it never matches the "consolidated" substring it contains.
-_UNCONSOLIDATED_RE = re.compile(r"\b(?:un\s*-?\s*consolidated|stand[\s-]?alone|separate)\b", re.I)
-_CONSOLIDATED_RE = re.compile(r"\bconsolidated\b", re.I)
+# it never matches the "consolidated" substring it contains. Synonyms per the accounting
+# glossary: unconsolidated = separate / standalone / parent company / company financial
+# statements; consolidated = group financial statements / group accounts. Bare "group" or
+# "company" is deliberately NOT matched (far too common in titles to be a basis signal).
+_UNCONSOLIDATED_RE = re.compile(
+    r"\b(?:un\s*-?\s*consolidated|stand[\s-]?alone|separate|parent\s+company"
+    r"|company\s+financial\s+statements)\b", re.I)
+_CONSOLIDATED_RE = re.compile(
+    r"\b(?:consolidated|group\s+(?:financial\s+statements|accounts))\b", re.I)
 
 
 def _table_basis(table: FinancialTable) -> str:
@@ -267,6 +273,17 @@ def build_face_truth(tables: list[FinancialTable], prefer_basis: str = "unconsol
         # Primary (tier 0) always beats a note fallback (tier 1) for the same pair.
         best_tier = min(c[3] for c in chosen)
         tiered = [c for c in chosen if c[3] == best_tier]
+        # Basis preference (standalone template): when the best tier holds an unconsolidated
+        # candidate of COMPARABLE magnitude to the others, prefer it over consolidated/generic
+        # same-tier values — that's the basis the template targets, and the per-metric median
+        # tiebreaker otherwise picks the wrong one (e.g. consolidated equity over unconsolidated).
+        # The 2x band is a fragment guard: a mis-tagged unconsolidated SUBTOTAL (~8x below the
+        # real total) must NOT win, so it only applies when magnitudes are genuinely close.
+        unc = [c for c in tiered if c[4] == prefer_basis]
+        if unc and len(unc) < len(tiered):
+            ref = max(abs(c[0]) for c in tiered)
+            if all(abs(c[0]) * 2 >= ref for c in unc):
+                tiered = unc
         # Newest report wins; then prefer the value CLOSEST to the metric's median.
         value, _ry, src, _tier, _basis, _ti = max(tiered, key=lambda c: (c[1], -abs(abs(c[0]) - med)))
         # Normalise expense metrics to the additive-P&L convention (always negative) so
@@ -302,6 +319,11 @@ _RECONCILE_IDENTITIES = (
     ("cash_at_end_of_period",
      ("cash_at_beginning_of_period", "operating_cash_flow", "investing_cash_flow", "financing_cash_flow")),
     ("profit_after_tax", ("profit_before_tax", _TAX_METRICS)),
+    # Balance-sheet structure: pick the totals that actually balance. Resolves same-source
+    # conflicts where two candidates exist for a total (e.g. a restated total alongside a
+    # stale one) by choosing the set where assets = NCA + CA and assets = equity + liabs.
+    ("total_assets", ("non_current_assets", "current_assets")),
+    ("total_equity_and_liabilities", ("total_assets",)),
 )
 
 _MAX_COMBOS = 256          # bound the per-table candidate search

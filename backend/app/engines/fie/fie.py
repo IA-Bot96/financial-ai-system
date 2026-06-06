@@ -14,7 +14,7 @@ from typing import Callable
 
 from . import citations as citations_mod
 from . import insights as insights_mod
-from . import planner, response, retrieval, synthesis, understanding
+from . import news_retrieval, planner, response, retrieval, scale, synthesis, understanding
 from .apis import ExternalSources
 from .calc import CalcEngine
 from .conflicts import ConflictResolver
@@ -219,6 +219,7 @@ class FinancialIntelligenceEngine:
                     ctx.degraded = True
                 for i in res.items:
                     md[i.citations[0].locator.get("field")] = i.value
+                    md.setdefault("_units", {})[i.citations[0].locator.get("field")] = i.unit
         if "price" not in md and self.external.psx is not None:
             q = self.external.psx.quote(ticker)
             if q.items:
@@ -228,6 +229,7 @@ class FinancialIntelligenceEngine:
                     ctx.degraded = True
                 for i in q.items:
                     md[i.citations[0].locator.get("field")] = i.value
+                    md.setdefault("_units", {})[i.citations[0].locator.get("field")] = i.unit
         md["_cites"] = cites
         return md
 
@@ -249,12 +251,20 @@ class FinancialIntelligenceEngine:
         eps = md.get("eps")
         pe = md.get("pe_ratio") or (round(price / eps, 4) if (price and eps) else None)
 
+        # workbook magnitudes are "Rupees in thousand"; market data may be thousand
+        # (overview) or absolute PKR (screener) — normalize both before any ratio.
+        wb_unit = "Rupees in thousand"
+        units = md.get("_units", {})
+
         # P/B: market cap / total equity (preferred, both available), else price / BVPS
         pb = None
         equity = self._safe_lookup("total_equity", frame.year)
         bvps = self.calc.evaluate("book_value_per_share", frame.year) if frame.year else None
         if md.get("market_cap") and equity:
-            pb = round(md["market_cap"] / equity, 4)
+            # canonical-PKR on both sides -> correct regardless of market-cap source scale
+            ratio = scale.magnitude_ratio(md["market_cap"], units.get("market_cap") or wb_unit,
+                                          equity, wb_unit)
+            pb = round(ratio, 4) if ratio is not None else None
         elif price and bvps and bvps.value:
             pb = round(price / bvps.value, 4)
             ctx.evidence += retrieval.evidence_from_facts(self.store, bvps.inputs)
@@ -271,8 +281,12 @@ class FinancialIntelligenceEngine:
         debt = (ncl or 0.0) + (cl or 0.0) if (ncl is not None or cl is not None) else None
         ev = None
         if market_cap and ebitda:
-            net_debt = (debt or 0.0) - (cash or 0.0)
-            ev = {"ev_ebitda": round((market_cap + net_debt) / ebitda, 4)}
+            # bring market cap (its own scale) and the workbook magnitudes to canonical PKR
+            mc_c = scale.to_canonical_pkr(market_cap, units.get("market_cap") or wb_unit)
+            nd_c = scale.to_canonical_pkr((debt or 0.0) - (cash or 0.0), wb_unit)
+            eb_c = scale.to_canonical_pkr(ebitda, wb_unit)
+            if mc_c is not None and eb_c:
+                ev = {"ev_ebitda": round((mc_c + (nd_c or 0.0)) / eb_c, 4)}
         elif price and shares and ebitda:
             ev = ev_over_ebitda(price, shares, ebitda, debt, cash)
 
@@ -393,14 +407,21 @@ class FinancialIntelligenceEngine:
         sources = set(plan.external_sources)
         company = frame.company or self.store.company
         got_any = False
+        # resolve the ticker up front so news/announcements scope to it when known
+        ticker = self._ticker(frame.company)
 
         if "news" in sources and self.external.news is not None:
-            res = self.external.news.headlines(company)
-            ctx.evidence += res.items
+            # query-relevant: scope to the ticker if resolved, else keyword on company
+            res = self.external.news.search(company, symbol=ticker,
+                                            anchor_date=self.external.as_of)
+            # chunk -> embed -> rank vs query -> dedup; only the surviving chunks
+            # (each still carrying its article source/author/link) reach the LLM.
+            query_text = news_retrieval.build_query_text(frame, company)
+            ctx.evidence += news_retrieval.retrieve(
+                res.items, query_text, anchor_date=self.external.as_of)
             got_any = got_any or res.status != "failed"
         # PSX company announcements (POST form, date-windowed) per the source plan;
         # prefer the resolved ticker, fall back to a company keyword query.
-        ticker = self._ticker(frame.company)
         if "psx_announcements" in sources and self.external.announcements is not None:
             res = self.external.announcements.recent(
                 query=None if ticker else company, symbol=ticker,

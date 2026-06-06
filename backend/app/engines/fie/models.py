@@ -76,6 +76,29 @@ class EvidenceItem(BaseModel):
     as_of: Optional[str] = None
 
 
+class NewsArticle(BaseModel):
+    """A single news item from an external provider — stores both the CONTENT
+    (title/description/body) and the SOURCE (publisher + url + which provider
+    served it + publish time). This is the typed unit the news layer persists;
+    the adapter converts each one to an external, cited EvidenceItem for the
+    engine (the full article is preserved in the citation locator)."""
+
+    # content
+    title: str
+    description: Optional[str] = None      # snippet / summary
+    content: Optional[str] = None          # body text when the provider returns it
+    # source / provenance
+    url: Optional[str] = None
+    source: Optional[str] = None           # publisher (e.g. "Reuters", "WSJ")
+    author: Optional[str] = None           # byline when the provider supplies it
+    provider: str = ""                     # which API served it (marketaux/finnhub/…)
+    published_at: Optional[str] = None     # ISO timestamp
+    language: Optional[str] = None
+    # finance extras when available
+    symbols: list[str] = Field(default_factory=list)   # tagged tickers/entities
+    sentiment: Optional[float] = None
+
+
 # --- query understanding / planning (L1/L2) --------------------------------
 
 ConfidenceBand = Literal["High", "Medium", "Low"]

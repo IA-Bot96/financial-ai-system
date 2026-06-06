@@ -12,7 +12,12 @@
       "net revenue",
       "total net sales",
       "reported net sales",
-      "net sales amount"
+      "net sales amount",
+      "sales revenue",
+      "revenue from customers",
+      "operating revenue",
+      "net turnover",
+      "revenues"
     ],
     "category": "income_statement"
   },
@@ -23,7 +28,9 @@
       "total gross sales",
       "reported gross sales",
       "gross sales amount",
-      "gross revenue"
+      "gross revenue",
+      "gross turnover",
+      "total gross revenue"
     ],
     "category": "income_statement"
   },
@@ -33,7 +40,9 @@
       "cost of sales",
       "total cost of sales",
       "reported cost of sales",
-      "cost of sales amount"
+      "cost of sales amount",
+      "cost of sales and services",
+      "direct cost of sales"
     ],
     "category": "income_statement"
   },
@@ -43,7 +52,10 @@
       "cost of goods sold",
       "total cost of goods sold",
       "reported cost of goods sold",
-      "cost of goods sold amount"
+      "cost of goods sold amount",
+      "cogs",
+      "cost of products sold",
+      "cost of merchandise sold"
     ],
     "category": "income_statement"
   },
@@ -55,7 +67,8 @@
       "profit before operating expenses",
       "gross profit",
       "total gross profit",
-      "reported gross profit"
+      "reported gross profit",
+      "gross income"
     ],
     "category": "income_statement"
   },
@@ -70,7 +83,9 @@
       "reported distribution expenses",
       "distribution expense",
       "selling and distribution expense",
-      "Distribution Co st"
+      "Distribution Co st",
+      "selling and distribution costs",
+      "distribution costs"
     ],
     "category": "income_statement"
   },
@@ -84,7 +99,10 @@
       "total administrative expenses",
       "reported administrative expenses",
       "administrative cost",
-      "administrative costs"
+      "administrative costs",
+      "g&a",
+      "administration costs",
+      "management and administration expenses"
     ],
     "category": "income_statement"
   },
@@ -94,7 +112,9 @@
       "selling expenses",
       "total selling expenses",
       "reported selling expenses",
-      "selling expenses amount"
+      "selling expenses amount",
+      "sales and marketing expenses",
+      "marketing and selling expenses"
     ],
     "category": "income_statement"
   },
@@ -105,7 +125,10 @@
       "total operating expenses",
       "reported operating expenses",
       "operating expenses amount",
-      "Operating exp ense s"
+      "Operating exp ense s",
+      "opex",
+      "operating costs",
+      "operating expenditure"
     ],
     "category": "income_statement"
   },
@@ -117,7 +140,12 @@
       "reported other income",
       "other income amount",
       "other income charges",
-      "other income charge"
+      "other income charge",
+      "other operating income",
+      "miscellaneous income",
+      "sundry income",
+      "other gains",
+      "other income and gains"
     ],
     "category": "income_statement"
   },
@@ -185,7 +213,10 @@
       "Markup Interest expenses o n borrow ed fun ds",
       "Finance costs p aid",
       "Accretion of in terest on leas e liabilities",
-      "Accretion of intere st o n lease liabilities"
+      "Accretion of intere st o n lease liabilities",
+      "finance costs",
+      "financing costs",
+      "borrowing costs"
     ],
     "category": "income_statement"
   },
@@ -195,7 +226,10 @@
       "interest expense",
       "total interest expense",
       "reported interest expense",
-      "interest expense amount"
+      "interest expense amount",
+      "interest on borrowings",
+      "interest on loans",
+      "interest on debt"
     ],
     "category": "income_statement"
   },
@@ -220,7 +254,10 @@
       "profit before tax",
       "total profit before tax",
       "reported profit before tax",
-      "profit before taxation and levy"
+      "profit before taxation and levy",
+      "ebt",
+      "income before tax",
+      "income before income taxes"
     ],
     "category": "income_statement"
   },
@@ -231,7 +268,10 @@
       "income tax expense",
       "tax expense",
       "total tax expense",
-      "reported tax expense"
+      "reported tax expense",
+      "tax charge",
+      "income taxes",
+      "tax on profit"
     ],
     "category": "income_statement"
   },
@@ -241,7 +281,10 @@
       "current tax",
       "total current tax",
       "reported current tax",
-      "current tax amount"
+      "current tax amount",
+      "current income tax",
+      "current taxation",
+      "provision for current tax"
     ],
     "category": "income_statement"
   },
@@ -251,7 +294,8 @@
       "deferred tax",
       "total deferred tax",
       "reported deferred tax",
-      "deferred tax amount"
+      "deferred tax amount",
+      "deferred tax charge"
     ],
     "category": "income_statement"
   },
@@ -263,7 +307,10 @@
       "profit after taxation",
       "profit after tax",
       "total profit after tax",
-      "reported profit after tax"
+      "reported profit after tax",
+      "net earnings",
+      "profit for the period",
+      "income after tax"
     ],
     "category": "income_statement"
   },
@@ -307,7 +354,9 @@
       "basic earnings per share",
       "total basic earnings per share",
       "reported basic earnings per share",
-      "basic earnings per share amount"
+      "basic earnings per share amount",
+      "basic eps",
+      "basic earnings per ordinary share"
     ],
     "category": "income_statement"
   },
@@ -317,7 +366,9 @@
       "diluted earnings per share",
       "total diluted earnings per share",
       "reported diluted earnings per share",
-      "diluted earnings per share amount"
+      "diluted earnings per share amount",
+      "diluted eps",
+      "diluted earnings per ordinary share"
     ],
     "category": "income_statement"
   },
@@ -337,7 +388,11 @@
       "impairment loss",
       "total impairment loss",
       "reported impairment loss",
-      "impairment loss amount"
+      "impairment loss amount",
+      "impairment charge",
+      "impairment expense",
+      "loss on impairment",
+      "provision for impairment"
     ],
     "category": "income_statement"
   },
@@ -347,7 +402,13 @@
       "exchange gain loss",
       "total exchange gain loss",
       "reported exchange gain loss",
-      "exchange gain loss amount"
+      "exchange gain loss amount",
+      "foreign exchange gain",
+      "foreign exchange loss",
+      "currency exchange gain",
+      "currency exchange loss",
+      "forex gain",
+      "forex loss"
     ],
     "category": "income_statement"
   },
@@ -367,7 +428,11 @@
       "research and development expense",
       "total research and development expense",
       "reported research and development expense",
-      "research and development expense amount"
+      "research and development expense amount",
+      "r&d expense",
+      "research costs",
+      "development costs expensed",
+      "product development expense"
     ],
     "category": "income_statement"
   },
@@ -391,7 +456,14 @@
       "salaries wages benefits",
       "total salaries wages benefits",
       "reported salaries wages benefits",
-      "salaries wages benefits amount"
+      "salaries wages benefits amount",
+      "salaries and wages",
+      "wages and salaries",
+      "salaries, wages and benefits",
+      "salaries and benefits",
+      "employee benefits expense",
+      "personnel expense",
+      "employee compensation expense"
     ],
     "category": "income_statement"
   },
@@ -402,7 +474,9 @@
       "total depreciation expense",
       "reported depreciation expense",
       "depreciation expense amount",
-      "depreciation"
+      "depreciation",
+      "depreciation charge",
+      "charge for depreciation"
     ],
     "category": "income_statement"
   },
@@ -414,7 +488,9 @@
       "reported amortization expense",
       "amortization expense amount",
       "Amortisation",
-      "Amortisation of in t an gible assets"
+      "Amortisation of in t an gible assets",
+      "amortisation expense",
+      "amortization charge"
     ],
     "category": "income_statement"
   },
@@ -478,7 +554,11 @@
       "reported gain on disposal of assets",
       "gain on disposal of assets amount",
       "Income from non-financial assets - Sale of scrap",
-      "Gain on disposal of operating fixed assets"
+      "Gain on disposal of operating fixed assets",
+      "gain on sale of assets",
+      "profit on disposal of assets",
+      "gain on disposal of property plant and equipment",
+      "gain on sale of ppe"
     ],
     "category": "income_statement"
   },
@@ -499,7 +579,9 @@
       "total comprehensive income",
       "reported comprehensive income",
       "comprehensive income amount",
-      "total comprehensive income for the year"
+      "total comprehensive income for the year",
+      "total comprehensive profit",
+      "comprehensive income for the year"
     ],
     "category": "income_statement"
   },
@@ -512,7 +594,8 @@
       "cash and bank balances",
       "total cash and bank balances",
       "reported cash and bank balances",
-      "cash and bank balance"
+      "cash and bank balance",
+      "balances with banks"
     ],
     "category": "balance_sheet"
   },
@@ -527,7 +610,11 @@
       "Cash and cash equ ivalents",
       "Cash and cash equivale nts",
       "Cash and cash eq uivalents",
-      "cash equival ents"
+      "cash equival ents",
+      "cash & cash equivalents",
+      "bank balances and cash",
+      "cash at bank and in hand",
+      "cash in hand and at bank"
     ],
     "category": "balance_sheet"
   },
@@ -537,7 +624,10 @@
       "short term investments",
       "total short term investments",
       "reported short term investments",
-      "short term investments amount"
+      "short term investments amount",
+      "current investments",
+      "marketable securities",
+      "short-term deposits and investments"
     ],
     "category": "balance_sheet"
   },
@@ -549,7 +639,9 @@
       "reported long term investments",
       "long term investments amount",
       "Investment at cost",
-      "Note 2025 2024 - Investment at cost"
+      "Note 2025 2024 - Investment at cost",
+      "non-current investments",
+      "strategic investments"
     ],
     "category": "balance_sheet"
   },
@@ -560,7 +652,10 @@
       "trade debtors",
       "trade receivables",
       "total trade receivables",
-      "reported trade receivables"
+      "reported trade receivables",
+      "debtors",
+      "customer receivables",
+      "receivables from customers"
     ],
     "category": "balance_sheet"
   },
@@ -582,7 +677,10 @@
       "loans and advances",
       "total loans and advances",
       "reported loans and advances",
-      "loans and advances amount"
+      "loans and advances amount",
+      "short-term loans and advances",
+      "current loans and advances",
+      "advances to suppliers"
     ],
     "category": "balance_sheet"
   },
@@ -616,7 +714,8 @@
       "stock",
       "inventory",
       "total inventory",
-      "reported inventory"
+      "reported inventory",
+      "merchandise inventory"
     ],
     "category": "balance_sheet"
   },
@@ -641,7 +740,11 @@
       "stores spares and loose tools",
       "stores spares loose tools",
       "total stores spares loose tools",
-      "reported stores spares loose tools"
+      "reported stores spares loose tools",
+      "spare parts",
+      "stores, spares and loose tools",
+      "consumables and spares",
+      "stores inventory"
     ],
     "category": "balance_sheet"
   },
@@ -695,7 +798,11 @@
       "fixed assets",
       "property plant equipment",
       "total property plant equipment",
-      "reported property plant equipment"
+      "reported property plant equipment",
+      "tangible fixed assets",
+      "tangible assets",
+      "property and equipment",
+      "plant and equipment"
     ],
     "category": "balance_sheet"
   },
@@ -718,7 +825,10 @@
       "projects in progress",
       "total capital work in progress",
       "reported capital work in progress",
-      "Capital work in p rogress"
+      "Capital work in p rogress",
+      "construction in progress",
+      "assets under construction",
+      "property under construction"
     ],
     "category": "balance_sheet"
   },
@@ -738,7 +848,9 @@
       "rou assets",
       "leased assets under ifrs 16",
       "total right of use assets",
-      "reported right of use assets"
+      "reported right of use assets",
+      "right of use assets",
+      "lease right-of-use assets"
     ],
     "category": "balance_sheet"
   },
@@ -748,7 +860,11 @@
       "intangible assets",
       "total intangible assets",
       "reported intangible assets",
-      "intangible assets amount"
+      "intangible assets amount",
+      "intangibles",
+      "identifiable intangible assets",
+      "software assets",
+      "licenses and rights"
     ],
     "category": "balance_sheet"
   },
@@ -758,7 +874,9 @@
       "goodwill",
       "total goodwill",
       "reported goodwill",
-      "goodwill amount"
+      "goodwill amount",
+      "goodwill on acquisition",
+      "purchased goodwill"
     ],
     "category": "balance_sheet"
   },
@@ -768,7 +886,10 @@
       "investment property",
       "total investment property",
       "reported investment property",
-      "investment property amount"
+      "investment property amount",
+      "investment properties",
+      "property held for rental",
+      "property held for capital appreciation"
     ],
     "category": "balance_sheet"
   },
@@ -778,7 +899,8 @@
       "long term deposits",
       "total long term deposits",
       "reported long term deposits",
-      "long term deposits amount"
+      "long term deposits amount",
+      "security deposits"
     ],
     "category": "balance_sheet"
   },
@@ -788,7 +910,9 @@
       "deferred tax asset",
       "total deferred tax asset",
       "reported deferred tax asset",
-      "deferred tax asset amount"
+      "deferred tax asset amount",
+      "dta",
+      "deferred income tax asset"
     ],
     "category": "balance_sheet"
   },
@@ -800,7 +924,9 @@
       "amounts due to suppliers",
       "trade payables",
       "total trade payables",
-      "reported trade payables"
+      "reported trade payables",
+      "payables to suppliers",
+      "supplier payables"
     ],
     "category": "balance_sheet"
   },
@@ -824,7 +950,11 @@
       "total contract liabilities",
       "reported contract liabilities",
       "contract liabilities amount",
-      "Advances fro m cust omers / cont ract liabilities"
+      "Advances fro m cust omers / cont ract liabilities",
+      "deferred revenue",
+      "unearned revenue",
+      "advances from customers",
+      "advance consideration from customers"
     ],
     "category": "balance_sheet"
   },
@@ -868,7 +998,11 @@
       "total short term borrowings",
       "reported short term borrowings",
       "Short term borrowin gs",
-      "Short term borr owings obtained repaid net"
+      "Short term borr owings obtained repaid net",
+      "overdrafts",
+      "short-term loans",
+      "bank borrowings",
+      "current borrowings"
     ],
     "category": "balance_sheet"
   },
@@ -894,7 +1028,10 @@
       "current portion of long term finance",
       "current portion of long term financing",
       "long-term liabilities - current portion of long term finance",
-      "Current por tion of long term finance"
+      "Current por tion of long term finance",
+      "current maturity of long-term debt",
+      "current portion of long-term debt",
+      "current portion of term loans"
     ],
     "category": "balance_sheet"
   },
@@ -908,7 +1045,10 @@
       "reported long term financing",
       "long term finance",
       "Long-term financin g",
-      "Long term fina ncing"
+      "Long term fina ncing",
+      "long term borrowings",
+      "term loans",
+      "non-current borrowings"
     ],
     "category": "balance_sheet"
   },
@@ -930,7 +1070,9 @@
       "right of use lease obligations",
       "lease liabilities",
       "total lease liabilities",
-      "reported lease liabilities"
+      "reported lease liabilities",
+      "finance lease liabilities",
+      "lease obligations"
     ],
     "category": "balance_sheet"
   },
@@ -940,7 +1082,10 @@
       "deferred tax liability",
       "total deferred tax liability",
       "reported deferred tax liability",
-      "deferred tax liability amount"
+      "deferred tax liability amount",
+      "dtl",
+      "deferred income tax liability",
+      "deferred taxation liability"
     ],
     "category": "balance_sheet"
   },
@@ -950,7 +1095,10 @@
       "provision for taxation",
       "total provision for taxation",
       "reported provision for taxation",
-      "provision for taxation amount"
+      "provision for taxation amount",
+      "income tax payable",
+      "tax payable",
+      "taxation payable"
     ],
     "category": "balance_sheet"
   },
@@ -989,7 +1137,15 @@
       "shareholders funds rupees in mn",
       "profitability ratios - shareholders' funds rupees in mn",
       "return on shareholders' funds percent",
-      "profitability ratios - return on shareholders' funds percent"
+      "profitability ratios - return on shareholders' funds percent",
+      "stockholders equity",
+      "owners equity",
+      "equity attributable to shareholders",
+      "total shareholders equity",
+      "total shareholders' equity",
+      "total stockholders equity",
+      "total owners equity",
+      "total equity attributable to shareholders"
     ],
     "category": "balance_sheet"
   },
@@ -1010,7 +1166,12 @@
       "issued paid up capital",
       "subscribed and paid up capital",
       "total paid up capital",
-      "reported paid up capital"
+      "reported paid up capital",
+      "issued share capital",
+      "paid-up share capital",
+      "subscribed share capital",
+      "ordinary share capital",
+      "issued, subscribed and paid-up capital"
     ],
     "category": "balance_sheet"
   },
@@ -1020,7 +1181,11 @@
       "share premium",
       "total share premium",
       "reported share premium",
-      "share premium amount"
+      "share premium amount",
+      "securities premium",
+      "additional paid-in capital",
+      "apic",
+      "premium on issue of shares"
     ],
     "category": "balance_sheet"
   },
@@ -1062,7 +1227,8 @@
       "retained profit",
       "unappropriated profit",
       "total unappropriated profit",
-      "reported unappropriated profit"
+      "reported unappropriated profit",
+      "unappropriated earnings"
     ],
     "category": "balance_sheet"
   },
@@ -1072,7 +1238,9 @@
       "retained earnings",
       "total retained earnings",
       "reported retained earnings",
-      "retained earnings amount"
+      "retained earnings amount",
+      "accumulated profits",
+      "undistributed profits"
     ],
     "category": "balance_sheet"
   },
@@ -1082,7 +1250,10 @@
       "treasury shares",
       "total treasury shares",
       "reported treasury shares",
-      "treasury shares amount"
+      "treasury shares amount",
+      "treasury stock",
+      "own shares",
+      "shares held in treasury"
     ],
     "category": "balance_sheet"
   },
@@ -1092,7 +1263,9 @@
       "non controlling interest",
       "total non controlling interest",
       "reported non controlling interest",
-      "non controlling interest amount"
+      "non controlling interest amount",
+      "nci",
+      "non-controlling interest in equity"
     ],
     "category": "balance_sheet"
   },
@@ -1102,7 +1275,9 @@
       "surplus on revaluation of assets",
       "total surplus on revaluation of assets",
       "reported surplus on revaluation of assets",
-      "surplus on revaluation of assets amount"
+      "surplus on revaluation of assets amount",
+      "revaluation reserve",
+      "asset revaluation reserve"
     ],
     "category": "balance_sheet"
   },
@@ -1153,7 +1328,8 @@
       "et cash generated from operating activities",
       "et cash gener ated from operating activities",
       "et cash gen erat ed from operating activities",
-      "net cash generated from operating activities"
+      "net cash generated from operating activities",
+      "net cash provided by operating activities"
     ],
     "category": "cash_flow"
   },
@@ -1165,7 +1341,8 @@
       "cash generated from investing activities",
       "investing cash flow",
       "total investing cash flow",
-      "reported investing cash flow"
+      "reported investing cash flow",
+      "net cash from investing activities"
     ],
     "category": "cash_flow"
   },
@@ -1178,7 +1355,8 @@
       "financing cash flow",
       "total financing cash flow",
       "reported financing cash flow",
-      "net cash outflow inflow from financing activities"
+      "net cash outflow inflow from financing activities",
+      "net cash from financing activities"
     ],
     "category": "cash_flow"
   },
@@ -1255,7 +1433,10 @@
       "total dividends paid",
       "reported dividends paid",
       "dividends paid amount",
-      "Dividend to shareholders"
+      "Dividend to shareholders",
+      "dividend payments",
+      "cash dividends paid",
+      "distribution to shareholders"
     ],
     "category": "cash_flow"
   },
@@ -1277,7 +1458,10 @@
       "additions to property plant and equipment",
       "capital expenditure",
       "total capital expenditure",
-      "reported capital expenditure"
+      "reported capital expenditure",
+      "purchase of property, plant and equipment",
+      "additions to ppe",
+      "acquisition of fixed assets"
     ],
     "category": "cash_flow"
   },
@@ -3101,7 +3285,6 @@
   "customer_deposits": {
     "display_name": "Customer Deposits",
     "aliases": [
-      "deposits",
       "total deposits",
       "customer deposits balance",
       "customer deposits",
@@ -3113,7 +3296,6 @@
   "gross_advances": {
     "display_name": "Gross Advances",
     "aliases": [
-      "advances",
       "gross loans",
       "loan portfolio",
       "gross advances",
@@ -3688,7 +3870,10 @@
     "aliases": [
       "other comprehensive income",
       "other comprehensive income amount",
-      "reported other comprehensive income"
+      "reported other comprehensive income",
+      "oci",
+      "other comprehensive profit",
+      "other comprehensive loss"
     ],
     "category": "income_statement"
   },
@@ -3706,7 +3891,8 @@
     "display_name": "Share Capital And Reserves",
     "aliases": [
       "share capital and reserves",
-      "capital and reserves"
+      "capital and reserves",
+      "total share capital and reserves"
     ],
     "category": "balance_sheet"
   },

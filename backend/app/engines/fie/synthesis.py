@@ -34,6 +34,14 @@ def build_graph(frame: QueryFrame, evidence: list[EvidenceItem],
             premises.append(f"{e.claim} [{ref}]")
         elif e.kind == "insight" and e.claim:
             premises.append(f"{e.claim} [{ref}]")
+        elif e.kind == "external" and e.claim:
+            # news/external context: feed the ranked chunk text + its source, ref-tagged
+            # so the model can attribute and the citation guard can bind every claim.
+            loc = e.citations[0].locator if e.citations else {}
+            body = loc.get("chunk_text") or loc.get("snippet") or ""
+            src = loc.get("source") or loc.get("provider") or "external"
+            txt = f"{e.claim}: {body}".strip().rstrip(":").strip() if body else e.claim
+            premises.append(f"{txt} ({src}) [{ref}]")
 
     inferences: list[str] = []
     for cr in calcs:

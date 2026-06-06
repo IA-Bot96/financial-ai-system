@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from app.core.config import STORAGE_ROOT
 from app.engines.fie import ExternalSources, FinancialFactStore, FinancialIntelligenceEngine
+from app.engines.fie.apis import ApiClient, HttpTransport, News, Symbols
 
 router = APIRouter(prefix="/fie", tags=["fie"])
 
@@ -47,6 +48,12 @@ def _store(company: str) -> FinancialFactStore:
     return FinancialFactStore.from_workbook(path)
 
 
+@lru_cache(maxsize=1)
+def _external_client() -> ApiClient:
+    """Shared resilient client (retry/breaker/cache) for the live HTTP transport."""
+    return ApiClient(HttpTransport())
+
+
 def _engine(company: str) -> FinancialIntelligenceEngine:
     primary = _store(company)
     # register the other delivered workbooks as peers (for peer_comparison)
@@ -57,7 +64,11 @@ def _engine(company: str) -> FinancialIntelligenceEngine:
                 peers[name] = _store(name)
             except (KeyError, FileNotFoundError):
                 pass
-    return FinancialIntelligenceEngine(primary, external=ExternalSources(peers=peers))
+    # News failover search + symbol resolution (reads provider keys from .env;
+    # with no keys configured the engine simply degrades — no news evidence).
+    client = _external_client()
+    external = ExternalSources(peers=peers, news=News(client), symbols=Symbols(client))
+    return FinancialIntelligenceEngine(primary, external=external)
 
 
 @router.post("/answer")

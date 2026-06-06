@@ -71,6 +71,23 @@ def test_pat_fixes_tax_picked_from_wrong_statement():
     assert truth[("profit_after_tax", y)][0] == 13_725_814.0
 
 
+def test_balance_sheet_total_reconciles_to_assets():
+    y = 2024
+    # Two same-source candidates for the total; current pick (30.36M) doesn't balance
+    # total_assets (32.87M) -> reconciler must adopt the balancing one.
+    truth = {
+        ("total_assets", y): (32_873_428.0, "x"),
+        ("total_equity_and_liabilities", y): (30_360_004.0, "stale"),
+    }
+    cand = {
+        ("total_assets", y): [_c(32_873_428.0, "unconsolidated", 0)],
+        ("total_equity_and_liabilities", y): [_c(32_873_428.0, "unconsolidated", 0),
+                                              _c(30_360_004.0, "unconsolidated", 0)],
+    }
+    _reconcile_identities(truth, cand, "unconsolidated")
+    assert truth[("total_equity_and_liabilities", y)][0] == 32_873_428.0   # now balances
+
+
 def test_pat_untouched_when_no_statement_reconciles():
     y = 2022
     truth = {

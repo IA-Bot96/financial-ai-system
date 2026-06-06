@@ -68,6 +68,30 @@ class Settings(BaseSettings):
     template_match_threshold: float = 0.82   # label similarity (0-1) to accept a row
     template_min_empty_fraction: float = 0.20  # below -> sheet is computed/output, skip
 
+    # --- News providers (free-tier API keys; failover in finance-native order) ---
+    # The news layer tries providers in this order and uses the first that returns
+    # query-relevant articles; an empty key skips that provider. See
+    # app/engines/fie/apis/news_providers.py for the ordering rationale.
+    news_marketaux_key: str = ""        # marketaux.com   (finance-native)
+    news_finnhub_key: str = ""          # finnhub.io      (finance-native, ticker-only)
+    news_alphavantage_key: str = ""     # alphavantage.co (finance-native, ticker-only)
+    news_newsdata_io_key: str = ""      # newsdata.io
+    news_newsapi_ai_key: str = ""       # newsapi.ai (Event Registry)
+    news_worldnewsapi_key: str = ""     # worldnewsapi.com
+    news_gnews_io_key: str = ""         # gnews.io
+    news_newsapi_org_key: str = ""      # newsapi.org (24h delay, non-commercial free tier)
+    news_max_articles: int = 10         # cap articles returned per search
+
+    # --- News semantic retrieval (chunk -> embed -> rank vs query -> dedup) ---
+    news_chunk_chars: int = 500         # sliding-window size (~chars) for long bodies
+    news_chunk_overlap: int = 100       # window overlap
+    news_min_body_chars: int = 600      # below this, the snippet/body is one chunk (no windowing)
+    news_similarity_floor: float = 0.20  # min cosine(query, chunk) to keep a chunk
+    news_top_k: int = 8                 # max chunks fed to the LLM / surfaced in the response
+    news_dedup_similarity: float = 0.92  # cosine >= this -> near-duplicate chunk (keep best)
+    news_recency_weight: float = 0.2    # blended score = (1-w)*cosine + w*recency
+    news_recency_halflife_days: int = 14  # recency half-life for the decay term
+
     # --- Storage ---
     inputs_dir: Path = STORAGE_ROOT / "inputs"
 

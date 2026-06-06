@@ -85,6 +85,25 @@ def build_allowed(
             if isinstance(v, (int, float)) and float(v).is_integer():
                 ints.add(int(v))
 
+    # figures quoted from a CITED external article (news) are backed by that source
+    # — whitelist numbers appearing verbatim in the fed chunk/snippet/title so the
+    # LLM may repeat them; the article's source/link is in the response citations.
+    for e in evidence:
+        if e.kind != "external":
+            continue
+        loc = e.citations[0].locator if e.citations else {}
+        text = " ".join(str(x) for x in (e.claim, loc.get("chunk_text"),
+                                         loc.get("snippet")) if x)
+        for tok in extract_numbers(text):
+            try:
+                mag, is_pct, is_int = _parse_token(tok)
+            except ValueError:
+                continue
+            values.add(round(mag, 6))
+            values.add(round(abs(mag), 6))
+            if is_int:
+                ints.add(int(mag))
+
     # structural counts the renderer may legitimately mention
     ints.update({0, 1, 2, len(evidence), len(citations)})
     return values, ints

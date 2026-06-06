@@ -23,15 +23,16 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Fallback sign convention when a row has no usable formula sibling to read it from.
-# Expenses/deductions are ALWAYS negative on an additive P&L; revenue and balance-sheet
-# figures are always positive. Profit subtotals and other_income are intentionally
-# OMITTED — they can legitimately be negative (a loss / a net other-expense), so they
-# keep face truth's own sign rather than being forced.
+# Sign convention by metric (authoritative for these unambiguous metrics; see resolve loop).
+# Expenses/deductions are ALWAYS negative on an additive P&L; revenue, balance-sheet figures,
+# and "other income" (income by definition) are always positive. Profit SUBTOTALS are
+# intentionally OMITTED — they can legitimately be negative (a loss year) — so they infer
+# the sign from a sibling formula / keep face truth's own sign.
 _ALWAYS_NEGATIVE = frozenset({"cost_of_sales", "finance_cost", "tax_expense", "taxation", "income_tax"})
 _ALWAYS_POSITIVE = frozenset({
     "revenue", "total_assets", "total_liabilities", "total_equity_and_liabilities",
     "non_current_assets", "current_assets", "non_current_liabilities", "current_liabilities", "equity",
+    "other_income",   # "other income" is income by definition -> never emit negative (#4)
 })
 
 
@@ -83,28 +84,27 @@ def override_headline_metrics(workbook_path, company, tieout, output_sheets,
             cm = _row_metric(label.strip())
             if cm not in _KEY_METRICS:
                 continue
-            # The sign the template INTENDS for this row, read from a sibling FORMULA
-            # cell (e.g. "=-'PL2'!.." -> negative cost; "='PL4'!.." -> positive income).
-            # Face truth carries whatever sign each source reported (a cost is positive
-            # in one report, parenthesised in another), so writing it raw makes the P&L
-            # inconsistent (costs add instead of subtract). Anchoring to the formula sign
-            # keeps the statement additive AND preserves genuine losses (a loss-year
-            # subtotal formula evaluates negative -> -abs). #6.
-            row_sign = None
-            for c in band:
-                fc = ws.cell(r, c)
-                if isinstance(fc.value, str) and fc.value.startswith("="):
-                    ev = evaluate(wb, title, fc.coordinate)
-                    if ev is not None and abs(ev) > 1e-9:
-                        row_sign = -1.0 if ev < 0 else 1.0
-                        break
-            # No usable formula sibling (whole row overridden / siblings evaluate to 0):
-            # fall back to the metric's fixed convention for the unambiguous metrics.
-            if row_sign is None:
-                if cm in _ALWAYS_NEGATIVE:
-                    row_sign = -1.0
-                elif cm in _ALWAYS_POSITIVE:
-                    row_sign = 1.0
+            # Polarity. For UNAMBIGUOUS metrics the fixed convention is AUTHORITATIVE — an
+            # asset / total / revenue is never negative on a face statement, an expense
+            # always is — and must NOT be read from a sibling formula, because that formula
+            # evaluates negative when the breakdown leaves are mis-extracted (which emitted
+            # a negative 'Total Non-Current Assets'). Only sign-AMBIGUOUS metrics (profit
+            # subtotals, other income — can be a loss / net expense) infer the sign from a
+            # sibling formula, falling back to face truth's own sign. This keeps the P&L
+            # additive AND preserves genuine losses, without flipping assets negative. #2/#6
+            if cm in _ALWAYS_NEGATIVE:
+                row_sign = -1.0
+            elif cm in _ALWAYS_POSITIVE:
+                row_sign = 1.0
+            else:
+                row_sign = None
+                for c in band:
+                    fc = ws.cell(r, c)
+                    if isinstance(fc.value, str) and fc.value.startswith("="):
+                        ev = evaluate(wb, title, fc.coordinate)
+                        if ev is not None and abs(ev) > 1e-9:
+                            row_sign = -1.0 if ev < 0 else 1.0
+                            break
             for c in band:
                 pair = face.get((cm, year_of[c]))
                 if not pair:

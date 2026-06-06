@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Legacy OCR Engine — Findings, Priorities &amp; Risk</title>
+<style>
+  :root{
+    --ink:#1f2733; --muted:#5b6675; --line:#e3e8ef; --bg:#f7f9fc;
+    --accent:#2563eb; --high:#16a34a; --med:#d97706; --low:#9ca3af;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+       color:var(--ink); background:var(--bg); margin:0; padding:32px; line-height:1.5;}
+  .wrap{max-width:1320px; margin:0 auto;}
+  h1{font-size:24px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:18px;}
+  .note{background:#fff; border:1px solid var(--line); border-left:4px solid var(--accent);
+        border-radius:8px; padding:14px 18px; margin:16px 0; font-size:14px;}
+  .note h2{font-size:14px; margin:0 0 6px; text-transform:uppercase; letter-spacing:.04em; color:var(--accent);}
+  .note ul{margin:6px 0 0; padding-left:20px;}
+  .note li{margin:3px 0;}
+  .legend{font-size:12px; color:var(--muted); margin:8px 0 16px;}
+  .legend .tag{margin-right:6px;}
+  table{width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line);
+        border-radius:8px; overflow:hidden; font-size:13px; box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  thead th{background:#eef2f8; text-align:left; padding:10px 12px; font-size:11.5px;
+           text-transform:uppercase; letter-spacing:.03em; color:var(--muted); border-bottom:2px solid var(--line);}
+  td{padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:#f9fbfe;}
+  td.n{text-align:center; color:var(--muted); font-variant-numeric:tabular-nums; width:34px;}
+  td.name{font-weight:600; width:20%;}
+  td.area{width:15%;}
+  td.risk{width:21%;}
+  .tag{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap;}
+  .a-detail{background:#e7f6ee; color:#137a43;}
+  .a-extract{background:#e8f0fe; color:#1d4ed8;}
+  .a-source{background:#fef3e7; color:#b45309;}
+  .a-valid{background:#f3e8fd; color:#7c3aed;}
+  .a-class{background:#e6f6fb; color:#0e7490;}
+  .a-speed{background:#fde8ec; color:#be123c;}
+  .a-trace{background:#eef1f5; color:#475569;}
+  .r-low{background:#e7f6ee; color:#137a43;}
+  .r-med{background:#fdf2e2; color:#b45309;}
+  .r-high{background:#fde7ea; color:#be123c;}
+  .rtext{display:block; margin-top:4px; font-size:12px; color:var(--muted);}
+  .em{font-style:italic; color:var(--muted);}
+  footer{color:var(--muted); font-size:12px; margin-top:14px; text-align:right;}
+  @media print{ body{background:#fff;padding:0} .note,table{box-shadow:none} tbody tr:hover{background:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Legacy OCR Engine — Findings, Priorities &amp; Risk</h1>
+  <div class="sub">Review of <code>C:\LEGACY - AI Financial Intelligence\backend\ocr_engine</code> &amp; <code>backend\ocr</code> — what could complement / improve the current system, ordered by value/priority, with degradation risk. Review only; nothing implemented.</div>
+
+  <div class="note">
+    <h2>Top note — will this help, or could it hurt?</h2>
+    <b>EXTRACTION</b> items make numbers <i>more correct</i> (raise accuracy); <b>VALIDATION</b> items <i>detect</i> wrong numbers but don't fix them (raise trust, not the count of correct values). Net OpenAI cost across all items is flat or lower.
+    But several items <b>can degrade accuracy or pipeline time</b> if adopted as a <i>replacement</i> or a hard <i>gate</i> (see Risk column). The rule: <b>augment, don't replace; advisory before gating; keep the face-truth override as a floor; A/B every change against the current outputs.</b>
+  </div>
+
+  <div class="legend">
+    <b>Risk legend:</b>
+    <span class="tag r-low">Low</span> additive / detection — safe
+    <span class="tag r-med">Med</span> can regress in edge cases — pilot &amp; measure
+    <span class="tag r-high">High</span> can regress accuracy and/or time — never blind cutover
+  </div>
+
+  <table>
+    <thead>
+      <tr><th class="n">#</th><th>Name</th><th>Description</th><th>Improvement area</th><th>Risk — what it could hurt</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="n">1</td><td class="name">Cell-parsing hardening</td><td><code>parse_number</code>: parentheses→negative, unicode-minus, per-cell scale tokens ('000/M/B), strip currency words, and <b>exclude note-reference columns</b>. Cheap, direct.</td><td class="area"><span class="tag a-extract">Extraction accuracy</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Accuracy</b> — mis-applied scale (1000×) or dropping a real value column mistaken for a note column. Guard-dependent.</span></td></tr>
+      <tr><td class="n">2</td><td class="name">Balance-sheet &amp; P&amp;L identity checks</td><td>Accounting equation + composition breakdowns and full P&amp;L waterfall. Reconciles named components to subtotals.</td><td class="area"><span class="tag a-detail">Detail reconciliation</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Signal noise</b> — false flags if the metric-alias map is wrong. No number change while advisory.</span></td></tr>
+      <tr><td class="n">3</td><td class="name">Cross-statement roll-forwards</td><td>PPE-note→BS, debt-note→BS, retained-earnings, BS-cash == CF-closing-cash. Ties note detail to face via identity.</td><td class="area"><span class="tag a-detail">Detail reconciliation</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Signal noise</b> — false flags on partial data; mostly no-ops when inputs missing.</span></td></tr>
+      <tr><td class="n">4</td><td class="name">Tight reconciliation tolerance</td><td><code>max(absolute 0.5, relative ~0.01–1%)</code> instead of flat 5%; catches a single dropped/transposed line.</td><td class="area"><span class="tag a-valid">Validation strictness</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy/coverage</b> — if wired to auto-withhold, blanks correct-ish values off by legit rounding/restatement. Safe as a reported signal only.</span></td></tr>
+      <tr><td class="n">5</td><td class="name">Deterministic Camelot multi-strategy extraction</td><td>Extract each page 3 ways, score, pick best; GPT demoted to type-labeling. <span class="em">Needs a text layer.</span></td><td class="area"><span class="tag a-detail">Detail accuracy (biggest lever)</span></td><td class="risk"><span class="tag r-high">High</span><span class="rtext"><b>Accuracy + Time</b> — scanned/image pages lose data (no text layer); 3× extractors + Ghostscript = slower; can mis-split columns. Only as augment-and-pick-best.</span></td></tr>
+      <tr><td class="n">6</td><td class="name">Section identifier (fuzzy + budgeted)</td><td>OCR-tolerant heading match, continuation budget with terminal-page reset; retires the consolidated carry-forward bug.</td><td class="area"><span class="tag a-class">Section/consolidated class.</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — fuzzy matching can mis-segment a section, shifting which pages feed a statement.</span></td></tr>
+      <tr><td class="n">7</td><td class="name">Declared-basis gate</td><td>Pass a target basis (unconsolidated) and hard-reject mismatched-basis candidates.</td><td class="area"><span class="tag a-source">Source-selection accuracy</span></td><td class="risk"><span class="tag r-high">High</span><span class="rtext"><b>Accuracy/coverage</b> — if basis is mis-detected, it discards the <i>only</i> available source (the Lucky "Analysis of SoFP" trap) → empty statement.</span></td></tr>
+      <tr><td class="n">8</td><td class="name">Label de-gluing + fragment completion + note-row filtering</td><td>Rejoin OCR-split words via a financial dictionary; drop ditto/continuation/unit rows.</td><td class="area"><span class="tag a-detail">Detail accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — wrong joins or filtering a real row out of a subtotal.</span></td></tr>
+      <tr><td class="n">9</td><td class="name">Parent-child label splitting</td><td>Split "Trade receivables – considered good" into parent/child with a safe-child guard; groups leaves to the right subtotal.</td><td class="area"><span class="tag a-detail">Detail mapping accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — a leaf mis-grouped under the wrong parent corrupts that subtotal.</span></td></tr>
+      <tr><td class="n">10</td><td class="name">Mixed-analysis table splitting</td><td>Split a stacked statement+vertical+horizontal table into 3 logical tables — cleaner than the currency-anchor patch.</td><td class="area"><span class="tag a-extract">Extraction accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — a wrong split point could orphan rows or merge the % view back in.</span></td></tr>
+      <tr><td class="n">11</td><td class="name">Metric-aware source tiers</td><td>A candidate earns top trust only from its expected statement (revenue→income statement); replaces flat primary&gt;note.</td><td class="area"><span class="tag a-source">Source-selection accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — changing selection can flip cases that currently resolve correctly by luck; demote a right value from an "unexpected" table.</span></td></tr>
+      <tr><td class="n">12</td><td class="name">Quality-key ranking</td><td>Rank by <code>(confidence, label_cleanliness, source_context, table_type_priority)</code>, recency as tiebreaker only.</td><td class="area"><span class="tag a-source">Source-selection accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — any selection-ranking change is a regression risk on currently-correct picks. A/B required.</span></td></tr>
+      <tr><td class="n">13</td><td class="name">OCR sanity checks</td><td>Negative-asset, year-columns-descending, duplicate-label detectors — cheap catches for sign/misalignment/double-reads.</td><td class="area"><span class="tag a-valid">Validation/detection</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Signal noise</b> — detection only; no number change.</span></td></tr>
+      <tr><td class="n">14</td><td class="name">Header-declared scale as truth</td><td>Capture the header scale token as ground truth; magnitude only as a disagreement detector.</td><td class="area"><span class="tag a-extract">Extraction accuracy</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Accuracy</b> — 1000× error if the header scale token is mis-read; still safer than inferring scale from magnitude.</span></td></tr>
+      <tr><td class="n">15</td><td class="name">Graded page-type classifier</td><td>Narrative-density + table-density features on the heading region; tunable confidence.</td><td class="area"><span class="tag a-class">Page classification</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Accuracy/Time</b> — a mis-gated page could drop a real statement or add noise pages (more GPT calls).</span></td></tr>
+      <tr><td class="n">16</td><td class="name">Emit AMBIGUOUS instead of guessing</td><td>When &gt;1 equally-ranked candidate survives, surface for review with reasons rather than silently picking.</td><td class="area"><span class="tag a-source">Source-selection / honesty</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Coverage</b> — if it gates output, more cells go unfilled (a guess that was right by luck becomes a blank).</span></td></tr>
+      <tr><td class="n">17</td><td class="name">Ratio cross-checks</td><td>EPS=PAT/shares, ROE, current ratio, with percent-vs-fraction auto-fix.</td><td class="area"><span class="tag a-valid">Validation/detection</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Signal noise</b> — detection only.</span></td></tr>
+      <tr><td class="n">18</td><td class="name">Entity-scope gate</td><td>Exclude subsidiary/associate/investee rows from issuer metrics (stops "share of associate profit" leaking).</td><td class="area"><span class="tag a-source">Source-selection accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy/coverage</b> — over-exclusion drops a legitimate issuer row mis-tagged as investee.</span></td></tr>
+      <tr><td class="n">19</td><td class="name">Severity-weighted score + critical gate</td><td>Per-statement health score; hard-gates a broken accounting equation.</td><td class="area"><span class="tag a-valid">Validation/observability</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Signal only</b> — changes the reported verdict, not the numbers.</span></td></tr>
+      <tr><td class="n">20</td><td class="name">Per-candidate provenance + resolution_reason</td><td>Attach <code>{fingerprint, page, table_ref, locator}</code> + why-selected to every value.</td><td class="area"><span class="tag a-trace">Traceability</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Time/size</b> — minor metadata overhead; no accuracy effect.</span></td></tr>
+      <tr><td class="n">21</td><td class="name">Explicit source-precedence + conflict records</td><td>A <code>SOURCE_PRECEDENCE_ORDER</code> constant + a record of every excluded candidate.</td><td class="area"><span class="tag a-trace">Source-selection / traceability</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Accuracy</b> — only if the precedence constant is mis-ordered; otherwise additive.</span></td></tr>
+      <tr><td class="n">22</td><td class="name">Named per-metric resolvers</td><td>Pluggable, audited resolver list for known hard cases (positive-liability, statement-EPS, revenue-full-amount).</td><td class="area"><span class="tag a-source">Source-selection accuracy</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy</b> — a wrong/over-broad resolver mis-selects on cases it shouldn't touch.</span></td></tr>
+      <tr><td class="n">23</td><td class="name">Label cleanliness/fragmentation scoring</td><td>Penalize OCR-split / truncated labels in ranking and fuzzy template matching.</td><td class="area"><span class="tag a-detail">Detail mapping accuracy</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Accuracy</b> — a ranking nudge; could mildly deprioritize a clean-but-correct label.</span></td></tr>
+      <tr><td class="n">24</td><td class="name">Per-(statement-year) isolation</td><td>Reconcile each report year independently so prior-year columns can't leak into current-year sums.</td><td class="area"><span class="tag a-valid">Validation correctness</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Safe</b> — prevents leakage; no downside.</span></td></tr>
+      <tr><td class="n">25</td><td class="name">Completeness validator</td><td>Section-presence checks to mark a statement MISSING vs UNEVALUATED.</td><td class="area"><span class="tag a-trace">Coverage/observability</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Signal only</b> — reporting, not numbers.</span></td></tr>
+      <tr><td class="n">26</td><td class="name">Cheapest-first OCR routing + 200 DPI</td><td>PyMuPDF <code>get_textpage_ocr</code> (200 DPI) first, escalate to Tesseract only on a quality-gate fail.</td><td class="area"><span class="tag a-speed">OCR speed (not accuracy)</span></td><td class="risk"><span class="tag r-med">Med</span><span class="rtext"><b>Accuracy + Time</b> — 200 DPI reads small digits worse than 300; if the gate fails often it runs <i>both</i> engines → slower on hard pages.</span></td></tr>
+      <tr><td class="n">27</td><td class="name">Strict-JSON-schema, labels-only GPT</td><td>Constrain GPT to type labels via strict json_schema + bounded retries — never cell values.</td><td class="area"><span class="tag a-extract">Extraction robustness / cost</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Cost</b> — minor extra tokens from retries; otherwise a robustness gain.</span></td></tr>
+      <tr><td class="n">28</td><td class="name">Per-layer partial-failure isolation + stage timing</td><td>Each layer try/except-and-continue + per-stage timing; makes the bottleneck measurable.</td><td class="area"><span class="tag a-trace">Reliability/observability</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Time</b> — negligible timing overhead; reliability gain.</span></td></tr>
+      <tr><td class="n">29</td><td class="name">Vision table detection (Table Transformer)</td><td>Microsoft Table Transformer → per-table bboxes + stable id; region-crop OCR &amp; non-positional table→type matching.</td><td class="area"><span class="tag a-extract">Extraction (advanced)</span></td><td class="risk"><span class="tag r-high">High</span><span class="rtext"><b>Time + Cost(install/disk)</b> — torch CPU inference is seconds/page; ~GB model download; accuracy gain uncertain. Heaviest item, least incremental.</span></td></tr>
+      <tr><td class="n">30</td><td class="name">Append-only candidate registry</td><td>Retain all competing candidates + a deterministic signature for reproducible/auditable selection.</td><td class="area"><span class="tag a-trace">Traceability</span></td><td class="risk"><span class="tag r-low">Low</span><span class="rtext"><b>Time/memory</b> — stores losing candidates; small overhead.</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note" style="border-left-color:var(--high);">
+    <h2>Bottom note — quick read &amp; safe-adoption rule</h2>
+    <ul>
+      <li><b>Safe (Low risk), do first:</b> rows 1–4 (4 as advisory), 13, 17, 19–25, 28 — additive/detection, change no existing numbers, ~no time cost.</li>
+      <li><b>Genuine accuracy levers (Med risk), pilot &amp; measure:</b> rows 5–12, 14–16, 18, 22, 23, 26 — can help, but a wrong gate/ranking can regress; A/B each on both companies before keeping.</li>
+      <li><b>High risk — never blind cutover:</b> <b>#5 Camelot</b> (loses scanned-page data, 3× slower) and <b>#7 declared-basis gate</b> (over-exclusion empties a statement) and <b>#29 Table Transformer</b> (heavy time/disk). Run behind the metric, augment-don't-replace.</li>
+      <li><b>The rule that prevents degradation:</b> augment never replace; advisory before gating; keep the face-truth override as a floor (it's why headlines are correct today); A/B against current outputs using the <code>detail_reconciliation</code> metric + headline tie-out, and revert anything that lowers either number or raises pipeline time without a clear accuracy gain.</li>
+      <li><b>Prerequisite:</b> the accounting validators are a no-op without a metric-alias dictionary (leaf label → canonical) tuned to our corpus.</li>
+    </ul>
+  </div>
+
+  <footer>Generated from legacy-system OCR code review · review only, no changes made.</footer>
+
+</div>
+</body>
+</html>
