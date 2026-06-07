@@ -26,6 +26,9 @@ def main() -> None:
     p.add_argument("--template", type=Path, default=None, help="Optional template .xlsx")
     p.add_argument("--company", default=None)
     args = p.parse_args()
+    if args.template and args.out.resolve() == args.template.resolve():
+        p.error("--out must differ from --template (refusing to overwrite the template "
+                "with the filled workbook).")
 
     configure_logging(debug=get_settings().debug)
     result = process_reports(

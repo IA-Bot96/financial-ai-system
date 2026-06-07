@@ -23,8 +23,12 @@ _INTENT_SOURCES: dict[str, list[str]] = {
     "valuation": ["psx"],
     "news_impact": ["news", "psx_announcements"],
     "earnings_review": ["news", "psx_announcements"],
-    "forecast_validation": ["forecast"],
+    # forecast_validation: external analyst forecast first; news/PSX announcements give
+    # qualitative context (management guidance, capex signals, macro commentary) that
+    # helps evaluate whether a growth target is realistic even when no forecast record exists.
+    "forecast_validation": ["forecast", "news", "psx_announcements"],
     "dividend_analysis": ["company_payouts"],
+    "risk_assessment": ["news", "psx_announcements"],
 }
 # intents where the LLM may *augment* the rule-chosen sources
 _EXTERNAL_INTENTS = set(_INTENT_SOURCES)

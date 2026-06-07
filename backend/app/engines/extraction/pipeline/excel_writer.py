@@ -342,7 +342,7 @@ def append_insights_sheets(
     (used by the template path after the breakdown sheets are populated)."""
     from openpyxl import load_workbook
 
-    wb = load_workbook(workbook_path)
+    wb = load_workbook(workbook_path, data_only=False)   # explicit: preserve formulas on save
     for name in ("Insights", "Insights Review"):
         if name in wb.sheetnames:
             del wb[name]

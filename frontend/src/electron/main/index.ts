@@ -10,6 +10,7 @@ import {
   request,
   uploadWorkbook,
   createExtractionJob,
+  cancelExtractionJob,
   ingestJobResult,
   type BackendRequest
 } from './backend'
@@ -108,7 +109,9 @@ app.whenReady().then(async () => {
     uploadWorkbook(path, '/api/fie/sessions'))
 
   // OCR/PDF extraction
-  ipcMain.handle('extraction:create', (_e, paths: string[]) => createExtractionJob(paths))
+  ipcMain.handle('extraction:create', (_e, paths: string[], templatePath?: string) =>
+    createExtractionJob(paths, templatePath))
+  ipcMain.handle('extraction:cancel', (_e, jobId: string) => cancelExtractionJob(jobId))
   ipcMain.handle('extraction:ingest', (_e, jobId: string) => ingestJobResult(jobId))
 
   // open an external link in the system browser (citation kind = external)

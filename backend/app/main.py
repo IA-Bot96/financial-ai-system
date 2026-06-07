@@ -53,7 +53,7 @@ if _limiter is not None:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list(),       # pinned origins (config-driven)
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
 

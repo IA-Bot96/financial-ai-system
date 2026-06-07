@@ -65,6 +65,27 @@ export function SheetView() {
     apiRef.current = univerAPI
     setSheetApi(univerAPI)
 
+    // Track the active worksheet so the PDF viewer can sync to each sheet's source page.
+    let activeSub: { dispose: () => void } | null = null
+    try {
+      const evt = (univerAPI as unknown as {
+        Event: { ActiveSheetChanged: string }
+        addEvent: (
+          e: string,
+          cb: (p: { activeSheet?: { getSheetName?: () => string } }) => void
+        ) => { dispose: () => void }
+      })
+      activeSub = evt.addEvent(evt.Event.ActiveSheetChanged, (params) => {
+        const name = params?.activeSheet?.getSheetName?.()
+        if (name) useApp.getState().setActiveSheet(name)
+      })
+    } catch (e) {
+      // sheet-sync is non-essential; never block the grid from rendering
+      console.error('[sheet] active-sheet tracking unavailable', e)
+    }
+    // seed the initial active sheet (the event may not fire for the first sheet on mount)
+    if (visible.length) useApp.getState().setActiveSheet(visible[0].name)
+
     // Derive dirty from Univer's undo/redo stack: dirty when the current undo depth
     // differs from the depth at the last save/load. This makes the top bar respond to
     // edits, in-grid undo (back to baseline => clean) and redo (=> dirty again) — all of
@@ -102,6 +123,11 @@ export function SheetView() {
       setSheetApi(null)
       try {
         usub?.unsubscribe()
+      } catch {
+        /* noop */
+      }
+      try {
+        activeSub?.dispose()
       } catch {
         /* noop */
       }

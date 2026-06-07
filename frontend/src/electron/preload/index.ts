@@ -12,8 +12,13 @@ const api = {
   readFile: (path: string): Promise<ArrayBuffer> => ipcRenderer.invoke('fs:readFile', path),
   createSession: (path: string): Promise<{ status: number; body: unknown }> =>
     ipcRenderer.invoke('session:create', path),
-  createExtractionJob: (paths: string[]): Promise<{ status: number; body: unknown }> =>
-    ipcRenderer.invoke('extraction:create', paths),
+  createExtractionJob: (
+    paths: string[],
+    templatePath?: string
+  ): Promise<{ status: number; body: unknown }> =>
+    ipcRenderer.invoke('extraction:create', paths, templatePath),
+  cancelExtractionJob: (jobId: string): Promise<{ status: number; body: unknown }> =>
+    ipcRenderer.invoke('extraction:cancel', jobId),
   ingestJobResult: (jobId: string): Promise<{ status: number; body: unknown; path?: string }> =>
     ipcRenderer.invoke('extraction:ingest', jobId),
   saveFile: (defaultName: string, data: ArrayBuffer): Promise<string | null> =>

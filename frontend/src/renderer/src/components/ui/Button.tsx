@@ -1,7 +1,7 @@
 import { ButtonHTMLAttributes } from 'react'
 import { cn } from '@/lib/util'
 
-type Variant = 'primary' | 'ghost' | 'subtle'
+type Variant = 'primary' | 'ghost' | 'subtle' | 'destructive'
 
 export function Button({
   variant = 'primary',
@@ -15,7 +15,8 @@ export function Button({
   const variants: Record<Variant, string> = {
     primary: 'bg-accent text-white hover:bg-accent/90',
     ghost: 'text-ink hover:bg-panel2',
-    subtle: 'bg-panel2 text-ink border border-line hover:border-accent/60'
+    subtle: 'bg-panel2 text-ink border border-line hover:border-accent/60',
+    destructive: 'bg-red-500 text-white hover:bg-red-600'
   }
   return <button className={cn(base, variants[variant], className)} {...props} />
 }

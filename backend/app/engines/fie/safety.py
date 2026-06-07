@@ -9,10 +9,13 @@ rejected and the engine falls back to the deterministic renderer.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Iterable
 
 from .models import CalcResult, Citation, EvidenceItem, QueryFrame
+
+_log = logging.getLogger("app.engines.fie")
 
 _CITE_RE = re.compile(r"\[C\d+\]")  # citation handles contain digits — strip first
 _UNIT_RE = re.compile(r"Rs\s*'?\s*000|Rupees in thousand|PKR", re.I)
@@ -56,8 +59,16 @@ def build_allowed(
     def _add_value(v):
         if v is None:
             return
-        values.add(round(float(v), 6))
-        values.add(round(abs(float(v)), 6))
+        f = float(v)
+        values.add(round(f, 6))
+        values.add(round(abs(f), 6))
+        # Also allow the LLM to express the same value scaled to millions or billions.
+        # Financial workbooks store values in thousands ("Rupees in thousand") so the LLM
+        # naturally writes "43.95 billion" for 43,953,778 (thousands). Whitelist both
+        # ÷1000 (millions) and ÷1000000 (billions) so those forms pass the guard.
+        for scale in (1_000.0, 1_000_000.0):
+            values.add(round(f / scale, 6))
+            values.add(round(abs(f) / scale, 6))
 
     evidence = list(evidence)
     calcs = list(calcs)
@@ -104,6 +115,33 @@ def build_allowed(
             if is_int:
                 ints.add(int(mag))
 
+    # Numbers quoted verbatim in cited insight claims are backed — the insight text was
+    # extracted from the annual report by the OCR/GPT pipeline so any figure in the
+    # claim string is source-anchored (e.g. "gross margin 20.01%", "sales 91.51 billion").
+    for e in evidence:
+        if e.kind != "insight":
+            continue
+        for tok in extract_numbers(e.claim or ""):
+            try:
+                mag, is_pct, is_int = _parse_token(tok)
+                if is_int and 1900 <= mag <= 2100:
+                    continue  # skip years; they're already whitelisted separately
+            except ValueError:
+                continue
+            values.add(round(mag, 6))
+            values.add(round(abs(mag), 6))
+
+    # Numbers explicitly stated in the user's query are the user's own premises
+    # (e.g. "is a 10% growth forecast reasonable?") — the LLM is merely echoing them.
+    for tok in extract_numbers(getattr(frame, "raw_query", "") or ""):
+        try:
+            mag, is_pct, is_int = _parse_token(tok)
+            if is_int and 1900 <= mag <= 2100:
+                continue
+        except ValueError:
+            continue
+        values.add(round(mag, 6))
+
     # structural counts the renderer may legitimately mention
     ints.update({0, 1, 2, len(evidence), len(citations)})
     return values, ints
@@ -130,4 +168,33 @@ def numbers_are_backed(text: str, allowed_values: set[float], allowed_ints: set[
 
 def verify_prose(text: str, frame: QueryFrame, evidence, calcs, citations) -> bool:
     vals, ints = build_allowed(frame, evidence, calcs, citations)
-    return numbers_are_backed(text, vals, ints)
+    passed = numbers_are_backed(text, vals, ints)
+    if not passed:
+        # Log which tokens failed so diagnosis is immediate without re-running
+        failed = []
+        for tok in extract_numbers(text):
+            try:
+                mag, is_pct, is_int = _parse_token(tok)
+            except ValueError:
+                failed.append(f"{tok}(parse-err)")
+                continue
+            if is_int and 1900 <= mag <= 2100:
+                continue
+            if is_int and int(mag) in ints:
+                continue
+            if any(abs(mag - a) <= _REL_TOL * max(abs(a), 1.0) for a in vals):
+                continue
+            failed.append(f"{tok}(mag={mag:.4g})")
+        _log.warning(
+            "fie safety.verify_prose: FAILED — %d unbacked token(s): %s | "
+            "allowed_values_count=%d intent=%s",
+            len(failed), failed, len(vals), frame.intent,
+            extra={"component": "Safety"},
+        )
+    else:
+        _log.debug(
+            "fie safety.verify_prose: PASSED intent=%s",
+            frame.intent,
+            extra={"component": "Safety"},
+        )
+    return passed

@@ -566,6 +566,15 @@ def apply_plan(plan: MappingPlan, template_path: str | Path, output_path: str | 
     the report years actually used on that sheet (traceability #9 / MIL-OCR-014)."""
     import openpyxl
 
+    # F: never write the filled workbook back over the template itself — that replaces
+    # the template's empty input cells with one run's data, polluting (and via other
+    # tools potentially corrupting) the reusable template. The CLI takes --template and
+    # --out as free-form paths, so guard here to protect ALL callers.
+    if Path(template_path).resolve() == Path(output_path).resolve():
+        raise ValueError(
+            f"template_path and output_path resolve to the same file ({output_path}); "
+            "refusing to overwrite the template with filled output.")
+
     # report years actually used per sheet (from each write's source).
     years_by_sheet: dict[str, set[int]] = {}
     for w in plan.writes:
@@ -575,8 +584,23 @@ def apply_plan(plan: MappingPlan, template_path: str | Path, output_path: str | 
 
     wb = openpyxl.load_workbook(template_path, data_only=False)
     try:
+        clobbered = 0
         for w in plan.writes:
-            wb[w.sheet][w.coordinate] = w.value
+            cell = wb[w.sheet][w.coordinate]
+            # A: build_plan already restricts write targets to empty, non-formula cells,
+            # so this never fires in the normal flow. It's a defensive backstop against
+            # plan/template drift (re-authored template, stale plan): a write landing on a
+            # subtotal / cross-sheet-pull formula would silently break tie-out. Skip + log;
+            # never overwrite a formula and never fake the value.
+            if _is_formula(cell):
+                clobbered += 1
+                logger.warning("apply_plan: skipped write to formula cell %s!%s (formula %r kept)",
+                               w.sheet, w.coordinate, cell.value)
+                continue
+            cell.value = w.value
+        if clobbered:
+            logger.warning("apply_plan: protected %d formula cell(s) from being overwritten "
+                           "(plan/template drift) — see warnings above.", clobbered)
         # rewrite static "Source:" labels with the real per-sheet source years.
         co = company or "the company"
         for ws in wb.worksheets:

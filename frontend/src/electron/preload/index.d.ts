@@ -16,7 +16,8 @@ export interface FieApi {
   pickFiles(opts?: { extensions?: string[]; multi?: boolean }): Promise<PickedFile[]>
   readFile(path: string): Promise<ArrayBuffer>
   createSession(path: string): Promise<BackendResponse>
-  createExtractionJob(paths: string[]): Promise<BackendResponse>
+  createExtractionJob(paths: string[], templatePath?: string): Promise<BackendResponse>
+  cancelExtractionJob(jobId: string): Promise<BackendResponse>
   ingestJobResult(jobId: string): Promise<BackendResponse & { path?: string }>
   saveFile(defaultName: string, data: ArrayBuffer): Promise<string | null>
   openExternal(url: string): Promise<void>

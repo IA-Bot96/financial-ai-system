@@ -34,6 +34,16 @@ export interface ValidationSummary {
   quarantined?: number | null
 }
 
+/** One provenance entry for a worksheet: which PDF + pages the sheet's data came from. */
+export interface SheetSourceEntry {
+  report_file: string // original uploaded PDF filename (e.g. "2024.pdf")
+  pages: number[]      // 1-based PDF page numbers
+  table_ids?: string[]
+  weight: number       // higher = stronger primary source
+}
+/** `sheet_sources` from the extraction job: worksheet name → entries (highest weight first). */
+export type SheetSources = Record<string, SheetSourceEntry[]>
+
 interface AppState {
   backend: { status: 'starting' | 'ready' | 'error'; logPath: string }
   session: SessionMeta | null
@@ -44,9 +54,17 @@ interface AppState {
   workbook: { dirty: boolean; filePath: string | null; origin: 'ocr' | 'excel' | null }
   pdfPaths: string[]
   validation: ValidationSummary | null
+  sheetSources: SheetSources       // worksheet → source PDF pages (from extraction)
+  activeSheet: string | null       // currently selected worksheet tab name
+  syncPdfToSheet: boolean          // auto-jump the PDF to the active sheet's source page
   panels: { pdf: boolean; askAI: boolean }
   panelWidth: { pdf: number; askAI: number }
-  nav: { cell: { sheet: string; cell: string } | null; pdfPage: number | null; seq: number }
+  nav: {
+    cell: { sheet: string; cell: string } | null
+    pdfFile: string | null         // target PDF (by filename); null = keep current
+    pdfPage: number | null
+    seq: number
+  }
   chat: { messages: ChatTurn[]; pending: boolean }
   view: View
   uploadOpen: boolean
@@ -70,6 +88,10 @@ interface AppState {
   ask: (query: string) => Promise<void>
   setPdfPaths: (paths: string[]) => void
   setValidation: (v: ValidationSummary | null) => void
+  setSheetSources: (s: SheetSources) => void
+  setActiveSheet: (name: string) => void
+  setSyncPdfToSheet: (v: boolean) => void
+  focusSheetSource: (entry: SheetSourceEntry, page?: number) => void
   toggleShowSource: () => void
   setDirty: (dirty: boolean) => void
   save: (asNew?: boolean) => Promise<void>
@@ -95,9 +117,12 @@ export const useApp = create<AppState>((set) => ({
   workbook: { dirty: false, filePath: null, origin: null },
   pdfPaths: [],
   validation: null,
+  sheetSources: {},
+  activeSheet: null,
+  syncPdfToSheet: true,
   panels: { pdf: false, askAI: false },
   panelWidth: { pdf: 380, askAI: 400 },
-  nav: { cell: null, pdfPage: null, seq: 0 },
+  nav: { cell: null, pdfFile: null, pdfPage: null, seq: 0 },
   chat: { messages: [], pending: false },
   view: 'home',
   uploadOpen: false,
@@ -113,6 +138,10 @@ export const useApp = create<AppState>((set) => ({
       loadSeq: st.loadSeq + 1,
       workbook: { dirty: false, filePath, origin },
       chat: { messages: [], pending: false },
+      // lineage is workbook-specific — clear it; review()/extraction sets it after load
+      sheetSources: {},
+      activeSheet: null,
+      nav: { cell: null, pdfFile: null, pdfPage: null, seq: 0 },
       view: 'sheet',
       uploadOpen: false
     }))
@@ -134,14 +163,25 @@ export const useApp = create<AppState>((set) => ({
     if (loc.sheet && loc.cell) {
       set((s) => ({
         view: 'sheet',
-        nav: { cell: { sheet: String(loc.sheet), cell: String(loc.cell) }, pdfPage: null, seq: s.nav.seq + 1 }
+        nav: {
+          cell: { sheet: String(loc.sheet), cell: String(loc.cell) },
+          pdfFile: null,
+          pdfPage: null,
+          seq: s.nav.seq + 1
+        }
       }))
       return
     }
     if (loc.page != null) {
       set((s) => ({
         panels: { ...s.panels, pdf: true },
-        nav: { cell: null, pdfPage: Number(loc.page), seq: s.nav.seq + 1 }
+        nav: {
+          cell: null,
+          // citations carry a page only — let the viewer keep the current PDF
+          pdfFile: (loc.report_file as string) ?? (loc.file as string) ?? null,
+          pdfPage: Number(loc.page),
+          seq: s.nav.seq + 1
+        }
       }))
       return
     }
@@ -198,6 +238,39 @@ export const useApp = create<AppState>((set) => ({
   },
   setPdfPaths: (paths) => set({ pdfPaths: paths }),
   setValidation: (validation) => set({ validation }),
+  setSheetSources: (sheetSources) => set({ sheetSources: sheetSources ?? {} }),
+  setActiveSheet: (name) => {
+    const st = useApp.getState()
+    if (st.activeSheet !== name) set({ activeSheet: name })
+    // auto-sync the PDF to this sheet's primary source page (when enabled).
+    // Does NOT force the PDF panel open — non-intrusive on plain tab switches; the
+    // badge click (focusSheetSource) is the explicit "open & jump" affordance.
+    if (!st.syncPdfToSheet) return
+    const entries = st.sheetSources[name]
+    if (!entries || !entries.length) return // no lineage for this sheet → leave PDF as-is
+    const primary = entries[0]
+    const page = primary.pages?.[0]
+    if (!primary.report_file || !page) return
+    set((s) => ({
+      nav: { ...s.nav, pdfFile: primary.report_file, pdfPage: page, seq: s.nav.seq + 1 }
+    }))
+  },
+  setSyncPdfToSheet: (v) => {
+    set({ syncPdfToSheet: v })
+    // turning sync on re-aligns the PDF to whatever sheet is currently active
+    const st = useApp.getState()
+    if (v && st.activeSheet) st.setActiveSheet(st.activeSheet)
+  },
+  focusSheetSource: (entry, page) =>
+    set((s) => ({
+      panels: { ...s.panels, pdf: true }, // explicit click → ensure the PDF is visible
+      nav: {
+        ...s.nav,
+        pdfFile: entry.report_file,
+        pdfPage: page ?? entry.pages?.[0] ?? null,
+        seq: s.nav.seq + 1
+      }
+    })),
   toggleShowSource: () => set((s) => ({ showSource: !s.showSource })),
   setDirty: (dirty) => {
     set((s) => ({ workbook: { ...s.workbook, dirty } }))
@@ -209,7 +282,7 @@ export const useApp = create<AppState>((set) => ({
     const visible = s.sheets.map((x) => x.name)
     try {
       const original = await window.api.readFile(s.workbook.filePath)
-      const bytes = buildEditedXlsx(original, visible)
+      const bytes = await buildEditedXlsx(original, visible, s.sheets)
       let path = s.workbook.filePath
       if (asNew || s.workbook.origin === 'ocr') {
         const suggested = `${s.session.company || 'workbook'}.xlsx`

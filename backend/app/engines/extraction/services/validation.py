@@ -333,6 +333,25 @@ def write_scope_note(workbook_path, *, cash_flow_in_scope: bool,
     wb.save(workbook_path)
 
 
+def _wb_fingerprint(path) -> tuple[int, int]:
+    """(formula-cell count, styled-cell count) — used to verify a LibreOffice round-trip
+    didn't drop content before we adopt the converted file."""
+    from openpyxl import load_workbook
+    wb = load_workbook(path, data_only=False)
+    try:
+        formulas = styled = 0
+        for ws in wb.worksheets:
+            for row in ws.iter_rows():
+                for c in row:
+                    if c.data_type == "f" or (isinstance(c.value, str) and c.value.startswith("=")):
+                        formulas += 1
+                    if c.has_style:
+                        styled += 1
+        return formulas, styled
+    finally:
+        wb.close()
+
+
 def recalc_workbook(workbook_path) -> bool:
     """Make formula cells readable by NON-Excel consumers. Always sets `fullCalcOnLoad`
     so Excel/LibreOffice recalculate on open; if a LibreOffice binary is found, headless-
@@ -345,7 +364,7 @@ def recalc_workbook(workbook_path) -> bool:
 
     from openpyxl import load_workbook
 
-    wb = load_workbook(workbook_path)
+    wb = load_workbook(workbook_path, data_only=False)   # keep formulas, never their cached values
     try:
         wb.calculation.fullCalcOnLoad = True   # Excel/LibreOffice recalc on open
     except Exception as exc:  # noqa: BLE001
@@ -373,6 +392,18 @@ def recalc_workbook(workbook_path) -> bool:
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             out = Path(td) / (src.stem + ".xlsx")
             if out.exists():
+                # LibreOffice's xlsx->xlsx round-trip can silently drop formulas/styles.
+                # Only adopt the recalced file if it preserved EVERY formula and kept the
+                # bulk of styled cells; otherwise keep the openpyxl file (fullCalcOnLoad
+                # already set) — we never trade correctness for cached values.
+                before_f, before_s = _wb_fingerprint(src)
+                after_f, after_s = _wb_fingerprint(out)
+                if after_f < before_f or (before_s and after_s < 0.9 * before_s):
+                    logger.warning(
+                        "LibreOffice recalc lost content (formulas %d->%d, styled cells "
+                        "%d->%d); discarding it and keeping the openpyxl workbook with "
+                        "fullCalcOnLoad set.", before_f, after_f, before_s, after_s)
+                    return False
                 shutil.copyfile(out, src)
                 logger.info("Formula cache materialized via LibreOffice headless recalc.")
                 return True
@@ -516,7 +547,7 @@ def widen_columns(workbook_path) -> None:
     from openpyxl import load_workbook
     from openpyxl.utils import get_column_letter
 
-    wb = load_workbook(workbook_path)
+    wb = load_workbook(workbook_path, data_only=False)   # explicit: preserve formulas on save
     for ws in wb.worksheets:
         widest: dict[str, int] = {}
         for row in ws.iter_rows():

@@ -11,7 +11,8 @@
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test:roundtrip": "node scripts/roundtrip-test.mjs"
   },
   "dependencies": {
     "@univerjs/preset-sheets-core": "^0.25.0",

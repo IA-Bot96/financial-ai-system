@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
@@ -13,12 +13,14 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 const basename = (p: string) => p.replace(/\\/g, '/').split('/').pop() || p
 
 export function PdfPanel() {
-  const { pdfPaths, nav } = useApp()
+  const { pdfPaths, nav, toast } = useApp()
   const [active, setActive] = useState(0)
   const [data, setData] = useState<Uint8Array | null>(null)
   const [numPages, setNumPages] = useState(0)
   const [page, setPage] = useState(1)
   const [scale, setScale] = useState(1.1)
+  // page to apply once the (possibly newly-switched) PDF finishes loading
+  const pendingPage = useRef<number | null>(null)
 
   // load bytes for the active pdf
   useEffect(() => {
@@ -31,7 +33,9 @@ export function PdfPanel() {
     window.api.readFile(path).then((buf) => {
       if (!cancelled) {
         setData(new Uint8Array(buf))
-        setPage(1)
+        // honour a page requested before/while switching PDFs; else reset to 1
+        setPage(pendingPage.current ?? 1)
+        pendingPage.current = null
       }
     })
     return () => {
@@ -39,11 +43,40 @@ export function PdfPanel() {
     }
   }, [pdfPaths, active])
 
-  // jump to a page when a citation routes here
+  // navigation request (citation OR sheet→PDF sync): jump to (report_file, page).
+  // Always key on file+page together — multiple PDFs can share page numbers.
   useEffect(() => {
-    if (nav.pdfPage && nav.pdfPage >= 1) setPage(nav.pdfPage)
+    if (!nav.seq) return
+    let targetIdx = active
+    if (nav.pdfFile) {
+      const idx = pdfPaths.findIndex(
+        (p) => basename(p).toLowerCase() === nav.pdfFile!.toLowerCase()
+      )
+      if (idx === -1) {
+        // named PDF isn't loaded in this viewer — soft hint, don't fail or jump blindly
+        toast('info', `Source “${nav.pdfFile}” isn’t loaded in this viewer.`)
+        return
+      }
+      targetIdx = idx
+    }
+    const wanted = nav.pdfPage && nav.pdfPage >= 1 ? nav.pdfPage : null
+    if (targetIdx !== active) {
+      pendingPage.current = wanted // applied when the new PDF loads
+      setActive(targetIdx)
+    } else if (wanted) {
+      setPage(wanted)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.pdfPage, nav.seq])
+  }, [nav.seq])
+
+  // clamp + warn if a source points past the end of the loaded PDF
+  useEffect(() => {
+    if (numPages > 0 && page > numPages) {
+      toast('warning', `That source points to page ${page}, but this PDF has only ${numPages} page${numPages === 1 ? '' : 's'}.`)
+      setPage(numPages)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [numPages, page])
 
   const file = useMemo(() => (data ? { data } : null), [data])
 

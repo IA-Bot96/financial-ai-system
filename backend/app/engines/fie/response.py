@@ -284,7 +284,18 @@ def render(
     prose_source = "deterministic"
     if llm_analysis:
         if safety.verify_prose(llm_analysis, frame, evidence, calcs, citations):
-            analysis = llm_analysis.strip()
+            llm_text = llm_analysis.strip()
+            # For intents where the deterministic `direct` is a context summary / placeholder
+            # (forecast_validation with no external record, risk_assessment, news_impact),
+            # the LLM IS the answer — promote it to direct_answer and demote the
+            # deterministic text to supporting_analysis so users see the real answer first.
+            _promote_intents = {"forecast_validation", "risk_assessment", "news_impact",
+                                "earnings_review"}
+            if frame.intent in _promote_intents:
+                analysis = direct   # deterministic context summary moves to supporting
+                direct = llm_text   # LLM assessment becomes the primary answer
+            else:
+                analysis = llm_text
             prose_source = "llm"
         # else: silently fall back — the LLM tried to introduce an unbacked number
 

@@ -23,6 +23,8 @@ def interpret_document(
     gpt,
     has_template: bool = False,
     pdf_path=None,
+    progress=None,
+    pdf_name: str | None = None,
 ) -> DocumentResult:
     """Structure tables + extract insights for one document.
 
@@ -40,8 +42,18 @@ def interpret_document(
     """
     settings = get_settings()
 
+    def _emit(stage: str) -> None:
+        if progress is None:
+            return
+        try:
+            progress({"stage": stage, "pdf": pdf_name})
+        except Exception:  # noqa: BLE001 — progress is best-effort, never break a run
+            pass
+
     # GPT-extract financial statements/notes from page text — robust on scanned
-    # pages where rule-based grid reconstruction fails.
+    # pages where rule-based grid reconstruction fails. (Cell normalization runs
+    # per-table INSIDE this step.)
+    _emit("extracting")
     gpt_tables = []
     if gpt is not None and settings.use_gpt_table_extraction:
         # Template targets unconsolidated -> skip the consolidated set to halve calls.
@@ -67,6 +79,7 @@ def interpret_document(
     else:
         tables = structured  # no template -> emit every detected table
 
+    _emit("extracting_insights")
     exported, review = extract_insights(doc, gpt)
     return DocumentResult(
         file_name=doc.file_name,

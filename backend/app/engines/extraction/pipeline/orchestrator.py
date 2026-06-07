@@ -61,6 +61,8 @@ class ExtractionOutput(BaseModel):
     withheld: int = 0
     quarantined: int = 0
     manifest_path: Optional[str] = None
+    # Sheet -> source-PDF provenance for a side-by-side viewer (see build_sheet_sources).
+    sheet_sources: dict = {}
 
 
 def process_documents(
@@ -69,9 +71,19 @@ def process_documents(
     template_path: str | Path | None = None,
     company: str | None = None,
     dumper: DebugDumper | None = None,
+    progress=None,
 ) -> ExtractionOutput:
     """Assemble per-report results into the final workbook."""
+    def _emit(stage: str) -> None:
+        if progress is None:
+            return
+        try:
+            progress({"stage": stage})
+        except Exception:  # noqa: BLE001
+            pass
+
     dumper = dumper or DebugDumper(None)
+    _emit("merging")
     company_result = resolve_multiyear(results, company=company)
     output_path = str(output_path)
 
@@ -98,6 +110,7 @@ def process_documents(
         # Lazy import keeps openpyxl-template logic out of the no-template path.
         from app.engines.extraction.pipeline.template_map import apply_plan, build_plan
 
+        _emit("mapping")
         plan = build_plan(company_result, template_path)
         dumper.json("05_mapping_plan", plan)
         apply_plan(plan, template_path, output_path, company=company_result.company)
@@ -136,6 +149,7 @@ def process_documents(
         # Sign sensitivity: output statements (the formula/computed sheets) and any
         # cross-sheet pull are validated signed; intra-sheet breakdown subtotals by
         # magnitude. `formula_sheets` is the precise output-sheet set (not dividers).
+        _emit("validating")
         output_set = set(plan.formula_sheets)
         computed_rows, computed_fail, computed_unevaluable = computed_output_ledger(
             output_path, company_result, _tieout, output_sheets=output_set)
@@ -187,6 +201,10 @@ def process_documents(
         detail_ok = sum(1 for r in detail_rows if r.status == "ok")
         formulas_repaired = len(repairs)
         overrides_applied = len(overrides)
+        # Sheet -> source-PDF page map (for a side-by-side PDF viewer): detail sheets
+        # from plan.writes, headline output sheets from the audited overrides.
+        from app.engines.extraction.services.provenance import build_sheet_sources
+        sheet_sources = build_sheet_sources(mode="template", plan=plan, overrides=overrides)
     else:
         write_company_workbook(company_result, output_path)
         logger.info(
@@ -211,8 +229,13 @@ def process_documents(
         breakdown_reconciled = 0
         detail_material_unmapped = 0
         detail_incomplete_sheets = []
+        # Sheet -> source-PDF page map: one sheet per table, keyed by the same
+        # sanitized sheet name the writer uses.
+        from app.engines.extraction.services.provenance import build_sheet_sources
+        sheet_sources = build_sheet_sources(mode="no_template", tables=company_result.tables)
 
     # Fit columns so large figures don't render as '######' (cosmetic, both modes).
+    _emit("finalizing")
     from app.engines.extraction.services.validation import recalc_workbook, widen_columns
     widen_columns(output_path)
     # Formula cache (#6): make formula cells readable by non-Excel consumers (sets
@@ -244,6 +267,7 @@ def process_documents(
     out.detail_incomplete = detail_incomplete
     out.withheld = len(out.plan.withheld) if out.plan else 0
     out.quarantined = len(company_result.rejected_lines)
+    out.sheet_sources = sheet_sources
     manifest = {
         "company": company_result.company, "mode": out.mode,
         "fiscal_years": company_result.fiscal_years, "output_path": out.output_path,
@@ -281,6 +305,10 @@ def process_documents(
         # cached values aren't populated for headless readers (no LibreOffice available).
         "cash_flow_in_scope": cash_flow_in_scope,
         "formula_cache_materialized": formula_cache_materialized,
+        # Per-sheet source provenance: {sheet -> [{report_file, pages, table_ids, weight}]},
+        # ranked by contribution. Lets a side-by-side PDF viewer jump to the source page
+        # when the user switches worksheets. Empty entries mean no page lineage survived.
+        "sheet_sources": sheet_sources,
         # Production-ready iff every HEADLINE metric tied out and was evaluable.
         # See the 'Validation Ledger' / 'Source Ledger' sheets.
         "production_ready": out.production_ready,
@@ -312,8 +340,12 @@ def process_reports(
     template_path: str | Path | None = None,
     company: str | None = None,
     gpt=None,
+    progress=None,
 ) -> ExtractionOutput:
-    """Full pipeline from PDFs to workbook (requires OPENAI_API_KEY for L3)."""
+    """Full pipeline from PDFs to workbook (requires OPENAI_API_KEY for L3).
+
+    `progress`, if given, is called with stage events {stage, pdf?, index?, total?} as the
+    run advances — for live status APIs. It is best-effort and never affects the result."""
     # Imports here so the heavy/optional deps load only when actually extracting.
     from app.engines.extraction.pipeline.ingest import ingest_pdfs
     from app.engines.extraction.pipeline.interpret import interpret_document
@@ -324,6 +356,14 @@ def process_reports(
 
     from app.core.debug import GPTRecorder, make_dumper
     from app.core.logging import per_document_log
+
+    def _emit(stage: str, **kw) -> None:
+        if progress is None:
+            return
+        try:
+            progress({"stage": stage, **kw})
+        except Exception:  # noqa: BLE001 — progress is best-effort, never break a run
+            pass
 
     gpt = gpt or GPTClient()
     has_template = template_path is not None
@@ -339,10 +379,13 @@ def process_reports(
     # Ingest/OCR is the bottleneck, so OCR every scanned page of every PDF through
     # one flat process pool up front (page- AND document-level parallelism). The
     # per-report detect+interpret stages then run serially on the ingested docs.
+    n_pdfs = len(pdf_paths)
+    _emit("ingesting", total=n_pdfs)
     t_ing = perf_counter()
     ingested = ingest_pdfs([Path(p) for p in pdf_paths])
     logger.info("Parallel ingest of %d PDF(s) completed in %.1fs", len(ingested), perf_counter() - t_ing)
-    for pdf, doc in ingested:
+    _emit("ingested", total=len(ingested))
+    for idx, (pdf, doc) in enumerate(ingested, start=1):
         # Each PDF gets its own log file (logs/<timestamp>_<pdf>.log).
         with per_document_log(pdf.stem):
             logger.info("Processing report %s", pdf.name)
@@ -352,13 +395,16 @@ def process_reports(
             try:
                 dumper.json("01_ingest", doc)
                 t1 = perf_counter()
+                _emit("detecting_tables", pdf=pdf.name, index=idx, total=len(ingested))
                 table_set = detect_tables(pdf, doc)
                 dumper.json("02_tables", table_set)
                 t2 = perf_counter()
                 result = interpret_document(doc, table_set, recording_gpt,
-                                            has_template=has_template, pdf_path=pdf)
+                                            has_template=has_template, pdf_path=pdf,
+                                            progress=progress, pdf_name=pdf.name)
                 dumper.json("03_interpret", result)
                 t3 = perf_counter()
+                _emit("interpreted", pdf=pdf.name, index=idx, total=len(ingested))
                 logger.info("Stage timings for %s: detect=%.1fs interpret=%.1fs (post-ingest total=%.1fs)",
                             pdf.name, t2 - t1, t3 - t2, t3 - t1)
                 dumper.json("00_summary", _document_summary(doc, table_set, result))
@@ -370,4 +416,5 @@ def process_reports(
         raise RuntimeError("No reports could be processed (all failed); see logs.")
     return process_documents(
         results, output_path, template_path=template_path, company=company, dumper=dumper,
+        progress=progress,
     )

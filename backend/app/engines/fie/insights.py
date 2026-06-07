@@ -44,22 +44,90 @@ def insight_evidence(rec: dict, ref_id: str = "C?") -> EvidenceItem:
     )
 
 
+# Intent-specific signal vocabulary: an insight must contain at least one of these
+# domain terms to be considered genuinely relevant. Without this guard, general
+# query words like "historical", "revenue", "growth" partial-match almost every
+# insight (ERP risk, AGM notices, board meetings, etc.) giving them a false 1.0 score.
+_INTENT_SIGNALS: dict[str, list[str]] = {
+    "forecast_validation": [
+        "revenue", "sales", "growth", "margin", "profit", "forecast", "outlook",
+        "demand", "volume", "inflation", "cost", "decline", "increase", "target",
+        "market", "export", "liquidity", "earnings", "eps",
+    ],
+    "risk_assessment": [
+        "risk", "margin", "pressure", "liquidity", "demand", "cost", "debt",
+        "exposure", "default", "regulatory", "compliance", "operational",
+    ],
+    "trend_analysis": [
+        "revenue", "sales", "growth", "margin", "profit", "trend", "decline",
+        "increase", "volume", "earnings",
+    ],
+    "earnings_review": [
+        "revenue", "sales", "profit", "margin", "earnings", "eps", "ebitda",
+        "cost", "growth", "volume",
+    ],
+    "news_impact": [
+        "market", "demand", "growth", "decline", "outlook", "price", "sales",
+        "inflation", "policy", "announcement",
+    ],
+}
+
+
 def _relevance(rec: dict, frame: QueryFrame) -> float:
-    """0..1 relevance of an insight to the query (rule-based)."""
+    """0..1 relevance of an insight to the query.
+
+    Uses exact substring containment (no fuzzy) for signal vocabulary to prevent
+    false positives.  ``fuzz.partial_ratio`` was matching "cost" against "cont" in
+    "continuity" with a 75% score because both words share the characters c, o, t at
+    positions 0, 1, 3 — inflating ERP/AGM/governance noise well above the threshold.
+
+    Scoring:
+      signal_score — count of distinct signal terms that appear as **exact substrings**
+        in the combined area+takeaway text, mapped to a 0..1 scale:
+          0 matches → 0.00   (insight contains no domain vocabulary)
+          1 match   → 0.55   (barely relevant; scores ~0.67 at threshold boundary)
+          2 matches → 0.70   (moderately relevant; scores ~0.73)
+          3+ matches → 0.70 + 0.05 × (n−3), capped at 1.0
+      query_score — fuzz.token_set_ratio of raw query vs insight (secondary, weight=0.15)
+      topical     = 0.85 × signal_score + 0.15 × query_score
+      final       = 0.70 × topical      + 0.30 × temporal_affinity
+
+    Consequence: 0 signal matches → final ≤ 0.35 (always filtered at min_relevance=0.65);
+    1 match → final ≈ 0.67; 2+ matches → final ≥ 0.73.
+    """
     text = " ".join(filter(None, [rec.get("area"), rec.get("takeaway")])).lower()
     if not text:
         return 0.0
 
-    terms: list[str] = []
-    terms += [m.replace("_", " ") for m in frame.metrics]
-    if frame.intent == "risk_assessment":
-        terms += ["risk", "margin", "pressure", "liquidity", "demand", "cost"]
-    # words from the raw query (drop short stopwords)
-    terms += [w for w in frame.raw_query.lower().split() if len(w) > 3]
+    # Signal terms: intent vocabulary + explicit metric names from the frame
+    signal_terms: list[str] = list(_INTENT_SIGNALS.get(frame.intent, []))
+    signal_terms += [m.replace("_", " ") for m in (frame.metrics or [])]
 
-    topical = max((fuzz.partial_ratio(t, text) for t in terms), default=0) / 100.0
+    if signal_terms:
+        # Exact substring containment — no fuzzy, prevents "cost" → "cont" false matches
+        matched_terms = [t for t in signal_terms if t in text]
+        n = len(matched_terms)
+        if n == 0:
+            signal_score = 0.0
+        elif n == 1:
+            signal_score = 0.55
+        elif n == 2:
+            signal_score = 0.70
+        else:
+            signal_score = min(0.70 + 0.05 * (n - 3), 1.0)
+    else:
+        # Unknown intent — fall back to raw query word containment
+        words = [w for w in frame.raw_query.lower().split() if len(w) > 3]
+        matched_terms = [w for w in words if w in text]
+        signal_score = len(matched_terms) / max(len(words), 1) if words else 0.0
 
-    # temporal affinity: exact year match boosts; else mild recency preference
+    # Full-query word-overlap score (minor secondary component, weight=0.15)
+    query_score = fuzz.token_set_ratio(frame.raw_query.lower(), text) / 100.0
+
+    # Signal vocabulary dominates: weight=0.85 ensures 0 matches → topical ≤ 0.06
+    topical = 0.85 * signal_score + 0.15 * query_score
+
+    # Temporal affinity: exact year match → neutral 1.0; mismatch → mild discount
     temporal = 1.0
     if frame.year is not None and rec.get("year") is not None:
         temporal = 1.0 if rec["year"] == frame.year else 0.6
@@ -110,7 +178,16 @@ class InsightSelector:
         self.llm = llm
 
     def select(self, frame: QueryFrame, insights: list[dict], *,
-               min_relevance: float = 0.5) -> list[dict]:
+               min_relevance: float = 0.65,
+               top_k: int = 25) -> list[dict]:
+        """Score and filter insights.
+
+        ``min_relevance=0.65`` filters governance/ERP/AGM noise which scores ~0.34
+        (0 matching signal terms) against financial queries.  Real financial insights
+        typically match 2–6 domain terms and score 0.73–0.86.  ``top_k=25`` caps the
+        output so the synthesizer stays focused — 89 premises for "write 1-3 sentences"
+        is wasteful.
+        """
         total = len(insights)
         all_scored: list[tuple[float, dict]] = []
         for rec in insights:
@@ -119,34 +196,44 @@ class InsightSelector:
 
         scored = [{**rec, "relevance": r} for r, rec in all_scored if r >= min_relevance]
         scored.sort(key=lambda x: x["relevance"], reverse=True)
-        filtered_out = total - len(scored)
 
-        # Build the same terms _relevance() uses, so logs show exactly what was matched
-        terms: list[str] = [m.replace("_", " ") for m in (frame.metrics or [])]
-        if frame.intent == "risk_assessment":
-            terms += ["risk", "margin", "pressure", "liquidity", "demand", "cost"]
-        terms += [w for w in frame.raw_query.lower().split() if len(w) > 3]
+        # Hard cap: keep only the most relevant top_k
+        if top_k and len(scored) > top_k:
+            dropped_by_cap = len(scored) - top_k
+            scored = scored[:top_k]
+        else:
+            dropped_by_cap = 0
+
+        filtered_out = total - len(scored) - dropped_by_cap
+        signal_terms = list(_INTENT_SIGNALS.get(frame.intent, []))
+        signal_terms += [m.replace("_", " ") for m in (frame.metrics or [])]
 
         _log.debug(
             "fie InsightSelector.select: query=%r intent=%s metrics=%s pool=%d "
-            "min_relevance=%.2f passed=%d filtered=%d terms=%s",
+            "min_relevance=%.2f passed=%d filtered_below_threshold=%d "
+            "dropped_by_cap=%d(top_k=%d) signal_terms=%s",
             frame.raw_query[:80], frame.intent, frame.metrics,
-            total, min_relevance, len(scored), filtered_out, terms[:10],
+            total, min_relevance, len(scored), filtered_out,
+            dropped_by_cap, top_k, signal_terms[:8],
             extra={"component": "Insights"},
         )
+        _sig = list(_INTENT_SIGNALS.get(frame.intent, []))
+        _sig += [m.replace("_", " ") for m in (frame.metrics or [])]
         for i, r in enumerate(scored[:10]):
+            _txt = " ".join(filter(None, [r.get("area"), r.get("takeaway")])).lower()
+            _hits = [t for t in _sig if t in _txt]
             _log.debug(
-                "  top[%d] %s area=%r yr=%s relevance=%.4f conf=%.2f",
+                "  top[%d] %s area=%r yr=%s relevance=%.4f conf=%.2f hits=%s",
                 i + 1, r.get("insight_id"), r.get("area"), r.get("year"),
-                r["relevance"], r.get("confidence", 0),
+                r["relevance"], r.get("confidence", 0), _hits[:8],
                 extra={"component": "Insights"},
             )
-        if filtered_out:
-            lowest = min(all_scored, key=lambda t: t[0])
+        below = [(sc, rec) for sc, rec in all_scored if sc < min_relevance]
+        if below:
+            example = min(below, key=lambda t: t[0])
             _log.debug(
-                "  %d insights filtered below %.2f; example lowest: %s=%.4f area=%r",
-                filtered_out, min_relevance,
-                lowest[1].get("insight_id"), lowest[0], lowest[1].get("area"),
+                "  %d below threshold (example: %s=%.4f area=%r)",
+                len(below), example[1].get("insight_id"), example[0], example[1].get("area"),
                 extra={"component": "Insights"},
             )
         return scored
@@ -241,9 +328,10 @@ class InsightSelector:
         return f"selected {winner.get('insight_id')} by {basis}; superseded {sup}"
 
     def select_and_resolve(self, frame: QueryFrame, insights: list[dict], *,
-                           min_relevance: float = 0.5
+                           min_relevance: float = 0.65,
+                           top_k: int = 25,
                            ) -> tuple[list[dict], list[dict]]:
-        selected = self.select(frame, insights, min_relevance=min_relevance)
+        selected = self.select(frame, insights, min_relevance=min_relevance, top_k=top_k)
         resolutions = [self.adjudicate(r) for r in self.resolve_conflicts(selected)]
         # only 'pick' resolutions drop the superseded; 'keep_both' retains them
         superseded_ids = {

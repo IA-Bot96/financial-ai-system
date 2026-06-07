@@ -118,15 +118,36 @@ export async function uploadWorkbook(path: string, endpoint: string): Promise<Ba
   }
 }
 
-/** Start an extraction job: upload PDFs as multipart `files[]` to /api/extraction/jobs. */
-export async function createExtractionJob(paths: string[]): Promise<BackendResponse> {
+/** Start an extraction job: upload PDFs as multipart `files[]` to /api/extraction/jobs.
+ *  If `templatePath` is provided the Excel file is attached as the `template` field,
+ *  enabling template-driven P&L / BS mapping instead of the default no_template mode. */
+export async function createExtractionJob(
+  paths: string[],
+  templatePath?: string
+): Promise<BackendResponse> {
   try {
     const fd = new FormData()
     for (const p of paths) {
       const buf = await readFile(p)
       fd.append('files', new Blob([buf]), basename(p))
     }
+    if (templatePath) {
+      const buf = await readFile(templatePath)
+      fd.append('template', new Blob([buf]), basename(templatePath))
+    }
     const r = await fetch(_url + '/api/extraction/jobs', { method: 'POST', body: fd })
+    return { status: r.status, body: await r.json().catch(() => null) }
+  } catch (e) {
+    return { status: 0, body: { detail: String(e) } }
+  }
+}
+
+/** Signal the backend to cancel an in-progress extraction job.
+ *  Returns immediately with { status: "cancelling" } — the worker stops cooperatively.
+ *  Caller must keep polling until a terminal status is observed. */
+export async function cancelExtractionJob(jobId: string): Promise<BackendResponse> {
+  try {
+    const r = await fetch(`${_url}/api/extraction/jobs/${jobId}`, { method: 'DELETE' })
     return { status: r.status, body: await r.json().catch(() => null) }
   } catch (e) {
     return { status: 0, body: { detail: String(e) } }
