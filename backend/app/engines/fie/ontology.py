@@ -10,11 +10,14 @@ See docs/fie_phase0_foundation.md §6, §7.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Optional
 
 from rapidfuzz import fuzz, process
+
+_log = logging.getLogger("app.engines.fie")
 
 # Shared canonical registry produced/used by the extraction engine — the single
 # source of truth for label->canonical resolution (419 metrics with aliases).
@@ -191,3 +194,55 @@ class MetricOntology:
 
     def aliases(self, metric: str) -> list[str]:
         return self._by_canonical.get(metric, [])
+
+    def build_query_matcher(
+        self, available: set[str]
+    ) -> list[tuple[re.Pattern, str]]:
+        """Return (pattern, canonical_id) pairs for metrics in *available*.
+
+        Replaces the hardcoded _METRIC_KEYWORDS list in understanding.py with
+        a workbook-specific matcher derived from the registry + seed aliases.
+        Only metrics actually present in the uploaded workbook are included,
+        so the matcher automatically adapts to every different Excel file.
+
+        Aliases are sorted longest-first within each metric so multi-word
+        phrases win over single-word fallbacks (e.g. 'gross profit' matched
+        before bare 'profit').  Metrics whose longest alias is longest sort
+        first overall for the same reason.
+        """
+        entries: list[tuple[re.Pattern, str, int]] = []
+        for metric in available:
+            raw_aliases = self._by_canonical.get(metric, [])
+            if not raw_aliases:
+                continue
+            # deduplicate on the normalised key; keep longest form of each
+            seen: set[str] = set()
+            deduped: list[str] = []
+            for alias in sorted(raw_aliases, key=len, reverse=True):
+                key = normalize_label(alias)
+                if key and key not in seen:
+                    seen.add(key)
+                    deduped.append(alias)
+            if not deduped:
+                continue
+            parts = [re.escape(a) for a in deduped]
+            pattern = re.compile(
+                r"\b(?:" + "|".join(parts) + r")\b", re.I
+            )
+            entries.append((pattern, metric, max(len(a) for a in deduped)))
+        # most-specific (longest alias) patterns first
+        entries.sort(key=lambda x: x[2], reverse=True)
+        matched = [(p, m) for p, m, _ in entries]
+        skipped = len(available) - len(matched)
+        _log.debug(
+            "fie build_query_matcher: %d patterns built, %d metrics skipped (no aliases)",
+            len(matched), skipped,
+            extra={"component": "Ontology"},
+        )
+        if skipped:
+            no_alias = sorted(available - {m for _, m in matched})
+            _log.debug(
+                "fie build_query_matcher: metrics with no aliases: %s", no_alias,
+                extra={"component": "Ontology"},
+            )
+        return matched

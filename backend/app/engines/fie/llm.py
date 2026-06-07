@@ -10,8 +10,11 @@ introduce numbers (enforced by the numeric guard, see safety.py).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Optional, Protocol, runtime_checkable
+
+_log = logging.getLogger("app.engines.fie")
 
 _MISS = object()  # cache sentinel (distinguish "no entry" from a cached None)
 
@@ -55,6 +58,14 @@ class OpenAILLM:
         # i.e. deterministic) reuse the prior completion instead of re-billing the API.
         self.cache_max = cache_max
         self._cache: dict[tuple, object] = {}
+        # last caught error — readable by the debug recorder so the dump shows the actual
+        # error message instead of bare null when complete_json/complete_text fail.
+        self.last_error: str | None = None
+        _log.info(
+            "OpenAILLM ready: model=%s key_set=%s max_input_chars=%d max_output_tokens=%d",
+            self.model, bool(self._api_key), self.max_input_chars, self.max_output_tokens,
+            extra={"component": "LLM"},
+        )
 
     def _clip(self, text: str) -> str:
         if text and len(text) > self.max_input_chars:
@@ -81,6 +92,7 @@ class OpenAILLM:
         key = ("json", system, user, repr(sorted((schema or {}).items())))
         hit = self._cache_get(key)
         if hit is not _MISS:
+            _log.debug("OpenAI complete_json: cache hit", extra={"component": "LLM"})
             return hit
         try:
             client = self._ensure()
@@ -90,18 +102,33 @@ class OpenAILLM:
                           {"role": "user", "content": self._clip(user)}],
                 response_format={"type": "json_object"},
                 temperature=0,
-                max_tokens=self.max_output_tokens,
+                max_completion_tokens=self.max_output_tokens,
             )
             out = json.loads(resp.choices[0].message.content)
+            usage = resp.usage
+            _log.debug(
+                "OpenAI complete_json ok: model=%s prompt_tokens=%s completion_tokens=%s",
+                self.model,
+                usage.prompt_tokens if usage else "?",
+                usage.completion_tokens if usage else "?",
+                extra={"component": "LLM"},
+            )
             self._cache_put(key, out)
             return out
-        except Exception:
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            _log.warning(
+                "OpenAI complete_json failed: %s  [model=%s key_set=%s]",
+                self.last_error, self.model, bool(self._api_key),
+                extra={"component": "LLM"},
+            )
             return None
 
     def complete_text(self, system: str, user: str) -> Optional[str]:
         key = ("text", system, user)
         hit = self._cache_get(key)
         if hit is not _MISS:
+            _log.debug("OpenAI complete_text: cache hit", extra={"component": "LLM"})
             return hit
         try:
             client = self._ensure()
@@ -110,10 +137,24 @@ class OpenAILLM:
                 messages=[{"role": "system", "content": self._clip(system)},
                           {"role": "user", "content": self._clip(user)}],
                 temperature=0.2,
-                max_tokens=self.max_output_tokens,
+                max_completion_tokens=self.max_output_tokens,
             )
             out = resp.choices[0].message.content
+            usage = resp.usage
+            _log.debug(
+                "OpenAI complete_text ok: model=%s prompt_tokens=%s completion_tokens=%s",
+                self.model,
+                usage.prompt_tokens if usage else "?",
+                usage.completion_tokens if usage else "?",
+                extra={"component": "LLM"},
+            )
             self._cache_put(key, out)
             return out
-        except Exception:
+        except Exception as exc:
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            _log.warning(
+                "OpenAI complete_text failed: %s  [model=%s key_set=%s]",
+                self.last_error, self.model, bool(self._api_key),
+                extra={"component": "LLM"},
+            )
             return None

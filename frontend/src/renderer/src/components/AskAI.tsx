@@ -171,23 +171,22 @@ export function AskAI() {
         {chat.messages.map((m) =>
           m.role === 'user' ? (
             /* user bubble — right-aligned */
-            <div key={m.id} className="flex flex-col items-end gap-1.5">
+            <div key={m.id} className="flex flex-col items-end gap-1">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted">{relativeTime(m.timestamp, now)}</span>
                 <span className="text-xs font-semibold text-ink">{USER_NAME}</span>
                 <UserAvatar />
               </div>
               <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-accent/15 border border-accent/25 px-3.5 py-2.5 text-sm leading-relaxed">
                 {m.text}
               </div>
+              <span className="text-[11px] text-muted">{relativeTime(m.timestamp, now)}</span>
             </div>
           ) : (
             /* AI bubble — left-aligned */
-            <div key={m.id} className="flex flex-col items-start gap-1.5">
+            <div key={m.id} className="flex flex-col items-start gap-1">
               <div className="flex items-center gap-2">
                 <AiAvatar />
                 <span className="text-xs font-semibold text-ink">{AI_NAME}</span>
-                <span className="text-[11px] text-muted">· {relativeTime(m.timestamp, now)}</span>
               </div>
               <div className="ml-9 max-w-full">
                 {m.response ? (
@@ -203,6 +202,7 @@ export function AskAI() {
                   </div>
                 )}
               </div>
+              <span className="ml-9 text-[11px] text-muted">{relativeTime(m.timestamp, now)}</span>
             </div>
           )
         )}

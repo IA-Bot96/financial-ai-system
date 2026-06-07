@@ -173,14 +173,28 @@ def render(
         fc, act = extra.get("forecast"), extra.get("latest_actual")
         metric = (extra.get("metric") or "metric").replace("_", " ")
         if fc is None:
-            base = (f"No {metric} forecast on record for {company} {extra.get('year')}, "
-                    f"so it cannot be validated against a target.")
-            if act is not None:
-                direct = (base + f" Latest actual {metric} is {_fmt(act, 'currency')} "
-                          f"(Rs '000, FY{extra.get('latest_year')}).")
+            history_series = extra.get("history_series", [])
+            cagr = extra.get("history_cagr")
+            span = extra.get("history_span")
+            if history_series and span:
+                cagr_txt = f" (CAGR {cagr:.1%})" if cagr is not None else ""
+                direct = (
+                    f"No external {metric} forecast on record for {company}. "
+                    f"Historical trend: {metric} {('rose' if (history_series[-1]['value'] or 0) > (history_series[0]['value'] or 0) else 'fell')} "
+                    f"from {_fmt(history_series[0]['value'], 'currency')} (FY{span[0]}) to "
+                    f"{_fmt(history_series[-1]['value'], 'currency')} (FY{span[1]}){cagr_txt}. "
+                    f"Assess the stated target against this {len(history_series)}-year trend."
+                )
                 findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
             else:
-                direct = base
+                year_str = f" (FY{extra.get('year')})" if extra.get("year") else ""
+                base = f"No {metric} forecast on record for {company}{year_str}, so it cannot be validated against a target."
+                if act is not None:
+                    direct = (base + f" Latest actual {metric} is {_fmt(act, 'currency')} "
+                              f"(Rs '000, FY{extra.get('latest_year')}).")
+                    findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+                else:
+                    direct = base
         elif act is not None:
             delta = (fc - act) / act if act else None
             direction = "above" if fc > act else "below"

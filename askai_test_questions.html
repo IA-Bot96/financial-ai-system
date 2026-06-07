@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AskAI Test Questions</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --ink: #17202a;
+      --muted: #667085;
+      --line: #d8dee8;
+      --accent: #0f766e;
+      --accent-2: #b45309;
+      --accent-3: #2563eb;
+      --danger: #b42318;
+      --shadow: 0 12px 30px rgba(20, 31, 43, 0.08);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      letter-spacing: 0;
+    }
+
+    .app {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 18px 44px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 30px;
+      line-height: 1.15;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      max-width: 820px;
+      line-height: 1.45;
+      font-size: 15px;
+    }
+
+    .toolbar {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .search {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfcfe;
+      min-height: 42px;
+    }
+
+    .search svg {
+      width: 18px;
+      height: 18px;
+      margin-left: 12px;
+      stroke: var(--muted);
+    }
+
+    input[type="search"] {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      outline: none;
+      font: inherit;
+      color: var(--ink);
+      padding: 10px 12px 10px 4px;
+      min-width: 0;
+    }
+
+    .filters {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: var(--ink);
+      border-radius: var(--radius);
+      padding: 8px 11px;
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      border-color: #aab5c6;
+      background: #fbfcfe;
+    }
+
+    button.active {
+      border-color: var(--accent);
+      background: #e7f5f2;
+      color: #075e55;
+      font-weight: 650;
+    }
+
+    .primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .primary:hover {
+      background: #0b665f;
+      border-color: #0b665f;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-bottom: 5px;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .category {
+      margin-top: 18px;
+    }
+
+    .category-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 8px;
+      padding: 0 2px;
+    }
+
+    .category-title {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      font-size: 18px;
+      font-weight: 750;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: inline-block;
+    }
+
+    .category[data-category="Data Quality / Validation"] .dot {
+      background: var(--accent-2);
+    }
+
+    .category[data-category="Qualitative Analysis"] .dot {
+      background: var(--accent-3);
+    }
+
+    .category[data-category="Forecast Validation"] .dot {
+      background: var(--danger);
+    }
+
+    .count {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .question {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: start;
+      min-height: 76px;
+    }
+
+    .qid {
+      width: 34px;
+      min-width: 34px;
+      height: 30px;
+      border-radius: 6px;
+      background: #eef2f7;
+      color: #344054;
+      font-weight: 750;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .qtext {
+      line-height: 1.42;
+      font-size: 15px;
+      padding-top: 2px;
+      overflow-wrap: anywhere;
+    }
+
+    .copy {
+      min-height: 34px;
+      min-width: 40px;
+      padding: 6px 8px;
+    }
+
+    .copy svg,
+    .primary svg,
+    .actions svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      background: #17202a;
+      color: #ffffff;
+      padding: 11px 13px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      font-size: 14px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 160ms ease, transform 160ms ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 900px) {
+      header,
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .actions {
+        justify-content: stretch;
+      }
+
+      .actions button {
+        flex: 1;
+      }
+    }
+
+    @media (max-width: 540px) {
+      h1 {
+        font-size: 24px;
+      }
+
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .question {
+        grid-template-columns: auto 1fr;
+      }
+
+      .copy {
+        grid-column: 2;
+        justify-self: start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>AskAI Test Questions</h1>
+        <p class="subtitle">A focused test set for quantitative analysis, data validation, qualitative analysis, and forecast validation.</p>
+      </div>
+      <button class="primary" id="copyVisible" type="button" title="Copy visible questions">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        Copy Visible
+      </button>
+    </header>
+
+    <section class="toolbar" aria-label="Question controls">
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.3-4.3"></path>
+        </svg>
+        <input id="search" type="search" placeholder="Search questions" />
+      </label>
+      <div class="filters" id="filters"></div>
+      <div class="actions">
+        <button id="copyAll" type="button" title="Copy all questions">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          Copy All
+        </button>
+        <button id="downloadCsv" type="button" title="Download CSV">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <path d="M7 10l5 5 5-5"></path>
+            <path d="M12 15V3"></path>
+          </svg>
+          CSV
+        </button>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="Summary">
+      <div class="stat"><strong id="visibleCount">50</strong><span>Visible questions</span></div>
+      <div class="stat"><strong>4</strong><span>Test categories</span></div>
+      <div class="stat"><strong>20</strong><span>Quantitative prompts</span></div>
+      <div class="stat"><strong>10</strong><span>Forecast prompts</span></div>
+    </section>
+
+    <div id="questionRoot"></div>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">Copied</div>
+
+  <script>
+    const questions = [
+      { id: 1, category: "Quantitative Analysis", text: "What was revenue growth year over year from 2022 to 2025?" },
+      { id: 2, category: "Quantitative Analysis", text: "What was gross profit margin for each year, and which year had the highest margin?" },
+      { id: 3, category: "Quantitative Analysis", text: "Calculate net profit margin for each year and explain the trend." },
+      { id: 4, category: "Quantitative Analysis", text: "Compare operating profit growth versus revenue growth across all available years." },
+      { id: 5, category: "Quantitative Analysis", text: "Which expense line had the largest increase between 2024 and 2025?" },
+      { id: 6, category: "Quantitative Analysis", text: "What is the trend in finance cost as a percentage of revenue?" },
+      { id: 7, category: "Quantitative Analysis", text: "Calculate return on assets for each year." },
+      { id: 8, category: "Quantitative Analysis", text: "Calculate return on equity for each year." },
+      { id: 9, category: "Quantitative Analysis", text: "What changed more between 2024 and 2025: revenue or profit after tax?" },
+      { id: 10, category: "Quantitative Analysis", text: "What is the company's current ratio by year?" },
+      { id: 11, category: "Quantitative Analysis", text: "What is the debt-to-equity ratio by year?" },
+      { id: 12, category: "Quantitative Analysis", text: "Has working capital improved or deteriorated over the years?" },
+      { id: 13, category: "Quantitative Analysis", text: "Which balance sheet line item drove the largest change in total assets?" },
+      { id: 14, category: "Quantitative Analysis", text: "Compare current assets and current liabilities over time." },
+      { id: 15, category: "Quantitative Analysis", text: "What is the trend in cash and bank balances?" },
+      { id: 16, category: "Quantitative Analysis", text: "Identify any years where profit growth and revenue growth moved in opposite directions." },
+      { id: 17, category: "Quantitative Analysis", text: "Calculate EBITDA if the required fields are available; if not, explain what is missing." },
+      { id: 18, category: "Quantitative Analysis", text: "Which year shows the strongest financial performance based on revenue, margin, and PAT?" },
+      { id: 19, category: "Quantitative Analysis", text: "Are there any unusual jumps or drops in the financial statements?" },
+      { id: 20, category: "Quantitative Analysis", text: "Summarize the top 5 financial KPIs for the company." },
+
+      { id: 21, category: "Data Quality / Validation", text: "Are the P&L totals consistent with the underlying line items?" },
+      { id: 22, category: "Data Quality / Validation", text: "Does the balance sheet balance for every year?" },
+      { id: 23, category: "Data Quality / Validation", text: "Which financial values appear to be overridden or reconciled from source reports?" },
+      { id: 24, category: "Data Quality / Validation", text: "Are there any missing financial values in the workbook?" },
+      { id: 25, category: "Data Quality / Validation", text: "Which sheets have the weakest detail-level mapping?" },
+      { id: 26, category: "Data Quality / Validation", text: "Are any values inconsistent between detail sheets and output sheets?" },
+      { id: 27, category: "Data Quality / Validation", text: "Which metrics have source references, and which do not?" },
+      { id: 28, category: "Data Quality / Validation", text: "Are there any duplicated or conflicting values for the same year?" },
+      { id: 29, category: "Data Quality / Validation", text: "Does the workbook prefer the newest report when restated prior-year values exist?" },
+      { id: 30, category: "Data Quality / Validation", text: "Which values should not be trusted for detailed analysis?" },
+
+      { id: 31, category: "Qualitative Analysis", text: "What are the main business risks mentioned in the reports?" },
+      { id: 32, category: "Qualitative Analysis", text: "What are the key management priorities across the years?" },
+      { id: 33, category: "Qualitative Analysis", text: "How does management explain changes in revenue or profitability?" },
+      { id: 34, category: "Qualitative Analysis", text: "What macroeconomic factors affected the company's performance?" },
+      { id: 35, category: "Qualitative Analysis", text: "What operational challenges are repeatedly mentioned?" },
+      { id: 36, category: "Qualitative Analysis", text: "What does management say about demand, market share, and industry conditions?" },
+      { id: 37, category: "Qualitative Analysis", text: "Are there any governance or related-party concerns?" },
+      { id: 38, category: "Qualitative Analysis", text: "What are the main liquidity or working-capital issues?" },
+      { id: 39, category: "Qualitative Analysis", text: "What external factors could affect future performance?" },
+      { id: 40, category: "Qualitative Analysis", text: "Compare management's tone in the latest report versus prior years." },
+
+      { id: 41, category: "Forecast Validation", text: "Based on historical revenue and margins, is a 10% revenue growth forecast reasonable?" },
+      { id: 42, category: "Forecast Validation", text: "Is the forecasted gross margin consistent with historical performance?" },
+      { id: 43, category: "Forecast Validation", text: "If revenue grows but PAT declines, what assumptions could explain that?" },
+      { id: 44, category: "Forecast Validation", text: "Validate whether the forecasted finance cost is realistic given past finance costs." },
+      { id: 45, category: "Forecast Validation", text: "Does the forecast assume margin improvement that is unsupported by history?" },
+      { id: 46, category: "Forecast Validation", text: "What external market factors could support or weaken the forecast?" },
+      { id: 47, category: "Forecast Validation", text: "Compare the forecast to historical volatility in revenue and profit." },
+      { id: 48, category: "Forecast Validation", text: "Which forecast assumptions are most sensitive to external conditions?" },
+      { id: 49, category: "Forecast Validation", text: "What would need to happen for the company to reach the forecasted profit target?" },
+      { id: 50, category: "Forecast Validation", text: "Give a red/yellow/green confidence rating for the forecast and explain why." }
+    ];
+
+    const root = document.getElementById("questionRoot");
+    const filters = document.getElementById("filters");
+    const search = document.getElementById("search");
+    const visibleCount = document.getElementById("visibleCount");
+    const toast = document.getElementById("toast");
+    let activeCategory = "All";
+
+    const categories = ["All", ...Array.from(new Set(questions.map(q => q.category)))];
+
+    function iconCopy() {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+    }
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add("show");
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 1400);
+    }
+
+    async function copyText(text) {
+      await navigator.clipboard.writeText(text);
+      showToast("Copied");
+    }
+
+    function filteredQuestions() {
+      const term = search.value.trim().toLowerCase();
+      return questions.filter(q => {
+        const categoryMatch = activeCategory === "All" || q.category === activeCategory;
+        const searchMatch = !term || q.text.toLowerCase().includes(term) || q.category.toLowerCase().includes(term);
+        return categoryMatch && searchMatch;
+      });
+    }
+
+    function renderFilters() {
+      filters.innerHTML = "";
+      categories.forEach(category => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = category;
+        button.className = category === activeCategory ? "active" : "";
+        button.addEventListener("click", () => {
+          activeCategory = category;
+          renderFilters();
+          renderQuestions();
+        });
+        filters.appendChild(button);
+      });
+    }
+
+    function renderQuestions() {
+      const visible = filteredQuestions();
+      visibleCount.textContent = visible.length;
+      root.innerHTML = "";
+
+      const grouped = categories
+        .filter(c => c !== "All")
+        .map(category => ({ category, items: visible.filter(q => q.category === category) }))
+        .filter(group => group.items.length);
+
+      grouped.forEach(group => {
+        const section = document.createElement("section");
+        section.className = "category";
+        section.dataset.category = group.category;
+
+        const header = document.createElement("div");
+        header.className = "category-header";
+        header.innerHTML = '<div class="category-title"><span class="dot"></span><span>' + group.category + '</span></div><span class="count">' + group.items.length + ' questions</span>';
+
+        const grid = document.createElement("div");
+        grid.className = "grid";
+
+        group.items.forEach(q => {
+          const article = document.createElement("article");
+          article.className = "question";
+          article.innerHTML = '<span class="qid">' + q.id + '</span><div class="qtext">' + q.text + '</div><button class="copy" type="button" title="Copy question">' + iconCopy() + '</button>';
+          article.querySelector("button").addEventListener("click", () => copyText(q.text));
+          grid.appendChild(article);
+        });
+
+        section.appendChild(header);
+        section.appendChild(grid);
+        root.appendChild(section);
+      });
+    }
+
+    function formatQuestions(list) {
+      return list.map(q => q.id + ". [" + q.category + "] " + q.text).join("\\n");
+    }
+
+    function csvEscape(value) {
+      return '"' + String(value).replace(/"/g, '""') + '"';
+    }
+
+    document.getElementById("copyVisible").addEventListener("click", () => copyText(formatQuestions(filteredQuestions())));
+    document.getElementById("copyAll").addEventListener("click", () => copyText(formatQuestions(questions)));
+    document.getElementById("downloadCsv").addEventListener("click", () => {
+      const rows = [["ID", "Category", "Question"], ...questions.map(q => [q.id, q.category, q.text])];
+      const csv = rows.map(row => row.map(csvEscape).join(",")).join("\\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "askai_test_questions.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+    search.addEventListener("input", renderQuestions);
+
+    renderFilters();
+    renderQuestions();
+  </script>
+</body>
+</html>

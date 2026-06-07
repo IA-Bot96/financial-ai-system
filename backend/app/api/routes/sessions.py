@@ -27,7 +27,7 @@ import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, field_validator
 
-from app.api.routes.fie import _external_client          # shared resilient HTTP client
+from app.api.routes.fie import _external_client, _llm    # shared resilient HTTP client + LLM
 from app.core.config import STORAGE_ROOT, get_settings
 from app.core.metrics import METRICS
 from app.core.security import UploadRejected, assert_safe_upload
@@ -49,9 +49,16 @@ _SESSIONS_DIR = os.path.join(str(STORAGE_ROOT), "sessions")
 _SESSIONS: dict[str, dict] = {}
 
 
+class HistoryTurn(BaseModel):
+    role: str                  # "user" | "assistant"
+    text: str
+    frame: dict | None = None  # resolved QueryFrame echoed back from the prior response
+
+
 class SessionAnswerRequest(BaseModel):
     query: str
     audience: str = "analyst"
+    history: list[HistoryTurn] = []   # recent conversation turns for follow-up context
 
     @field_validator("query")
     @classmethod
@@ -103,7 +110,7 @@ def _build(session_id: str, data: bytes) -> dict:
     store = FinancialFactStore.from_workbook(path)          # the only parse (create/reload)
     client = _external_client()
     external = ExternalSources(news=News(client), symbols=Symbols(client))
-    engine = FinancialIntelligenceEngine(store, external=external)
+    engine = FinancialIntelligenceEngine(store, llm=_llm(), external=external)
     meta = {"session_id": session_id, "company": store.company, "years": store.years,
             "sheets": _sheet_meta(path), "metrics": sorted(store.available_metrics())}
     return {"engine": engine, "store": store, "meta": meta, "path": path}
@@ -176,10 +183,19 @@ def session_series(session_id: str) -> dict:
 def answer_in_session(session_id: str, req: SessionAnswerRequest) -> dict:
     rec = _get(session_id)
     engine = rec["engine"]                                  # RESIDENT engine — no re-ingest
-    _external_client().begin_request(get_settings().max_external_calls_per_request)
+    settings = get_settings()
+    _external_client().begin_request(settings.max_external_calls_per_request)
+
+    # History is owned by the frontend. Assistant turns carry the resolved QueryFrame
+    # (echoed back in every response) instead of prose text — GPT gets compact, structured
+    # context for follow-up resolution rather than verbose financial narratives.
+    history = [{"role": t.role, "text": t.text, "frame": t.frame} for t in req.history]
+    _log.info("fie session=%s query=%r history_len=%d audience=%s",
+              session_id, req.query, len(history), req.audience,
+              extra={"component": "fie-api"})
 
     t0 = time.monotonic()
-    resp, trace = engine.answer_with_trace(req.query, audience=req.audience)
+    resp, trace = engine.answer_with_trace(req.query, audience=req.audience, history=history)
     elapsed = time.monotonic() - t0
     cov = resp.coverage or {}
     band = resp.confidence.band if resp.confidence else "n/a"
@@ -196,14 +212,14 @@ def answer_in_session(session_id: str, req: SessionAnswerRequest) -> dict:
               session_id, trace.trace_id, trace.frame.intent, band,
               cov.get("degraded"), elapsed * 1000, extra={"component": "fie-api"})
 
-    settings = get_settings()
     if settings.fie_trace_enabled:
         try:
             TraceStore(settings.fie_trace_dir).persist(trace)
         except Exception:
             _log.warning("trace persist failed for %s", trace.trace_id,
                          extra={"component": "fie-api"})
-    return resp.model_dump()
+
+    return {**resp.model_dump(), "frame": trace.frame.model_dump()}
 
 
 @router.post("/{session_id}/reload")

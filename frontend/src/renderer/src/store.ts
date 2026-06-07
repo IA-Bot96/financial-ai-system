@@ -10,6 +10,7 @@ export interface ChatTurn {
   role: 'user' | 'assistant'
   text?: string
   response?: FieResponse
+  frame?: Record<string, unknown>  // resolved QueryFrame echoed from the engine response
   error?: string
   timestamp: number
 }
@@ -111,6 +112,7 @@ export const useApp = create<AppState>((set) => ({
       sheets,
       loadSeq: st.loadSeq + 1,
       workbook: { dirty: false, filePath, origin },
+      chat: { messages: [], pending: false },
       view: 'sheet',
       uploadOpen: false
     }))
@@ -152,6 +154,19 @@ export const useApp = create<AppState>((set) => ({
     const uid = `u${++_tid}`
     const aid = `a${++_tid}`
     const now = Date.now()
+
+    // Build conversation history from settled turns (exclude any still-pending assistant slot).
+    // Assistant turns carry the resolved QueryFrame (compact, ~40 chars) instead of prose
+    // (~1000+ chars), so we can send 8 full turns for the same token cost as 4 prose turns.
+    const history = s.chat.messages
+      .filter((m) => m.role === 'user' ? !!m.text : !!(m.response || m.error))
+      .slice(-16)   // last 8 complete turns (user + assistant each)
+      .map((m) => ({
+        role: m.role,
+        text: m.role === 'user' ? (m.text ?? '') : '',
+        ...(m.role === 'assistant' && m.frame ? { frame: m.frame } : {})
+      }))
+
     set((st) => ({
       chat: {
         pending: true,
@@ -162,7 +177,7 @@ export const useApp = create<AppState>((set) => ({
         ]
       }
     }))
-    const res = await api.answer(s.session.session_id, query)
+    const res = await api.answer(s.session.session_id, query, history)
     set((st) => ({
       chat: {
         pending: false,
@@ -170,7 +185,7 @@ export const useApp = create<AppState>((set) => ({
           m.id !== aid
             ? m
             : res.status === 200
-              ? { ...m, response: res.body }
+              ? { ...m, response: res.body, frame: res.body.frame }
               : {
                   ...m,
                   error:

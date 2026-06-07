@@ -85,13 +85,14 @@ class FinancialIntelligenceEngine:
         "earnings_review": "_h_news",
     }
 
-    def answer(self, query: str, *, audience: str = "analyst") -> Response:
-        _frame, _plan, _ctx, resp = self._run(query, audience)
+    def answer(self, query: str, *, audience: str = "analyst",
+               history: list[dict] | None = None) -> Response:
+        _frame, _plan, _ctx, resp = self._run(query, audience, history or [])
         return resp
 
-    def answer_with_trace(self, query: str, *, audience: str = "analyst"
-                          ) -> tuple[Response, TraceRecord]:
-        frame, plan, ctx, resp = self._run(query, audience)
+    def answer_with_trace(self, query: str, *, audience: str = "analyst",
+                          history: list[dict] | None = None) -> tuple[Response, TraceRecord]:
+        frame, plan, ctx, resp = self._run(query, audience, history or [])
         trace = TraceRecord(
             trace_id=ctx.trace_id or self._trace_id(), query=query, audience=audience,
             company=frame.company, frame=frame, plan=plan,
@@ -100,7 +101,7 @@ class FinancialIntelligenceEngine:
         return resp, trace
 
     # ------------------------------------------------------------ core run
-    def _run(self, query: str, audience: str):
+    def _run(self, query: str, audience: str, history: list[dict]):
         """Mint a trace id, set up DEBUG observability (a per-query .log file + a
         per-layer artifact dump), then run the pipeline. All dumping is a no-op when
         DEBUG is off — same behavior, ~zero overhead."""
@@ -111,11 +112,19 @@ class FinancialIntelligenceEngine:
                 stack.enter_context(per_query_log(trace_id))  # logs/<ts>_<id>.log
                 dumper.subject(trace_id)
                 stack.callback(restore_llms, wrap_llms(self, dumper))  # capture LLM calls
-            return self._pipeline(query, audience, trace_id, dumper)
+            return self._pipeline(query, audience, trace_id, dumper, history)
 
-    def _pipeline(self, query: str, audience: str, trace_id: str, dumper):
+    def _pipeline(self, query: str, audience: str, trace_id: str, dumper,
+                  history: list[dict]):
         t0 = time.monotonic()
-        frame = understanding.understand(query, llm=self.llm)
+        frame = understanding.understand(
+            query,
+            llm=self.llm,
+            available_metrics=list(self.store.available_metrics()),
+            available_years=list(self.store.years),
+            history=history,
+            metric_matcher=self.store.query_metric_matcher(),
+        )
         plan = planner.plan(frame, llm=self.llm)
         _layer("Understand", "intent=%s company=%s year=%s formula=%s sources=%s (%s)",
                 frame.intent, frame.company, frame.year, frame.formula,
@@ -127,6 +136,7 @@ class FinancialIntelligenceEngine:
 
         ctx = _Ctx()
         ctx.trace_id = trace_id
+        ctx.dumper = dumper
 
         # intent -> handler dispatch (registry, not an if/elif ladder): a new intent
         # without a registered handler degrades EXPLICITLY (logged), never silently.
@@ -221,6 +231,14 @@ class FinancialIntelligenceEngine:
         )
         if dumper.enabled:
             dumper.json("13_response", resp)
+            actual_llm = getattr(self.llm, "_llm", self.llm)
+            llm_info: dict = {"type": type(actual_llm).__name__}
+            if hasattr(actual_llm, "model"):
+                llm_info["model"] = actual_llm.model
+            if hasattr(actual_llm, "_api_key"):
+                llm_info["key_set"] = bool(actual_llm._api_key)
+            if hasattr(actual_llm, "last_error") and actual_llm.last_error:
+                llm_info["last_error"] = actual_llm.last_error
             dumper.json("00_summary", {
                 "trace_id": trace_id, "query": query, "audience": audience,
                 "intent": frame.intent, "company": frame.company, "year": frame.year,
@@ -228,6 +246,8 @@ class FinancialIntelligenceEngine:
                 "evidence": len(ctx.evidence), "calcs": len(ctx.calcs),
                 "conflicts": len(ctx.conflicts), "citations": len(cites),
                 "degraded": ctx.degraded, "partial_coverage": ctx.partial_coverage,
+                "frame_source": frame.source,
+                "llm": llm_info,
                 "elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
             })
         return frame, plan, ctx, resp
@@ -247,7 +267,8 @@ class FinancialIntelligenceEngine:
     def _h_metric_lookup(self, frame, ctx, plan) -> None:
         # availability-gated resolution + clarification on ambiguous terms
         mr = metric_resolve.resolve(frame.raw_query, frame.metrics,
-                                    self.store.available_metrics())
+                                    self.store.available_metrics(),
+                                    matcher=self.store.query_metric_matcher())
         if mr["clarify"]:
             ctx.extra = {"clarify": True, "candidates": mr["candidates"],
                          "suggestions": mr["suggestions"]}
@@ -531,40 +552,66 @@ class FinancialIntelligenceEngine:
         metric = frame.metrics[0] if frame.metrics else "revenue"
         fyear = frame.year
 
-        # always gather the internal latest actual (this is the degrade-to-internal path)
-        latest = None
-        for y in sorted(self.store.years, reverse=True):
+        # Gather the full historical series (all years with values)
+        history: list[tuple[int, float]] = []
+        history_facts: list = []
+        for y in sorted(self.store.years):
             try:
                 f = self.store.lookup(metric, y)
-                if f.value is not None:
-                    latest = f
-                    break
+                if f.value is not None and f.period_type == "historical":
+                    history.append((y, f.value))
+                    history_facts.append(f)
             except KeyError:
                 continue
-        if latest is not None:
-            ctx.evidence += retrieval.evidence_from_facts(self.store, [latest])
+
+        # Add evidence for the full series (not just latest)
+        if history_facts:
+            ctx.evidence += retrieval.evidence_from_facts(self.store, history_facts)
+
+        latest = history_facts[-1] if history_facts else None
 
         fc = repo.get(self.store.company, metric, fyear) if (repo and fyear) else None
         if fc is None:
-            ctx.degraded = True  # forecast source unavailable -> proceed on internal only
-            ctx.extra = {"forecast": None, "metric": metric, "year": fyear,
-                         "latest_actual": (latest.value if latest else None),
-                         "latest_year": (latest.year if latest else None),
-                         "note": "no forecast on record"}
+            ctx.degraded = True
+
+            # Compute CAGR from the available series
+            cagr = None
+            if len(history) >= 2:
+                first_val, last_val = history[0][1], history[-1][1]
+                n_years = history[-1][0] - history[0][0]
+                if first_val and first_val > 0 and n_years >= 1:
+                    cagr = round((last_val / first_val) ** (1 / n_years) - 1, 4)
+
+            # Pull relevant insights — gives the LLM qualitative context for its assessment
+            all_insights = self.store.insights(include_review=True)
+            sel_insights, resolutions = self.insights.select_and_resolve(frame, all_insights)
+            if sel_insights:
+                ctx.selected_insights = sel_insights
+                ctx.insight_resolutions = resolutions
+                ctx.total_insights = len(all_insights)
+                ctx.evidence += [insights_mod.insight_evidence(r) for r in sel_insights]
+
+            _layer("Forecast", "no external forecast; series=%d points cagr=%s insights=%d",
+                   len(history), f"{cagr:.1%}" if cagr is not None else "n/a",
+                   len(sel_insights) if sel_insights else 0)
+
+            history_span = (history[0][0], history[-1][0]) if len(history) >= 2 else None
+            ctx.extra = {
+                "forecast": None, "metric": metric, "year": fyear,
+                "latest_actual": (latest.value if latest else None),
+                "latest_year": (latest.year if latest else None),
+                "history_series": [{"year": y, "value": v} for y, v in history],
+                "history_cagr": cagr,
+                "history_span": history_span,
+                "note": "no forecast on record",
+            }
             return
+
         ctx.evidence.append(fc)
         # validate the forecast against the company's OWN historical actual series
         # (workbook = trusted baseline): volatility-adaptive growth / trend / scale rules.
-        history: list[tuple[int, float]] = []
-        for y in sorted(self.store.years):
-            if fyear and y >= fyear:
-                continue
-            try:
-                f = self.store.lookup(metric, y)
-            except KeyError:
-                continue
-            if f.value is not None and f.period_type == "historical":
-                history.append((y, f.value))
+        if fyear:
+            history = [(y, v) for y, v in history if y < fyear]
         validation = forecast_rules.validate_forecast(history, fc.value)
         ctx.extra = {"forecast": fc.value, "metric": metric, "year": fyear,
                      "latest_actual": (latest.value if latest else None),
@@ -687,3 +734,4 @@ class _Ctx:
         self.extra: dict | None = None
         self.total_insights = 0
         self.superseded = 0
+        self.dumper = None  # DebugDumper — set by _pipeline for dump-layer access in handlers

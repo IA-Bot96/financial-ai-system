@@ -21,14 +21,23 @@ class FieLLMRecorder:
         self._llm = llm
         self._d = dumper
 
+    def _last_error(self) -> str | None:
+        """Return the error message stored by OpenAILLM after a failed call, if any."""
+        return getattr(self._llm, "last_error", None)
+
     def complete_json(self, system: str, user: str, schema: dict) -> Optional[dict]:
         base = self._d.gpt_request("json", system, user)
         try:
             resp = self._llm.complete_json(system, user, schema)
         except Exception as exc:  # noqa: BLE001 — record then re-raise
-            self._d.gpt_response(base, {"error": str(exc)})
+            self._d.gpt_response(base, {"error": str(exc), "source": "exception"})
             raise
-        self._d.gpt_response(base, resp)
+        # OpenAILLM catches API errors internally and returns None — surface the stored
+        # error so the dump shows the actual failure reason instead of bare null.
+        if resp is None and self._last_error():
+            self._d.gpt_response(base, {"error": self._last_error(), "source": "caught"})
+        else:
+            self._d.gpt_response(base, resp)
         return resp
 
     def complete_text(self, system: str, user: str) -> Optional[str]:
@@ -36,9 +45,12 @@ class FieLLMRecorder:
         try:
             resp = self._llm.complete_text(system, user)
         except Exception as exc:  # noqa: BLE001
-            self._d.gpt_response(base, {"error": str(exc)})
+            self._d.gpt_response(base, {"error": str(exc), "source": "exception"})
             raise
-        if base is not None:                       # text response -> .txt for readability
+        if resp is None and self._last_error():
+            self._d.gpt_response(base, {"error": self._last_error(), "source": "caught"})
+            return resp
+        if base is not None:
             self._d.text(f"{base}_resp", resp if resp is not None else "(None)")
         return resp
 

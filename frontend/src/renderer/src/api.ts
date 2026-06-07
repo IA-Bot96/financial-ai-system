@@ -33,6 +33,7 @@ export interface FieResponse {
   confidence: { band: 'High' | 'Medium' | 'Low'; score?: number; reasons?: string[] } | null
   coverage: Record<string, unknown>
   prose_source: 'deterministic' | 'llm'
+  frame?: Record<string, unknown>  // resolved QueryFrame — echoed back so history can carry it
 }
 
 async function get<T>(path: string): Promise<{ status: number; body: T }> {
@@ -48,8 +49,11 @@ export const api = {
   readiness: () => get<Readiness>('/readiness'),
   health: () => get<{ status: string }>('/health'),
   companies: () => get<{ companies: string[]; default: string }>('/api/fie/companies'),
-  answer: (sessionId: string, query: string) =>
-    post<FieResponse>(`/api/fie/sessions/${sessionId}/answer`, { query }),
+  answer: (
+    sessionId: string,
+    query: string,
+    history: Array<{ role: string; text: string; frame?: Record<string, unknown> }> = []
+  ) => post<FieResponse>(`/api/fie/sessions/${sessionId}/answer`, { query, history }),
   series: (sessionId: string) =>
     get<SeriesResponse>(`/api/fie/sessions/${sessionId}/series`)
 }

@@ -21,6 +21,7 @@ from app.core.config import STORAGE_ROOT, get_settings
 from app.core.metrics import METRICS
 from app.engines.fie import ExternalSources, FinancialFactStore, FinancialIntelligenceEngine
 from app.engines.fie.apis import ApiClient, HttpTransport, News, Symbols
+from app.engines.fie.llm import NullLLM, OpenAILLM
 from app.engines.fie.trace import TraceStore
 
 _MAX_QUERY = get_settings().fie_max_query_chars
@@ -79,6 +80,22 @@ def _external_client() -> ApiClient:
     return ApiClient(HttpTransport())
 
 
+@lru_cache(maxsize=1)
+def _llm():
+    """Singleton LLM client — NullLLM if no API key is configured."""
+    s = get_settings()
+    if not (s.openai_api_key or "").strip():
+        _log.warning("OPENAI_API_KEY not set — LLM validation disabled (NullLLM)",
+                     extra={"component": "fie-api"})
+        return NullLLM()
+    return OpenAILLM(
+        model=s.openai_model,
+        api_key=s.openai_api_key,
+        max_input_chars=s.llm_max_input_chars,
+        max_output_tokens=s.llm_max_output_tokens,
+    )
+
+
 def _engine(company: str) -> FinancialIntelligenceEngine:
     primary = _store(company)
     # register the other delivered workbooks as peers (for peer_comparison)
@@ -93,7 +110,7 @@ def _engine(company: str) -> FinancialIntelligenceEngine:
     # with no keys configured the engine simply degrades — no news evidence).
     client = _external_client()
     external = ExternalSources(peers=peers, news=News(client), symbols=Symbols(client))
-    return FinancialIntelligenceEngine(primary, external=external)
+    return FinancialIntelligenceEngine(primary, llm=_llm(), external=external)
 
 
 @router.post("/answer")

@@ -13,8 +13,11 @@ See docs/fie_phase0_foundation.md §3, §5, §6.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Optional
+
+_log = logging.getLogger("app.engines.fie")
 
 import openpyxl
 import pandas as pd
@@ -55,6 +58,7 @@ class FinancialFactStore:
         self.manifest = manifest
         self.ontology = ontology
         self._cite_seq = 0
+        self._cached_query_matcher: list | None = None
 
     # ------------------------------------------------------------------ load
     @classmethod
@@ -135,6 +139,25 @@ class FinancialFactStore:
         valued = sel[sel["value"].notna()]
         row = (valued.iloc[0] if not valued.empty else sel.iloc[0]).to_dict()
         return self._row_to_factref(row)
+
+    def query_metric_matcher(self) -> list:
+        """Compiled (pattern, canonical_id) list for query-time metric matching.
+
+        Built once from the ontology aliases filtered to metrics actually present
+        in this workbook.  Cached on the store instance — zero overhead after the
+        first call.  Pass to understanding.understand() and metric_resolve.resolve()
+        so query classification is driven by the uploaded Excel, not a hardcoded list.
+        """
+        if self._cached_query_matcher is None:
+            self._cached_query_matcher = self.ontology.build_query_matcher(
+                self.available_metrics()
+            )
+            _log.debug(
+                "fie query_matcher cached for company=%r: %d patterns",
+                self.company, len(self._cached_query_matcher),
+                extra={"component": "Store"},
+            )
+        return self._cached_query_matcher
 
     def available_metrics(self, *, level: str = "headline",
                           period_type: str = "historical") -> set[str]:

@@ -14,11 +14,14 @@ See architecture §3.4 and docs/fie_implementation_plan.md §Phase 2 (2.3).
 
 from __future__ import annotations
 
+import logging
 from typing import Literal, Optional
 
 from rapidfuzz import fuzz
 
 from .models import Citation, EvidenceItem, QueryFrame
+
+_log = logging.getLogger("app.engines.fie")
 
 ResolveMode = Literal["year_then_confidence", "blended"]
 
@@ -108,12 +111,44 @@ class InsightSelector:
 
     def select(self, frame: QueryFrame, insights: list[dict], *,
                min_relevance: float = 0.5) -> list[dict]:
-        scored = []
+        total = len(insights)
+        all_scored: list[tuple[float, dict]] = []
         for rec in insights:
             r = _relevance(rec, frame)
-            if r >= min_relevance:
-                scored.append({**rec, "relevance": r})
+            all_scored.append((r, rec))
+
+        scored = [{**rec, "relevance": r} for r, rec in all_scored if r >= min_relevance]
         scored.sort(key=lambda x: x["relevance"], reverse=True)
+        filtered_out = total - len(scored)
+
+        # Build the same terms _relevance() uses, so logs show exactly what was matched
+        terms: list[str] = [m.replace("_", " ") for m in (frame.metrics or [])]
+        if frame.intent == "risk_assessment":
+            terms += ["risk", "margin", "pressure", "liquidity", "demand", "cost"]
+        terms += [w for w in frame.raw_query.lower().split() if len(w) > 3]
+
+        _log.debug(
+            "fie InsightSelector.select: query=%r intent=%s metrics=%s pool=%d "
+            "min_relevance=%.2f passed=%d filtered=%d terms=%s",
+            frame.raw_query[:80], frame.intent, frame.metrics,
+            total, min_relevance, len(scored), filtered_out, terms[:10],
+            extra={"component": "Insights"},
+        )
+        for i, r in enumerate(scored[:10]):
+            _log.debug(
+                "  top[%d] %s area=%r yr=%s relevance=%.4f conf=%.2f",
+                i + 1, r.get("insight_id"), r.get("area"), r.get("year"),
+                r["relevance"], r.get("confidence", 0),
+                extra={"component": "Insights"},
+            )
+        if filtered_out:
+            lowest = min(all_scored, key=lambda t: t[0])
+            _log.debug(
+                "  %d insights filtered below %.2f; example lowest: %s=%.4f area=%r",
+                filtered_out, min_relevance,
+                lowest[1].get("insight_id"), lowest[0], lowest[1].get("area"),
+                extra={"component": "Insights"},
+            )
         return scored
 
     def resolve_conflicts(self, selected: list[dict]) -> list[dict]:
@@ -141,15 +176,30 @@ class InsightSelector:
             )
             winner, *superseded = ranked
             ambiguous = self._is_ambiguous(winner, superseded[0]) if superseded else False
+            decision = "keep_both" if ambiguous else "pick"
             resolutions.append({
                 "area": area,
                 "winner": winner,
                 "superseded": superseded,
                 "ambiguous": ambiguous,
                 # default decision: pick (clear) / keep_both (ambiguous, no adjudication)
-                "decision": "keep_both" if ambiguous else "pick",
+                "decision": decision,
                 "rationale": self._rationale(winner, superseded, ambiguous),
             })
+            _log.debug(
+                "fie InsightSelector.resolve_conflicts: area=%r count=%d "
+                "winner=%s(yr=%s conf=%.2f) superseded=[%s] ambiguous=%s decision=%s",
+                area, len(recs),
+                winner.get("insight_id"), winner.get("year"), winner.get("confidence", 0),
+                ",".join(s.get("insight_id", "?") for s in superseded[:5]),
+                ambiguous, decision,
+                extra={"component": "Insights"},
+            )
+        _log.debug(
+            "fie InsightSelector.resolve_conflicts: areas_with_conflict=%d total_resolutions=%d",
+            len(resolutions), len(resolutions),
+            extra={"component": "Insights"},
+        )
         return resolutions
 
     def _is_ambiguous(self, winner: dict, runner_up: dict) -> bool:
@@ -201,4 +251,10 @@ class InsightSelector:
             for s in res["superseded"]
         }
         chosen = [r for r in selected if r["insight_id"] not in superseded_ids]
+        _log.debug(
+            "fie InsightSelector.select_and_resolve: pool=%d selected=%d "
+            "conflict_areas=%d superseded=%d -> final=%d",
+            len(insights), len(selected), len(resolutions), len(superseded_ids), len(chosen),
+            extra={"component": "Insights"},
+        )
         return chosen, resolutions
