@@ -208,6 +208,9 @@ class SourcePlan(BaseModel):
     requirements: list[SourceRequirement] = Field(default_factory=list)
     formula: Optional[str] = None
     external_sources: list[str] = Field(default_factory=list)  # which external adapters to consult
+    # query-driven subset of the registry catalog (apis.registry names) to fetch generically
+    # via RegistryFetcher — chosen by shortlist() + an intent floor (see planner.plan).
+    registry_apis: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 

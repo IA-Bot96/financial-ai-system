@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from collections import Counter
 from typing import Optional
 
 _log = logging.getLogger("app.engines.fie")
@@ -35,6 +37,33 @@ _FINDATA_COLS = [
     "company", "statement", "level", "sheet", "cell", "label", "section",
     "metric", "note_ref", "year", "period_type", "value",
 ]
+
+
+# The OCR pipeline stamps "Source: <COMPANY> Annual Report(s) <years>" into the breakdown
+# sheets, so the real company name is recoverable from the workbook even when no manifest
+# ships with it (the FIE session route saves only the .xlsx). Used to avoid falling back to
+# the session filename — a filename as the "company" makes every external news/PSX query
+# (and ticker resolution) search for ".xlsx", returning nothing.
+_SOURCE_COMPANY_RE = re.compile(r"\bSource:\s*(.+?)\s+Annual Reports?\b", re.I)
+
+
+def _company_from_workbook(wb) -> Optional[str]:
+    """Best-effort company name from the workbook's 'Source: … Annual Report' cells.
+
+    Scans column A of each sheet (where the pipeline writes the Source line) and returns
+    the most frequently named company, or None if no such cell exists.
+    """
+    candidates: Counter[str] = Counter()
+    for ws in wb.worksheets:
+        for row in ws.iter_rows(min_col=1, max_col=1):
+            v = row[0].value
+            if isinstance(v, str) and "source:" in v.lower():
+                m = _SOURCE_COMPANY_RE.search(v)
+                if m:
+                    name = m.group(1).strip()
+                    if name:
+                        candidates[name] += 1
+    return candidates.most_common(1)[0][0] if candidates else None
 
 
 class FinancialFactStore:
@@ -94,7 +123,10 @@ class FinancialFactStore:
                 insights += parse_insights(ws, id_prefix="INSR")
 
         manifest = cls._load_manifest(path, manifest_path)
-        company = manifest.get("company") or os.path.basename(path)
+        # Prefer the manifest; else recover the real company from the workbook's Source
+        # cells; only then fall back to the filename (which breaks external queries).
+        company = (manifest.get("company") or _company_from_workbook(wb)
+                   or os.path.basename(path))
 
         findata = pd.DataFrame(records, columns=_FINDATA_COLS)
         findata["company"] = company

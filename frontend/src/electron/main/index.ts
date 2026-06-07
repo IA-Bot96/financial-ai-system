@@ -22,6 +22,10 @@ let dirty = false // mirrored from the renderer for the close guard
 let lastFile: string | null = null
 let forceQuit = false
 
+// App icon for the title bar / taskbar. Generated from app-icon.svg via `npm run icons`
+// into build/ (sibling of out/). Windows prefers the multi-res .ico; others use the PNG.
+const appIcon = join(__dirname, '../../build', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
+
 function createWindow(): void {
   const st = readState()
   lastFile = st.lastFile ?? null
@@ -34,6 +38,7 @@ function createWindow(): void {
     minHeight: 680,
     show: false,
     backgroundColor: '#0f1115',
+    icon: appIcon,
     autoHideMenuBar: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

@@ -8,6 +8,7 @@ from typing import Optional
 from .analysis_reports import AnalysisReports
 from .announcements import PSXAnnouncements, SECPNotices
 from .base import ApiClient, ApiSpec, CallResult, HttpTransport, Transport, monthly_windows
+from .fetch import RegistryFetcher
 from .forecast import ForecastRepo
 from .macro import Macro
 from .news import News
@@ -36,6 +37,7 @@ class ExternalSources:
     company_overview: Optional[CompanyOverview] = None
     payouts: Optional[CompanyPayouts] = None
     analysis_reports: Optional[AnalysisReports] = None
+    registry_fetcher: Optional[RegistryFetcher] = None  # generic fetcher for the 17-API catalog
     as_of: Optional[str] = None  # anchor date (ISO) for date-windowed calls
     peers: dict = field(default_factory=dict)  # {company_name: FinancialFactStore}
 
@@ -45,4 +47,5 @@ __all__ = [
     "monthly_windows", "PSX", "News", "Macro", "Symbols", "CompanyOverview",
     "CompanyPayouts", "AnalysisReports", "ForecastRepo", "PSXAnnouncements",
     "SECPNotices", "ExternalSources", "API_REGISTRY", "ApiInfo", "shortlist",
+    "RegistryFetcher",
 ]

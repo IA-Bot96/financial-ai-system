@@ -33,7 +33,7 @@ from app.core.metrics import METRICS
 from app.core.security import UploadRejected, assert_safe_upload
 from app.engines.fie import (ExternalSources, FinancialFactStore,
                              FinancialIntelligenceEngine)
-from app.engines.fie.apis import News, Symbols
+from app.engines.fie.apis import News, RegistryFetcher, Symbols
 from app.engines.fie.ingest.classify import classify_sheet
 from app.engines.fie.trace import TraceStore
 
@@ -109,7 +109,13 @@ def _build(session_id: str, data: bytes) -> dict:
         fh.write(data)
     store = FinancialFactStore.from_workbook(path)          # the only parse (create/reload)
     client = _external_client()
-    external = ExternalSources(news=News(client), symbols=Symbols(client))
+    symbols = Symbols(client)
+    # RegistryFetcher makes the full 17-API PSX catalog callable generically; the planner's
+    # query-driven shortlist (plan.registry_apis) decides which subset actually fires.
+    external = ExternalSources(
+        news=News(client), symbols=symbols,
+        registry_fetcher=RegistryFetcher(client),
+    )
     engine = FinancialIntelligenceEngine(store, llm=_llm(), external=external)
     meta = {"session_id": session_id, "company": store.company, "years": store.years,
             "sheets": _sheet_meta(path), "metrics": sorted(store.available_metrics())}

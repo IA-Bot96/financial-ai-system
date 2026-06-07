@@ -37,7 +37,7 @@ export function SheetToolbar() {
   secondary.sort((a, b) => b.file.localeCompare(a.file) || a.page - b.page)
 
   return (
-    <div className="h-9 shrink-0 flex items-center gap-3 px-3 border-b border-line bg-panel text-xs">
+    <div className="relative z-30 h-9 shrink-0 flex items-center gap-3 px-3 border-b border-line bg-panel text-xs">
       {/* always-visible workbook identity (never collapses) */}
       <span className="font-medium text-ink shrink-0">{session?.company ?? 'Workbook'}</span>
       {session?.years?.length ? (

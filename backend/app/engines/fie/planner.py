@@ -6,11 +6,14 @@ sources, no DAG yet. See docs/fie_implementation_plan.md §Phase 1 (1.3).
 
 from __future__ import annotations
 
+from .apis.registry import shortlist as _shortlist
 from .models import QueryFrame, SourcePlan, SourceRequirement
 
 # the external adapter catalog the planner may select from (LLM augmentation is
 # validated against this set). Every value used in _INTENT_SOURCES must appear here.
-SOURCE_CATALOG = {"psx", "news", "forecast", "macro", "psx_announcements", "secp",
+# NOTE: only sources with a real fetcher belong here — a catalog entry with no adapter
+# (formerly "macro") would be planned, logged, then silently dropped at retrieval.
+SOURCE_CATALOG = {"psx", "news", "forecast", "psx_announcements", "secp",
                   "company_payouts"}
 
 # rule-based intent -> external sources.
@@ -18,20 +21,51 @@ SOURCE_CATALOG = {"psx", "news", "forecast", "macro", "psx_announcements", "secp
 # ratio_analysis / metric_lookup / trend_analysis / peer_comparison are intentionally
 # internal-only here — they are still corroborated against same-period external actuals
 # by the engine's analysis_reports path (fie._corroborate), which is orthogonal to this
-# planner source list. risk_assessment is qualitative (internal insights).
+# planner source list.
 _INTENT_SOURCES: dict[str, list[str]] = {
     "valuation": ["psx"],
-    "news_impact": ["news", "psx_announcements"],
-    "earnings_review": ["news", "psx_announcements"],
-    # forecast_validation: external analyst forecast first; news/PSX announcements give
-    # qualitative context (management guidance, capex signals, macro commentary) that
-    # helps evaluate whether a growth target is realistic even when no forecast record exists.
-    "forecast_validation": ["forecast", "news", "psx_announcements"],
+    # news_impact / earnings_review / risk_assessment fetch PSX disclosures via the
+    # query-driven registry path (registry_apis), so only the multi-provider "news" token
+    # lives here; the PSX side is the registry floor + shortlist (see _registry_apis).
+    "news_impact": ["news"],
+    "earnings_review": ["news"],
+    # forecast_validation: external analyst forecast (repo) + news; PSX disclosures /
+    # analyst reports come via the query-driven registry path (registry_apis), giving
+    # management guidance / capex signals to judge whether a target is realistic.
+    "forecast_validation": ["forecast", "news"],
     "dividend_analysis": ["company_payouts"],
-    "risk_assessment": ["news", "psx_announcements"],
+    "risk_assessment": ["news"],
 }
-# intents where the LLM may *augment* the rule-chosen sources
-_EXTERNAL_INTENTS = set(_INTENT_SOURCES)
+# Intents where the LLM may *augment* the rule-chosen sources. risk_assessment is excluded:
+# it must use exactly the rule-declared news+psx, so the LLM can't attach sources that are
+# noisy or unfetchable for a qualitative question (it previously added macro/company_payouts).
+_EXTERNAL_INTENTS = set(_INTENT_SOURCES) - {"risk_assessment"}
+
+# Query-driven registry selection (apis.registry catalog of 17 APIs). For intents that
+# consult external data via the generic RegistryFetcher path (`_fetch_external`), we pick a
+# RELEVANT SUBSET per query with shortlist(), unioned with a per-intent FLOOR so a
+# rule-critical API is never dropped by a weak token match. Numeric intents (valuation /
+# dividend_analysis / forecast_validation) still use their dedicated bespoke adapters and
+# are intentionally NOT registry-driven here.
+_REGISTRY_INTENTS = {"news_impact", "earnings_review", "risk_assessment", "forecast_validation"}
+_INTENT_REGISTRY_FLOOR: dict[str, list[str]] = {
+    "news_impact": ["company_announcements"],
+    "earnings_review": ["company_announcements"],
+    "risk_assessment": ["company_announcements", "secp_notices"],
+    "forecast_validation": ["company_announcements", "analysis_reports"],
+}
+_REGISTRY_TOP_K = 5  # cap the query-driven subset so we never fan out to all 17
+
+
+def _registry_apis(frame: QueryFrame) -> list[str]:
+    """Relevant subset of the registry catalog for this query = intent floor + shortlist()."""
+    if frame.intent not in _REGISTRY_INTENTS:
+        return []
+    out = list(_INTENT_REGISTRY_FLOOR.get(frame.intent, []))   # floor first (guaranteed)
+    for api, _score in _shortlist(frame.raw_query, intent=frame.intent, top_k=_REGISTRY_TOP_K):
+        if api.name not in out:
+            out.append(api.name)
+    return out
 
 _LLM_SYS = (
     "Given a financial query and intent, list which external data sources are needed. "
@@ -75,5 +109,9 @@ def plan(frame: QueryFrame, llm=None) -> SourcePlan:
             external.append(s)
             notes.append(f"LLM-added source: {s}")
 
+    registry_apis = _registry_apis(frame)
+    if registry_apis:
+        notes.append(f"registry subset: {registry_apis}")
+
     return SourcePlan(requirements=requirements, formula=frame.formula,
-                      external_sources=external, notes=notes)
+                      external_sources=external, registry_apis=registry_apis, notes=notes)

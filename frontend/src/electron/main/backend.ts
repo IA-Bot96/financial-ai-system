@@ -47,18 +47,41 @@ export async function startBackend(): Promise<string> {
   _logPath = join(app.getPath('userData'), 'backend.log')
   const out = createWriteStream(_logPath, { flags: 'a' })
 
-  // Default to the repo's backend dir (sibling of the frontend app); override with FIE_BACKEND_DIR.
+  // PACKAGED: launch the self-contained PyInstaller bundle shipped in resources/backend
+  // (no system Python / tesseract / model download needed). Storage + logs go to a
+  // writable per-user dir; run_server.py reads FIE_STORAGE_ROOT and the bundled deps.
+  if (app.isPackaged) {
+    const exeName = process.platform === 'win32' ? 'aifi-backend.exe' : 'aifi-backend'
+    const bin = join(process.resourcesPath, 'backend', exeName)
+    const storage = join(app.getPath('userData'), 'backend-storage')
+    out.write(`\n[${new Date().toISOString()}] starting bundled backend: ${bin} (port=${port})\n`)
+    child = spawn(bin, ['--host', '127.0.0.1', '--port', String(port)], {
+      cwd: join(process.resourcesPath, 'backend'),
+      env: {
+        ...process.env,
+        FIE_HOST: '127.0.0.1',
+        FIE_PORT: String(port),
+        FIE_STORAGE_ROOT: storage
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    child.stdout?.pipe(out)
+    child.stderr?.pipe(out)
+    child.on('exit', (code) => out.write(`\n[backend exited code=${code}]\n`))
+    child.on('error', (e) => out.write(`\n[backend spawn error] ${String(e)}\n`))
+    return _url
+  }
+
+  // DEV: run from the repo's backend dir via the run_server launcher (override with
+  // FIE_BACKEND_DIR / FIE_BACKEND_CMD). `python` on Windows is often a Store alias that
+  // bare spawn can't exec, so shell:true resolves PATH/aliases like the user's terminal.
   const cwd = process.env.FIE_BACKEND_DIR || join(app.getAppPath(), '..', 'backend')
-  // Default to `python`; on Windows it's often a Store alias that bare `spawn` can't exec,
-  // so we run with shell:true below (resolves PATH/aliases like the user's terminal).
-  // Override the whole command with FIE_BACKEND_CMD (e.g. a venv path) if needed.
   const cmd = process.env.FIE_BACKEND_CMD
   const [bin, ...args] = cmd
     ? cmd.split(' ')
-    : ['python', '-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(port)]
+    : ['python', 'run_server.py', '--host', '127.0.0.1', '--port', String(port)]
 
   out.write(`\n[${new Date().toISOString()}] starting backend: ${bin} ${args.join(' ')} (cwd=${cwd})\n`)
-  // shell:true on Windows so PATH / py-launcher / Store aliases resolve like the user's terminal
   child = spawn(bin, args, {
     cwd,
     env: { ...process.env },

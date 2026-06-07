@@ -75,6 +75,10 @@ export default function App() {
   return (
     <div className="h-full w-full flex flex-col">
       <SaveBar />
+
+      {/* full-width top bar — spans above the rails so they start beneath it */}
+      {session && view === 'sheet' && <SheetToolbar />}
+
       <div className="flex-1 flex min-h-0">
         <LeftRail />
 
@@ -96,12 +100,9 @@ export default function App() {
           ) : view === 'dashboard' ? (
             <Dashboard />
           ) : (
-            <>
-              <SheetToolbar />
-              <div className="flex-1 min-h-0">
-                <SheetView />
-              </div>
-            </>
+            <div className="flex-1 min-h-0">
+              <SheetView />
+            </div>
           )}
         </main>
 

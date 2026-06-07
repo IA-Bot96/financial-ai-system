@@ -1,0 +1,56 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="AI Financial Intelligence">
+  <defs>
+    <linearGradient id="bg" x1="96" y1="32" x2="416" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1b2740"/>
+      <stop offset="1" stop-color="#0c1220"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="256" y1="120" x2="256" y2="384" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6ea2ff"/>
+      <stop offset="1" stop-color="#4f8cff"/>
+    </linearGradient>
+    <linearGradient id="trend" x1="120" y1="316" x2="392" y2="132" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3b341"/>
+    </linearGradient>
+  </defs>
+
+  <!-- tile -->
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="url(#bg)"/>
+  <rect x="16.5" y="16.5" width="479" height="479" rx="115.5" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- ascending bars (set behind the trend line) -->
+  <g fill="url(#bar)" opacity="0.55">
+    <rect x="104" y="276" width="56" height="104" rx="14"/>
+    <rect x="188" y="224" width="56" height="156" rx="14"/>
+    <rect x="272" y="168" width="56" height="212" rx="14"/>
+    <rect x="356" y="120" width="56" height="260" rx="14"/>
+  </g>
+
+  <!-- baseline -->
+  <rect x="96" y="384" width="324" height="10" rx="5" fill="#ffffff" fill-opacity="0.18"/>
+
+  <!-- upward trend line -->
+  <polyline points="132,316 216,262 300,200 384,140"
+            fill="none" stroke="url(#trend)" stroke-width="18"
+            stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- trend nodes -->
+  <g fill="#ffffff">
+    <circle cx="132" cy="316" r="11"/>
+    <circle cx="216" cy="262" r="11"/>
+    <circle cx="300" cy="200" r="11"/>
+  </g>
+
+  <!-- peak node + glow -->
+  <circle cx="384" cy="140" r="34" fill="#e3b341" fill-opacity="0.20"/>
+  <circle cx="384" cy="140" r="17" fill="#e3b341"/>
+  <circle cx="384" cy="140" r="7" fill="#0c1220"/>
+
+  <!-- AI spark -->
+  <path d="M404 70
+           C406 86 412 92 428 94
+           C412 96 406 102 404 118
+           C402 102 396 96 380 94
+           C396 92 402 86 404 70 Z"
+        fill="#e3b341"/>
+</svg>

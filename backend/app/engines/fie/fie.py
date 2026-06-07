@@ -9,6 +9,7 @@ caps confidence (architecture §3.2, §4, §9.2).
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from contextlib import ExitStack
@@ -183,8 +184,15 @@ class FinancialIntelligenceEngine:
         if dumper.enabled:
             dumper.json("07_evidence_admitted", [e.model_dump() for e in ctx.evidence])
             dumper.json("08_conflicts_final", [c.model_dump() for c in ctx.conflicts])
-        _layer("Retrieve", "evidence=%d calcs=%d conflicts=%d degraded=%s",
-                len(ctx.evidence), len(ctx.calcs), len(ctx.conflicts), ctx.degraded)
+        # Observability: distinguish what was PLANNED from what was actually fetched. A
+        # non-empty external_planned with external=0 means planned sources weren't retrieved.
+        external_all = [e for e in ctx.evidence if e.kind == "external"]
+        insight_ev = [e for e in ctx.evidence if e.kind == "insight"]
+        _layer("Retrieve",
+                "evidence=%d (internal=%d insight=%d external=%d) external_planned=%s "
+                "calcs=%d conflicts=%d degraded=%s",
+                len(ctx.evidence), len(internal_ev), len(insight_ev), len(external_all),
+                sorted(plan.external_sources), len(ctx.calcs), len(ctx.conflicts), ctx.degraded)
 
         cites, withheld = citations_mod.bind(ctx.evidence, ctx.calcs)
         conf = None
@@ -293,6 +301,13 @@ class FinancialIntelligenceEngine:
             insights=ctx.selected_insights)  # + cross-Area semantic (LLM, if present)
         ctx.total_insights = len(all_insights)
         ctx.superseded = sum(len(r["superseded"]) for r in ctx.insight_resolutions)
+        # Fetch the external sources the planner attached (news + PSX announcements) so
+        # they actually corroborate the qualitative insights instead of being dropped. The
+        # main pipeline role-classifies and reconciles this external evidence against the
+        # workbook; external numbers are supporting/context, never a baseline. Insights are
+        # the primary basis here, so a missing/empty external feed must NOT degrade the answer.
+        if plan.external_sources or plan.registry_apis:
+            self._fetch_external(frame, ctx, plan, degrade_on_empty=False)
         ctx.extra = {
             "themes": qualitative.assemble_themes(ctx.selected_insights),
             "qual_coverage": qualitative.coverage(ctx.selected_insights),
@@ -339,18 +354,13 @@ class FinancialIntelligenceEngine:
         self._valuation(frame, ctx)
 
     def _h_forecast_validation(self, frame, ctx, plan) -> None:
-        # Log which external sources the planner DID and DID NOT include so the
-        # debug trail is explicit about what was and wasn't fetched.
-        planned = set(plan.external_sources)
-        for src in ("news", "psx_announcements", "secp"):
-            if src not in planned:
-                _log.debug(
-                    "fie _h_forecast_validation: %r not in plan sources=%s "
-                    "-> not fetched (add to planner _INTENT_SOURCES['forecast_validation'] to enable)",
-                    src, sorted(planned),
-                    extra={"component": "Forecast"},
-                )
         self._forecast_validation(frame, ctx)
+        # Pull external context (news + query-driven PSX disclosures / analyst reports) so the
+        # forecast judgement isn't internal-only. degrade_on_empty=False: a missing external
+        # FORECAST already degrades the answer in _forecast_validation; an empty news/PSX feed
+        # must not pile a second degrade on top.
+        if plan.external_sources or plan.registry_apis:
+            self._fetch_external(frame, ctx, plan, degrade_on_empty=False)
         # Dump insight selection details as a separate layer file
         if ctx.dumper and ctx.dumper.enabled and ctx.selected_insights is not None:
             ctx.dumper.json("06b_insight_selection", {
@@ -384,9 +394,8 @@ class FinancialIntelligenceEngine:
                     }
                     for res in ctx.insight_resolutions
                 ],
-                "sources_not_fetched": [
-                    s for s in ("news", "psx_announcements", "secp") if s not in planned
-                ],
+                "external_sources": plan.external_sources,
+                "registry_apis": plan.registry_apis,
             })
 
     def _h_trend(self, frame, ctx, plan) -> None:
@@ -396,7 +405,7 @@ class FinancialIntelligenceEngine:
         self._dividends(frame, ctx)
 
     def _h_news(self, frame, ctx, plan) -> None:
-        self._news(frame, ctx, plan)
+        self._fetch_external(frame, ctx, plan)
 
     # ------------------------------------------------------------ handlers
     def _store_for(self, company: str | None):
@@ -448,12 +457,23 @@ class FinancialIntelligenceEngine:
                              type(exc).__name__, exc, extra={"component": "Understand"})
         return self._registry or None
 
+    @staticmethod
+    def _looks_like_filename(name) -> bool:
+        return bool(name) and bool(re.search(r"\.(xlsx|xlsm|xls|csv)$", str(name), re.I))
+
+    def _effective_company(self, frame=None) -> str | None:
+        """The real company name for external queries, or None. Never a filename — a
+        session workbook whose company couldn't be derived defaults to its filename, and
+        searching news/PSX for a '.xlsx' name returns nothing (and wastes the failover)."""
+        c = (getattr(frame, "company", None) if frame is not None else None) or self.store.company
+        return None if self._looks_like_filename(c) else c
+
     def _ticker(self, company: str | None) -> str | None:
         """Resolve a company name to a PSX ticker through the entity registry's
         ladder. Only a RESOLVED verdict binds; REVIEW/QUARANTINED do NOT silently
         bind to a wrong symbol (a typo/unknown ticker-shaped token is quarantined).
         Falls back to the static map. The last verdict is stashed for the renderer."""
-        name = company or self.store.company
+        name = company or self._effective_company()
         reg = self._entity_registry()
         if reg is not None and name:
             verdict = reg.resolve(name)
@@ -766,15 +786,44 @@ class FinancialIntelligenceEngine:
                                   "date": i.citations[0].locator.get("date")}
                                  for i in res.items]}
 
-    def _news(self, frame, ctx, plan) -> None:
+    # external_sources TOKENS this dispatcher fetches directly. PSX disclosures/market data
+    # now flow through plan.registry_apis (RegistryFetcher), not tokens. Tokens owned by
+    # other handlers (forecast→_forecast_validation, psx→_valuation, company_payouts→
+    # _dividends) — and the legacy psx_announcements/secp tokens (now registry-driven) — must
+    # NOT trigger the "no fetcher" warning here.
+    _FETCH_HERE = frozenset({"news"})
+    _FETCH_ELSEWHERE = frozenset({"forecast", "psx", "company_payouts",
+                                  "psx_announcements", "secp"})
+
+    def _fetch_external(self, frame, ctx, plan, *, degrade_on_empty: bool = True) -> None:
+        """Fetch every external source the planner attached to ``plan.external_sources``.
+
+        Any planned source with NO fetcher here and not owned by another handler is logged
+        as a WARNING rather than silently dropped — the previous behaviour where a planned
+        source appeared in the ``sources=[...]`` line but was never retrieved.
+
+        ``degrade_on_empty`` marks the answer degraded when no source returned anything; pass
+        False when external evidence is merely corroborating internal evidence (e.g.
+        risk_assessment, whose insights are the primary basis) so an unconfigured news adapter
+        doesn't needlessly degrade an answer that already has solid insight evidence.
+        """
         sources = set(plan.external_sources)
-        company = frame.company or self.store.company
+        company = self._effective_company(frame)  # real company or None (never a filename)
         got_any = False
         # resolve the ticker up front so news/announcements scope to it when known
-        ticker = self._ticker(frame.company)
+        ticker = self._ticker(company)
+
+        unmapped = sources - self._FETCH_HERE - self._FETCH_ELSEWHERE
+        if unmapped:
+            _log.warning(
+                "fie _fetch_external: planned source(s) %s have no fetcher and were NOT "
+                "retrieved (intent=%s); remove from the plan or add an adapter",
+                sorted(unmapped), frame.intent,
+                extra={"component": "News"},
+            )
 
         _log.debug(
-            "fie _news: intent=%s company=%r ticker=%r planned_sources=%s",
+            "fie _fetch_external: intent=%s company=%r ticker=%r planned_sources=%s",
             frame.intent, company, ticker, sorted(sources),
             extra={"component": "News"},
         )
@@ -848,94 +897,63 @@ class FinancialIntelligenceEngine:
                 extra={"component": "News"},
             )
 
-        # PSX company announcements (POST form, date-windowed) per the source plan;
-        # prefer the resolved ticker, fall back to a company keyword query.
-        if "psx_announcements" in sources:
-            if self.external.announcements is None:
+        # PSX disclosures + market/fundamentals: the query-driven subset of the registry
+        # catalog (plan.registry_apis), fetched generically via RegistryFetcher. Each API was
+        # picked by shortlist()+intent-floor, so this is a relevant subset, not all 17.
+        fetcher = getattr(self.external, "registry_fetcher", None)
+        if plan.registry_apis:
+            if fetcher is None:
                 _log.warning(
-                    "fie _news: 'psx_announcements' in plan but external.announcements adapter is None "
-                    "-> skipped; configure PSX announcements adapter",
-                    extra={"component": "News"},
+                    "fie _fetch_external: registry_apis=%s planned but no RegistryFetcher "
+                    "configured -> skipped (wire ExternalSources.registry_fetcher)",
+                    plan.registry_apis, extra={"component": "News"},
                 )
             else:
-                _log.debug(
-                    "fie _news: fetching psx_announcements adapter=%s company=%r ticker=%r anchor=%s",
-                    type(self.external.announcements).__name__, company, ticker, self.external.as_of,
-                    extra={"component": "News"},
-                )
-                res = self.external.announcements.recent(
-                    query=None if ticker else company, symbol=ticker,
-                    anchor_date=self.external.as_of)
-                _log.debug(
-                    "fie _news: psx_announcements returned status=%s items=%d",
-                    res.status, len(res.items),
-                    extra={"component": "News"},
-                )
-                for i, ev in enumerate(res.items[:5]):
-                    loc = ev.citations[0].locator if ev.citations else {}
+                from .apis.registry import REGISTRY
+                by_name = {a.name: a for a in REGISTRY}
+                sector = None
+                if ticker and self.external.symbols is not None:
+                    try:
+                        sector = self.external.symbols.sector_for(ticker)
+                    except Exception:  # noqa: BLE001 — sector is best-effort
+                        sector = None
+                fetch_summary: list[dict] = []
+                for name in plan.registry_apis:
+                    api = by_name.get(name)
+                    if api is None:
+                        _log.warning("fie _fetch_external: registry API %r not found", name,
+                                     extra={"component": "News"})
+                        continue
+                    res = fetcher.fetch(api, symbol=ticker,
+                                        query=(None if ticker else company),
+                                        year=frame.year, sector=sector)
+                    before = len(ctx.evidence)
+                    ctx.evidence += res.items
+                    got_any = got_any or res.status != "failed"
                     _log.debug(
-                        "  psx_item[%d] type=%r title=%r date=%s",
-                        i, loc.get("type"), (ev.claim or "")[:80], loc.get("date"),
+                        "fie _fetch_external: registry %s status=%s +%d items (total=%d)",
+                        name, res.status, len(ctx.evidence) - before, len(ctx.evidence),
                         extra={"component": "News"},
                     )
-                ctx.evidence += res.items
-                got_any = got_any or res.status != "failed"
+                    fetch_summary.append({"api": name, "status": res.status,
+                                          "items": len(res.items)})
                 if ctx.dumper and ctx.dumper.enabled:
-                    ctx.dumper.json("06d_psx_announcements", {
-                        "adapter": type(self.external.announcements).__name__,
-                        "ticker": ticker,
-                        "company": company,
-                        "fetch_status": res.status,
-                        "items_count": len(res.items),
-                        "items": [
-                            {
-                                "type": (ev.citations[0].locator.get("type") if ev.citations else None),
-                                "title": (ev.claim or "")[:100],
-                                "date": (ev.citations[0].locator.get("date") if ev.citations else None),
-                            }
-                            for ev in res.items[:20]
-                        ],
+                    ctx.dumper.json("06d_registry_fetch", {
+                        "ticker": ticker, "company": company, "sector": sector,
+                        "planned": plan.registry_apis, "results": fetch_summary,
                     })
-        else:
-            _log.debug(
-                "fie _news: 'psx_announcements' not in plan sources=%s -> PSX fetch skipped",
-                sorted(sources),
-                extra={"component": "News"},
-            )
 
-        if "secp" in sources:
-            if self.external.secp is None:
-                _log.warning(
-                    "fie _news: 'secp' in plan but external.secp adapter is None -> skipped",
-                    extra={"component": "News"},
-                )
-            else:
-                _log.debug(
-                    "fie _news: fetching secp adapter=%s company=%r ticker=%r anchor=%s",
-                    type(self.external.secp).__name__, company, ticker, self.external.as_of,
-                    extra={"component": "News"},
-                )
-                res = self.external.secp.recent(
-                    query=None if ticker else company, symbol=ticker,
-                    anchor_date=self.external.as_of)
-                _log.debug(
-                    "fie _news: secp returned status=%s items=%d",
-                    res.status, len(res.items),
-                    extra={"component": "News"},
-                )
-                ctx.evidence += res.items
-                got_any = got_any or res.status != "failed"
-        else:
-            _log.debug(
-                "fie _news: 'secp' not in plan sources=%s -> SECP fetch skipped",
-                sorted(sources),
-                extra={"component": "News"},
-            )
-
-        if not got_any:
+        if not got_any and degrade_on_empty:
             ctx.degraded = True  # required external source(s) unavailable
             _log.warning(
-                "fie _news: all requested sources failed/unavailable -> degraded=True sources=%s",
+                "fie _fetch_external: all requested sources failed/unavailable -> degraded=True sources=%s",
+                sorted(sources),
+                extra={"component": "News"},
+            )
+        elif not got_any:
+            _log.debug(
+                "fie _fetch_external: no external evidence (corroborating fetch) sources=%s "
+                "-> not degraded; internal evidence stands",
                 sorted(sources),
                 extra={"component": "News"},
             )

@@ -1,12 +1,23 @@
 """Application configuration."""
+import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# backend/ root (…/backend)
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
-STORAGE_ROOT = BACKEND_ROOT / "storage"
+# backend/ root (…/backend). When bundled by PyInstaller (sys.frozen) the source tree
+# lives inside the archive, so anchor to the directory holding the launched executable
+# instead — that's where the desktop shell places writable, per-install resources.
+if getattr(sys, "frozen", False):
+    BACKEND_ROOT = Path(sys.executable).resolve().parent
+else:
+    BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+# Storage can be redirected to a writable per-user location in a packaged app: the
+# desktop shell passes FIE_STORAGE_ROOT (e.g. Electron's userData). Falls back to
+# backend/storage for normal dev runs.
+STORAGE_ROOT = Path(os.environ.get("FIE_STORAGE_ROOT", BACKEND_ROOT / "storage"))
 
 
 class Settings(BaseSettings):
