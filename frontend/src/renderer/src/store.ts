@@ -36,6 +36,8 @@ interface AppState {
   backend: { status: 'starting' | 'ready' | 'error'; logPath: string }
   session: SessionMeta | null
   sheets: ParsedSheet[]
+  loadSeq: number // bumped on every explicit (re)load so the grid remounts cleanly
+  cleanToken: number // bumped on a successful save so the grid re-baselines its undo depth
   showSource: boolean
   workbook: { dirty: boolean; filePath: string | null; origin: 'ocr' | 'excel' | null }
   pdfPaths: string[]
@@ -82,6 +84,8 @@ export const useApp = create<AppState>((set) => ({
   backend: { status: 'starting', logPath: '' },
   session: null,
   sheets: [],
+  loadSeq: 0,
+  cleanToken: 0,
   showSource: false,
   workbook: { dirty: false, filePath: null, origin: null },
   pdfPaths: [],
@@ -97,13 +101,14 @@ export const useApp = create<AppState>((set) => ({
   setBackend: (status, logPath) =>
     set((s) => ({ backend: { status, logPath: logPath ?? s.backend.logPath } })),
   loadWorkbook: (meta, sheets, filePath, origin) => {
-    set({
+    set((st) => ({
       session: meta,
       sheets,
+      loadSeq: st.loadSeq + 1,
       workbook: { dirty: false, filePath, origin },
       view: 'sheet',
       uploadOpen: false
-    })
+    }))
     window.api.setDirty(false)
     window.api.setLastFile(filePath)
   },
@@ -203,11 +208,14 @@ export const useApp = create<AppState>((set) => ({
       await window.api.writeFileAt(sidecar, new TextEncoder().encode(meta).buffer as ArrayBuffer)
       // re-ingest so Ask AI / Dashboard reflect the edits (cache-bust)
       const r = await window.api.reloadSession(s.session.session_id, path)
-      set((st) => ({ workbook: { ...st.workbook, dirty: false, filePath: path } }))
+      set((st) => ({
+        workbook: { ...st.workbook, dirty: false, filePath: path },
+        cleanToken: st.cleanToken + 1 // re-baseline the grid's undo depth to "saved"
+      }))
       window.api.setDirty(false)
       window.api.setLastFile(path)
       useApp.getState().toast(r.status === 200 ? 'success' : 'warning',
-        r.status === 200 ? 'Saved' : 'Saved to disk, but re-ingest failed')
+        r.status === 200 ? 'Changes saved successfully' : 'Saved to disk, but re-ingest failed')
     } catch (e) {
       useApp.getState().toast('error', `Save failed: ${String(e)}`)
     }

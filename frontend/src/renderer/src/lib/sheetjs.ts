@@ -10,7 +10,8 @@ export interface SheetMeta {
 
 type CellVal = string | number | boolean
 interface ParsedCell {
-  v: CellVal
+  v?: CellVal // cached value (may be absent for formula cells written without a result)
+  f?: string // formula text incl. leading "=" (Univer recalculates these, incl. cross-sheet)
   st?: Record<string, unknown>
 }
 interface Merge {
@@ -140,10 +141,22 @@ async function parseExcel(buf: ArrayBuffer, meta: SheetMeta[]): Promise<ParsedSh
     let maxC = 0
     ws.eachRow({ includeEmpty: false }, (row, r) => {
       row.eachCell({ includeEmpty: false }, (cell, c) => {
-        const v = valueOf(cell.value)
-        if (v === undefined || v === null || v === '') return
+        const raw = cell.value as unknown
+        const isFormula =
+          raw != null &&
+          typeof raw === 'object' &&
+          ('formula' in (raw as object) || 'sharedFormula' in (raw as object))
+        // cell.formula returns the translated formula (no leading "="); add it back.
+        const f = isFormula && cell.formula ? '=' + cell.formula : undefined
+        const v = valueOf(cell.value) // cached result; often absent for openpyxl formulas
+        // keep the cell if it has a value OR a formula (don't drop formulas with no cache)
+        if (!f && (v === undefined || v === null || v === '')) return
         const st = styleOf(cell)
-        ;(cellData[r - 1] ||= {})[c - 1] = st ? { v, st } : { v }
+        const out: ParsedCell = {}
+        if (v !== undefined && v !== null && v !== '') out.v = v
+        if (f) out.f = f
+        if (st) out.st = st
+        ;(cellData[r - 1] ||= {})[c - 1] = out
         if (r - 1 > maxR) maxR = r - 1
         if (c - 1 > maxC) maxC = c - 1
       })
@@ -270,11 +283,13 @@ export function toUniverData(sheets: ParsedSheet[]): Record<string, unknown> {
   sheets.forEach((s, i) => {
     const id = `sheet-${i}`
     sheetOrder.push(id)
-    const cellData: Record<number, Record<number, { v: CellVal; s?: string }>> = {}
+    const cellData: Record<number, Record<number, { v?: CellVal; f?: string; s?: string }>> = {}
     for (const r in s.cellData) {
       for (const c in s.cellData[r]) {
         const cell = s.cellData[r][c]
-        const conv: { v: CellVal; s?: string } = { v: cell.v }
+        const conv: { v?: CellVal; f?: string; s?: string } = {}
+        if (cell.v !== undefined) conv.v = cell.v
+        if (cell.f) conv.f = cell.f // Univer's formula engine recalculates this on load
         if (cell.st) conv.s = styleId(cell.st)
         ;(cellData[Number(r)] ||= {})[Number(c)] = conv
       }

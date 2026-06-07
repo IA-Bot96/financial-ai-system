@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createUniver, defaultTheme, LocaleType, merge } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
+import { IUndoRedoService } from '@univerjs/core'
 import * as enUSns from '@univerjs/preset-sheets-core/locales/en-US'
 import '@univerjs/preset-sheets-core/lib/index.css'
 import { useApp } from '@/store'
@@ -11,19 +12,27 @@ import { setSheetApi } from '@/lib/sheetApi'
 const sheetsEnUS = (enUSns as { default?: unknown }).default ?? enUSns
 
 /**
- * Univer grid (client-side render of the parsed workbook). Meta-sheets are excluded
- * unless "Show source sheets" is on. Cell edits flip the dirty flag (top Save bar).
- * Re-mounts when the visible sheet set changes.
+ * Univer grid (client-side render of the parsed workbook). All sheets are loaded.
+ * Dirty state is derived from Univer's own undo/redo stack so the top indicator bar
+ * tracks edits, in-grid undo (Ctrl+Z) and redo (Ctrl+Y), and clears on save.
+ * Re-mounts when the visible sheet set changes or on an explicit reload.
  */
 export function SheetView() {
   const sheets = useApp((s) => s.sheets)
+  const loadSeq = useApp((s) => s.loadSeq)
+  const cleanToken = useApp((s) => s.cleanToken)
   const setDirty = useApp((s) => s.setDirty)
   const nav = useApp((s) => s.nav)
   const toast = useApp((s) => s.toast)
   const hostRef = useRef<HTMLDivElement>(null)
   const apiRef = useRef<unknown>(null)
+  // undo-stack depth that corresponds to the last saved/loaded state, and the live depth.
+  const baselineUndos = useRef(0)
+  const liveUndos = useRef(0)
 
-  const visibleKey = sheets.map((s) => s.name).join('|')
+  // include loadSeq so an explicit reload (e.g. Discard) remounts the grid even when the
+  // sheet names are unchanged — otherwise discarded edits would linger in the view.
+  const visibleKey = `${loadSeq}:${sheets.map((s) => s.name).join('|')}`
 
   useEffect(() => {
     const host = hostRef.current
@@ -56,25 +65,49 @@ export function SheetView() {
     apiRef.current = univerAPI
     setSheetApi(univerAPI)
 
-    // flag dirty on any cell-mutating command
-    const sub = (univerAPI as { onCommandExecuted: (cb: (c: { id?: string }) => void) => { dispose?: () => void } })
-      .onCommandExecuted((cmd) => {
-        if (typeof cmd?.id === 'string' && /set-range-values|set-cell|insert-|remove-|move-/.test(cmd.id)) {
-          setDirty(true)
+    // Derive dirty from Univer's undo/redo stack: dirty when the current undo depth
+    // differs from the depth at the last save/load. This makes the top bar respond to
+    // edits, in-grid undo (back to baseline => clean) and redo (=> dirty again) — all of
+    // which flow through the same stack regardless of how they were triggered.
+    baselineUndos.current = 0
+    liveUndos.current = 0
+    let first = true
+    let usub: { unsubscribe: () => void } | null = null
+    try {
+      const undoRedo = (
+        univer as unknown as { __getInjector: () => { get: (t: unknown) => unknown } }
+      ).__getInjector().get(IUndoRedoService) as {
+        undoRedoStatus$: {
+          subscribe: (cb: (s: { undos: number; redos: number }) => void) => {
+            unsubscribe: () => void
+          }
         }
+      }
+      usub = undoRedo.undoRedoStatus$.subscribe((status) => {
+        liveUndos.current = status.undos
+        if (first) {
+          baselineUndos.current = status.undos // baseline of the freshly loaded workbook
+          first = false
+          return
+        }
+        setDirty(status.undos !== baselineUndos.current)
       })
+    } catch (e) {
+      // dirty-tracking is non-essential; never let it block the grid from rendering
+      console.error('[sheet] undo/redo dirty tracking unavailable', e)
+    }
 
     return () => {
       apiRef.current = null
       setSheetApi(null)
+      try {
+        usub?.unsubscribe()
+      } catch {
+        /* noop */
+      }
       // defer disposal so Univer's React-root unmount doesn't run during React's render
       // phase (StrictMode double-mount) — that caused "unmount a root while rendering".
       setTimeout(() => {
-        try {
-          sub?.dispose?.()
-        } catch {
-          /* noop */
-        }
         try {
           univer.dispose()
         } catch {
@@ -89,6 +122,15 @@ export function SheetView() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleKey])
+
+  // a successful save (store bumps cleanToken) makes the current state the new baseline,
+  // so the indicator stays hidden until the next edit — and undoing past the save point
+  // (depth < baseline) correctly re-marks dirty.
+  useEffect(() => {
+    baselineUndos.current = liveUndos.current
+    setDirty(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cleanToken])
 
   // citation → cell: best-effort select/scroll via the Univer Facade (GUI-verify pending)
   useEffect(() => {
