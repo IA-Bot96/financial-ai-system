@@ -297,6 +297,40 @@ class FinancialIntelligenceEngine:
             "themes": qualitative.assemble_themes(ctx.selected_insights),
             "qual_coverage": qualitative.coverage(ctx.selected_insights),
         }
+        if ctx.dumper and ctx.dumper.enabled:
+            ctx.dumper.json("06b_insight_selection", {
+                "intent": frame.intent,
+                "query": frame.raw_query,
+                "metrics": frame.metrics,
+                "total_pool": ctx.total_insights,
+                "min_relevance": 0.5,
+                "selected_count": len(ctx.selected_insights),
+                "superseded_count": ctx.superseded,
+                "conflict_resolutions_count": len(ctx.insight_resolutions),
+                "top_insights": [
+                    {
+                        "insight_id": r.get("insight_id"),
+                        "area": r.get("area"),
+                        "year": r.get("year"),
+                        "source_section": r.get("source_section"),
+                        "relevance": r.get("relevance"),
+                        "confidence": r.get("confidence"),
+                        "takeaway_preview": (r.get("takeaway") or "")[:120],
+                    }
+                    for r in ctx.selected_insights[:30]
+                ],
+                "conflict_resolutions": [
+                    {
+                        "area": res.get("area"),
+                        "decision": res.get("decision"),
+                        "ambiguous": res.get("ambiguous"),
+                        "winner": res.get("winner", {}).get("insight_id"),
+                        "superseded": [s.get("insight_id") for s in res.get("superseded", [])],
+                        "rationale": res.get("rationale"),
+                    }
+                    for res in ctx.insight_resolutions
+                ],
+            })
 
     def _h_peer_comparison(self, frame, ctx, plan) -> None:
         self._peer_comparison(frame, ctx)
@@ -305,7 +339,55 @@ class FinancialIntelligenceEngine:
         self._valuation(frame, ctx)
 
     def _h_forecast_validation(self, frame, ctx, plan) -> None:
+        # Log which external sources the planner DID and DID NOT include so the
+        # debug trail is explicit about what was and wasn't fetched.
+        planned = set(plan.external_sources)
+        for src in ("news", "psx_announcements", "secp"):
+            if src not in planned:
+                _log.debug(
+                    "fie _h_forecast_validation: %r not in plan sources=%s "
+                    "-> not fetched (add to planner _INTENT_SOURCES['forecast_validation'] to enable)",
+                    src, sorted(planned),
+                    extra={"component": "Forecast"},
+                )
         self._forecast_validation(frame, ctx)
+        # Dump insight selection details as a separate layer file
+        if ctx.dumper and ctx.dumper.enabled and ctx.selected_insights is not None:
+            ctx.dumper.json("06b_insight_selection", {
+                "intent": frame.intent,
+                "query": frame.raw_query,
+                "metrics": frame.metrics,
+                "total_pool": ctx.total_insights,
+                "min_relevance": 0.5,
+                "selected_count": len(ctx.selected_insights),
+                "conflict_resolutions_count": len(ctx.insight_resolutions),
+                "top_insights": [
+                    {
+                        "insight_id": r.get("insight_id"),
+                        "area": r.get("area"),
+                        "year": r.get("year"),
+                        "source_section": r.get("source_section"),
+                        "relevance": r.get("relevance"),
+                        "confidence": r.get("confidence"),
+                        "takeaway_preview": (r.get("takeaway") or "")[:120],
+                    }
+                    for r in ctx.selected_insights[:30]
+                ],
+                "conflict_resolutions": [
+                    {
+                        "area": res.get("area"),
+                        "decision": res.get("decision"),
+                        "ambiguous": res.get("ambiguous"),
+                        "winner": res.get("winner", {}).get("insight_id"),
+                        "superseded": [s.get("insight_id") for s in res.get("superseded", [])],
+                        "rationale": res.get("rationale"),
+                    }
+                    for res in ctx.insight_resolutions
+                ],
+                "sources_not_fetched": [
+                    s for s in ("news", "psx_announcements", "secp") if s not in planned
+                ],
+            })
 
     def _h_trend(self, frame, ctx, plan) -> None:
         self._trend(frame, ctx)
@@ -691,33 +773,172 @@ class FinancialIntelligenceEngine:
         # resolve the ticker up front so news/announcements scope to it when known
         ticker = self._ticker(frame.company)
 
-        if "news" in sources and self.external.news is not None:
-            # query-relevant: scope to the ticker if resolved, else keyword on company
-            res = self.external.news.search(company, symbol=ticker,
-                                            anchor_date=self.external.as_of)
-            # chunk -> embed -> rank vs query -> dedup; only the surviving chunks
-            # (each still carrying its article source/author/link) reach the LLM.
-            query_text = news_retrieval.build_query_text(frame, company)
-            ctx.evidence += news_retrieval.retrieve(
-                res.items, query_text, anchor_date=self.external.as_of)
-            got_any = got_any or res.status != "failed"
+        _log.debug(
+            "fie _news: intent=%s company=%r ticker=%r planned_sources=%s",
+            frame.intent, company, ticker, sorted(sources),
+            extra={"component": "News"},
+        )
+
+        if "news" in sources:
+            if self.external.news is None:
+                _log.warning(
+                    "fie _news: 'news' in plan but external.news adapter is None "
+                    "(not configured) -> skipped; set NEWS_API_KEY or news adapter config",
+                    extra={"component": "News"},
+                )
+            else:
+                _log.debug(
+                    "fie _news: fetching news adapter=%s company=%r ticker=%r anchor=%s",
+                    type(self.external.news).__name__, company, ticker, self.external.as_of,
+                    extra={"component": "News"},
+                )
+                res = self.external.news.search(company, symbol=ticker,
+                                                anchor_date=self.external.as_of)
+                _log.debug(
+                    "fie _news: news adapter returned status=%s items=%d",
+                    res.status, len(res.items),
+                    extra={"component": "News"},
+                )
+                for i, ev in enumerate(res.items[:5]):
+                    loc = ev.citations[0].locator if ev.citations else {}
+                    _log.debug(
+                        "  news_item[%d] source=%r title=%r published=%s",
+                        i, loc.get("source"), (ev.claim or "")[:80], loc.get("published_at"),
+                        extra={"component": "News"},
+                    )
+                # chunk -> embed -> rank vs query -> dedup; only the surviving chunks
+                # (each still carrying its article source/author/link) reach the LLM.
+                query_text = news_retrieval.build_query_text(frame, company)
+                _log.debug(
+                    "fie _news: news_retrieval query_text=%r",
+                    query_text[:120],
+                    extra={"component": "News"},
+                )
+                before = len(ctx.evidence)
+                ctx.evidence += news_retrieval.retrieve(
+                    res.items, query_text, anchor_date=self.external.as_of)
+                _log.debug(
+                    "fie _news: news_retrieval added %d chunks to evidence (total evidence now=%d)",
+                    len(ctx.evidence) - before, len(ctx.evidence),
+                    extra={"component": "News"},
+                )
+                got_any = got_any or res.status != "failed"
+                # Dump news retrieval details
+                if ctx.dumper and ctx.dumper.enabled:
+                    ctx.dumper.json("06c_news_retrieval", {
+                        "query_text": query_text,
+                        "adapter": type(self.external.news).__name__,
+                        "fetch_status": res.status,
+                        "articles_fetched": len(res.items),
+                        "chunks_kept": len(ctx.evidence) - before,
+                        "articles": [
+                            {
+                                "source": (ev.citations[0].locator.get("source") if ev.citations else None),
+                                "title": (ev.claim or "")[:100],
+                                "published_at": (ev.citations[0].locator.get("published_at") if ev.citations else None),
+                                "snippet_len": len((ev.citations[0].locator.get("snippet") or "") if ev.citations else ""),
+                            }
+                            for ev in res.items
+                        ],
+                    })
+        else:
+            _log.debug(
+                "fie _news: 'news' not in plan sources=%s -> news fetch skipped",
+                sorted(sources),
+                extra={"component": "News"},
+            )
+
         # PSX company announcements (POST form, date-windowed) per the source plan;
         # prefer the resolved ticker, fall back to a company keyword query.
-        if "psx_announcements" in sources and self.external.announcements is not None:
-            res = self.external.announcements.recent(
-                query=None if ticker else company, symbol=ticker,
-                anchor_date=self.external.as_of)
-            ctx.evidence += res.items
-            got_any = got_any or res.status != "failed"
-        if "secp" in sources and self.external.secp is not None:
-            res = self.external.secp.recent(
-                query=None if ticker else company, symbol=ticker,
-                anchor_date=self.external.as_of)
-            ctx.evidence += res.items
-            got_any = got_any or res.status != "failed"
+        if "psx_announcements" in sources:
+            if self.external.announcements is None:
+                _log.warning(
+                    "fie _news: 'psx_announcements' in plan but external.announcements adapter is None "
+                    "-> skipped; configure PSX announcements adapter",
+                    extra={"component": "News"},
+                )
+            else:
+                _log.debug(
+                    "fie _news: fetching psx_announcements adapter=%s company=%r ticker=%r anchor=%s",
+                    type(self.external.announcements).__name__, company, ticker, self.external.as_of,
+                    extra={"component": "News"},
+                )
+                res = self.external.announcements.recent(
+                    query=None if ticker else company, symbol=ticker,
+                    anchor_date=self.external.as_of)
+                _log.debug(
+                    "fie _news: psx_announcements returned status=%s items=%d",
+                    res.status, len(res.items),
+                    extra={"component": "News"},
+                )
+                for i, ev in enumerate(res.items[:5]):
+                    loc = ev.citations[0].locator if ev.citations else {}
+                    _log.debug(
+                        "  psx_item[%d] type=%r title=%r date=%s",
+                        i, loc.get("type"), (ev.claim or "")[:80], loc.get("date"),
+                        extra={"component": "News"},
+                    )
+                ctx.evidence += res.items
+                got_any = got_any or res.status != "failed"
+                if ctx.dumper and ctx.dumper.enabled:
+                    ctx.dumper.json("06d_psx_announcements", {
+                        "adapter": type(self.external.announcements).__name__,
+                        "ticker": ticker,
+                        "company": company,
+                        "fetch_status": res.status,
+                        "items_count": len(res.items),
+                        "items": [
+                            {
+                                "type": (ev.citations[0].locator.get("type") if ev.citations else None),
+                                "title": (ev.claim or "")[:100],
+                                "date": (ev.citations[0].locator.get("date") if ev.citations else None),
+                            }
+                            for ev in res.items[:20]
+                        ],
+                    })
+        else:
+            _log.debug(
+                "fie _news: 'psx_announcements' not in plan sources=%s -> PSX fetch skipped",
+                sorted(sources),
+                extra={"component": "News"},
+            )
+
+        if "secp" in sources:
+            if self.external.secp is None:
+                _log.warning(
+                    "fie _news: 'secp' in plan but external.secp adapter is None -> skipped",
+                    extra={"component": "News"},
+                )
+            else:
+                _log.debug(
+                    "fie _news: fetching secp adapter=%s company=%r ticker=%r anchor=%s",
+                    type(self.external.secp).__name__, company, ticker, self.external.as_of,
+                    extra={"component": "News"},
+                )
+                res = self.external.secp.recent(
+                    query=None if ticker else company, symbol=ticker,
+                    anchor_date=self.external.as_of)
+                _log.debug(
+                    "fie _news: secp returned status=%s items=%d",
+                    res.status, len(res.items),
+                    extra={"component": "News"},
+                )
+                ctx.evidence += res.items
+                got_any = got_any or res.status != "failed"
+        else:
+            _log.debug(
+                "fie _news: 'secp' not in plan sources=%s -> SECP fetch skipped",
+                sorted(sources),
+                extra={"component": "News"},
+            )
 
         if not got_any:
             ctx.degraded = True  # required external source(s) unavailable
+            _log.warning(
+                "fie _news: all requested sources failed/unavailable -> degraded=True sources=%s",
+                sorted(sources),
+                extra={"component": "News"},
+            )
 
 
 class _Ctx:
