@@ -148,6 +148,27 @@ def session_series(session_id: str) -> dict:
             except KeyError:
                 row[y] = None
         series[metric] = row
+
+    # A few dashboard inputs live at the detail level (not headline): depreciation must be
+    # summed across its line items per year (for EBITDA = operating profit + depreciation);
+    # EPS is a single per-year figure. Surface them so the client can derive EBITDA / EPS.
+    detail = store.detail()
+    for metric, agg in (("depreciation_expense", "sum"), ("earnings_per_share", "first")):
+        if metric in series:
+            continue
+        sub = detail[detail["metric"] == metric]
+        if sub.empty:
+            continue
+        row = {}
+        for y in years:
+            vals = sub[sub["year"] == y]["value"].dropna()
+            if vals.empty:
+                row[y] = None
+            else:
+                row[y] = float(vals.sum()) if agg == "sum" else float(vals.iloc[0])
+        if any(v is not None for v in row.values()):
+            series[metric] = row
+
     return {"years": years, "series": series}
 
 

@@ -15,3 +15,38 @@ body {
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
 }
+
+/* ── Themed scrollbar ────────────────────────────────────────────────────────
+   Applied globally so every scrollable surface (dashboard, dropdown list,
+   panels) matches the dark UI. Webkit-only; Firefox gets scrollbar-width thin.
+   ─────────────────────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e3440 transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2e3440;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3d4555;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

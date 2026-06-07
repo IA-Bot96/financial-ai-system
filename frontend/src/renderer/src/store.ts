@@ -11,6 +11,7 @@ export interface ChatTurn {
   text?: string
   response?: FieResponse
   error?: string
+  timestamp: number
 }
 export type Toast = { id: string; kind: 'info' | 'warning' | 'error' | 'success'; text: string }
 
@@ -150,13 +151,14 @@ export const useApp = create<AppState>((set) => ({
     if (!s.session || s.chat.pending) return
     const uid = `u${++_tid}`
     const aid = `a${++_tid}`
+    const now = Date.now()
     set((st) => ({
       chat: {
         pending: true,
         messages: [
           ...st.chat.messages,
-          { id: uid, role: 'user', text: query },
-          { id: aid, role: 'assistant' }
+          { id: uid, role: 'user', text: query, timestamp: now },
+          { id: aid, role: 'assistant', timestamp: now }
         ]
       }
     }))
