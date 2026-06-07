@@ -239,7 +239,7 @@ export function SheetView() {
       toast('info', `${nav.cell.sheet}!${nav.cell.cell}`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.cell?.sheet, nav.cell?.cell, nav.seq])
+  }, [nav.cell?.sheet, nav.cell?.cell, nav.cellSeq])
 
   return <div ref={hostRef} className="h-full w-full" />
 }

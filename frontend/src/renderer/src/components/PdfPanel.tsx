@@ -54,9 +54,16 @@ export function PdfPanel() {
     }
   }, [pdfPaths, active])
 
+  // report the open PDF up to the store so sheet-sync can prefer it (keeps the user in
+  // the document they're reading when switching sheets, and re-aligns when they switch PDFs)
+  useEffect(() => {
+    const name = pdfPaths[active] ? basename(pdfPaths[active]) : null
+    useApp.getState().setActivePdf(name)
+  }, [pdfPaths, active])
+
   // ── navigation (citation OR sheet→PDF sync): jump to (report_file, page) ────
   useEffect(() => {
-    if (!nav.seq) return
+    if (!nav.pdfSeq) return
     let targetIdx = active
     if (nav.pdfFile) {
       const idx = pdfPaths.findIndex(
@@ -77,7 +84,7 @@ export function PdfPanel() {
       jumpTo(wanted)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nav.seq])
+  }, [nav.pdfSeq])
 
   // ── track the page under the viewport centre as the user scrolls ────────────
   useEffect(() => {

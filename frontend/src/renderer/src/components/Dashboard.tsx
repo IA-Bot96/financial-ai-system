@@ -184,12 +184,14 @@ export function Dashboard() {
           options={[...SECTIONS]}
           selected={filterSections}
           onChange={setFilterSections}
+          toast={toast}
         />
         <FilterDropdown
           label="Year"
           options={allDataYears.map(String)}
           selected={filterYears}
           onChange={setFilterYears}
+          toast={toast}
         />
         {(filterSections.length > 0 || filterYears.length > 0) && (
           <button
@@ -199,7 +201,7 @@ export function Dashboard() {
             }}
             className="ml-1 text-xs text-muted hover:text-ink underline underline-offset-2 transition-colors"
           >
-            Clear all
+            Reset
           </button>
         )}
       </div>
@@ -758,12 +760,14 @@ function FilterDropdown({
   label,
   options,
   selected,
-  onChange
+  onChange,
+  toast
 }: {
   label: string
   options: string[]
   selected: string[]
   onChange: (v: string[]) => void
+  toast: (kind: 'info' | 'warning' | 'error' | 'success', text: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -790,11 +794,21 @@ function FilterDropdown({
 
   const toggle = (o: string) => {
     if (selected.length === 0) {
-      // all are currently shown → unchecking one means "show all except this"
+      // all are currently shown → unchecking one means "show all except this".
+      // (Only blocked if there's a single option total, which can't go to zero.)
+      if (options.length <= 1) {
+        toast('error', `At least one ${label.toLowerCase()} must stay selected.`)
+        return
+      }
       onChange(options.filter((x) => x !== o))
     } else if (selected.includes(o)) {
       const next = selected.filter((x) => x !== o)
-      onChange(next) // empty list = show nothing (user deselected all)
+      if (next.length === 0) {
+        // deselecting the last remaining one — not allowed; keep it selected.
+        toast('error', `At least one ${label.toLowerCase()} must stay selected.`)
+        return
+      }
+      onChange(next)
     } else {
       const next = [...selected, o]
       // if every option is now checked → clear filter (= show all)

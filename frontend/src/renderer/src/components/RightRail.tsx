@@ -20,26 +20,26 @@ export function RightRail() {
   const panels = useApp((s) => s.panels)
   const pdfPaths = useApp((s) => s.pdfPaths)
   const togglePanel = useApp((s) => s.togglePanel)
+  const openAttachPdfs = useApp((s) => s.openAttachPdfs)
   // the PDF / Ask AI docks only apply to the sheet surface — hide the rail elsewhere
   if (!session || view !== 'sheet') return null
 
   return (
     <nav className="w-[60px] shrink-0 h-full bg-panel2 border-l border-line flex flex-col items-center py-3 gap-1">
       {ITEMS.map(({ key, label, Icon }) => {
-        // no source PDF for this workbook (e.g. an Excel upload) -> PDF toggle is disabled
-        const disabled = key === 'pdf' && pdfPaths.length === 0
+        // no source PDF yet (e.g. an Excel upload) → the PDF button opens the attach modal
+        // instead of toggling an empty dock; once PDFs are attached it toggles as usual.
+        const needsAttach = key === 'pdf' && pdfPaths.length === 0
         return (
           <button
             key={key}
-            onClick={() => togglePanel(key)}
-            disabled={disabled}
+            onClick={() => (needsAttach ? openAttachPdfs() : togglePanel(key))}
             aria-pressed={panels[key]}
-            title={disabled ? 'No source PDF for this workbook' : undefined}
+            title={needsAttach ? 'Attach PDFs to view alongside this workbook' : undefined}
             className={cn(
               'w-[52px] py-2 rounded-lg text-[11px] font-medium flex flex-col items-center gap-1',
               'text-muted hover:bg-line hover:text-ink transition-colors whitespace-nowrap',
-              panels[key] && 'bg-accent/20 text-accent',
-              disabled && 'opacity-30 cursor-not-allowed hover:bg-transparent hover:text-muted'
+              panels[key] && 'bg-accent/20 text-accent'
             )}
           >
             <Icon className="h-5 w-5" />

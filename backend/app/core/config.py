@@ -67,6 +67,7 @@ class Settings(BaseSettings):
     insights_chunk_overlap: int = 250
     insights_chunks_per_call: int = 8
     insights_max_chunks: int | None = None   # None = cover all ranked chunks
+    insights_workers: int = 8                # concurrent insight-batch GPT calls (1 = sequential)
     insight_reject_threshold: float = 0.50   # below -> dropped
     insight_review_threshold: float = 0.70   # below -> 'Insights Review' sheet
     insight_dedup_similarity: float = 0.90   # cosine >= this -> duplicate
@@ -78,7 +79,13 @@ class Settings(BaseSettings):
                                             # cap doesn't silently drop statement pages
     gpt_table_min_money: int = 6            # page needs >= this many comma-grouped figures
     gpt_table_dense_digits: int = 120       # OCR fallback: very digit-dense page (commas lost)
-    gpt_table_workers: int = 8              # concurrent page-extraction GPT calls (1 = sequential)
+    gpt_table_workers: int = 16             # concurrent page-extraction GPT calls (1 = sequential).
+                                            # Raised 8->16: production logs show a ~60-page report
+                                            # runs 8 workers for ~106s with ZERO 429s/retries, i.e.
+                                            # the account rate limit has headroom and 8 was the
+                                            # binding cap. 16 ~halves table-extraction wall-time;
+                                            # excess is throttled gracefully by openai_max_retries.
+                                            # Watch logs for 429s if raising further.
 
     # --- Vision-assisted reconstruction (send the page image with the text) ---
     # When on, each financial page sent to GPT for reconstruction also gets a rendered

@@ -170,13 +170,14 @@ export function AskAI() {
         {/* conversation messages */}
         {chat.messages.map((m) =>
           m.role === 'user' ? (
-            /* user bubble — right-aligned */
+            /* user bubble — right-aligned, mirror of the AI block (avatar in the right
+               gutter, bubble inset mr-9 to match AI's ml-9 spacing) */
             <div key={m.id} className="flex flex-col items-end gap-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-ink">{USER_NAME}</span>
                 <UserAvatar />
               </div>
-              <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-accent/15 border border-accent/25 px-3.5 py-2.5 text-sm leading-relaxed">
+              <div className="max-w-[85%] rounded-xl bg-accent/15 border border-accent/25 px-3.5 py-2.5 text-sm leading-relaxed">
                 {m.text}
               </div>
               <span className="text-[11px] text-muted">{relativeTime(m.timestamp, now)}</span>
@@ -187,8 +188,9 @@ export function AskAI() {
               <div className="flex items-center gap-2">
                 <AiAvatar />
                 <span className="text-xs font-semibold text-ink">{AI_NAME}</span>
+                {m.response && <ConfidenceBadge band={m.response.confidence?.band} />}
               </div>
-              <div className="ml-9 max-w-full">
+              <div className="max-w-full">
                 {m.response ? (
                   <AnswerCard r={m.response} />
                 ) : m.error ? (
@@ -202,7 +204,7 @@ export function AskAI() {
                   </div>
                 )}
               </div>
-              <span className="ml-9 text-[11px] text-muted">{relativeTime(m.timestamp, now)}</span>
+              <span className="text-[11px] text-muted">{relativeTime(m.timestamp, now)}</span>
             </div>
           )
         )}
@@ -276,10 +278,7 @@ function AnswerCard({ r }: { r: FieResponse }) {
   const degraded = !!(cov as { degraded?: boolean }).degraded
   return (
     <div className="rounded-xl border border-line bg-panel2 px-3.5 py-3 space-y-2.5 text-sm">
-      <div className="flex items-start gap-2">
-        <ConfidenceBadge band={r.confidence?.band} />
-        <div className="flex-1 leading-relaxed">{r.direct_answer}</div>
-      </div>
+      <div className="leading-relaxed">{r.direct_answer}</div>
 
       {r.key_findings.length > 0 && (
         <ul className="space-y-1.5 pl-1">

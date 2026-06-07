@@ -4,6 +4,55 @@ import { api, type Citation, type FieResponse } from '@/api'
 import { parseWorkbook } from '@/lib/sheetjs'
 import { buildEditedXlsx } from '@/lib/save'
 
+// Insights worksheet column order (excel_writer.INSIGHT_COLUMNS), 0-based:
+// 0 Year | 1 Source Report Year | 2 Area | 3 Takeaway | 4 Source Section | 5 Page | 6 Confidence
+const INS_AREA = 2
+const INS_YEAR = 0
+const INS_PAGE = 5
+const INS_SECTION = 4
+
+/**
+ * Locate the row for an insight citation on the workbook's "Insights" sheet so the chip
+ * opens the cell in the grid instead of the source PDF. The citation locator carries
+ * area/year/page/source_section but not the row; we match those against the sheet (area is
+ * required, year/page/section break ties between insights sharing an area). Returns an A1
+ * target on the Area column, or — if no row matches — the first insight sheet at A1, or
+ * null when no insight sheet is loaded (caller then falls back to the PDF).
+ */
+function findInsightCell(
+  sheets: ParsedSheet[],
+  loc: Record<string, unknown>
+): { sheet: string; cell: string } | null {
+  const insightSheets = sheets
+    .filter((s) => /insight/i.test(s.name))
+    .sort((a, b) => Number(b.name.toLowerCase() === 'insights') - Number(a.name.toLowerCase() === 'insights'))
+  if (!insightSheets.length) return null
+
+  const norm = (v: unknown) => String(v ?? '').trim().toLowerCase()
+  const area = norm(loc.area)
+
+  for (const sheet of insightSheets) {
+    let bestRow = -1
+    let bestScore = 0
+    for (const rStr in sheet.cellData) {
+      const r = Number(rStr)
+      if (r === 0) continue // header row
+      const row = sheet.cellData[r]
+      if (!area || norm(row?.[INS_AREA]?.v) !== area) continue // area must match
+      let score = 1
+      if (loc.year != null && row?.[INS_YEAR]?.v != null && Number(row[INS_YEAR].v) === Number(loc.year)) score++
+      if (loc.page != null && row?.[INS_PAGE]?.v != null && Number(row[INS_PAGE].v) === Number(loc.page)) score++
+      if (loc.source_section && norm(row?.[INS_SECTION]?.v) === norm(loc.source_section)) score++
+      if (score > bestScore) {
+        bestScore = score
+        bestRow = r
+      }
+    }
+    if (bestRow >= 0) return { sheet: sheet.name, cell: `C${bestRow + 1}` } // C = Area; +1 → 1-based row
+  }
+  return { sheet: insightSheets[0].name, cell: 'A1' } // area not found — at least open the sheet
+}
+
 export type View = 'home' | 'sheet' | 'dashboard'
 export interface ChatTurn {
   id: string
@@ -44,6 +93,81 @@ export interface SheetSourceEntry {
 /** `sheet_sources` from the extraction job: worksheet name → entries (highest weight first). */
 export type SheetSources = Record<string, SheetSourceEntry[]>
 
+/**
+ * Choose which source entry to sync the PDF to for a sheet. Prefers the PDF the user
+ * currently has open (so switching sheets keeps you in the same document when that
+ * document is one of the sheet's sources); otherwise falls back to the primary
+ * (highest-weight) entry. Returns null when the sheet has no lineage.
+ */
+export function pickSourceEntry(
+  entries: SheetSourceEntry[] | undefined,
+  preferredFile: string | null
+): SheetSourceEntry | null {
+  if (!entries || !entries.length) return null
+  if (preferredFile) {
+    const match = entries.find(
+      (e) => e.report_file.toLowerCase() === preferredFile.toLowerCase()
+    )
+    if (match) return match
+  }
+  return entries[0]
+}
+
+/**
+ * Reconstruct `sheet_sources` from the "Source Ledger" sheet embedded in an extracted
+ * workbook. The extraction emits sheet→PDF page lineage to the job API (used right after
+ * extraction) but does NOT persist it in the xlsx — except indirectly via the Source Ledger
+ * sheet, which lists every written cell's origin (Sheet | … | Report file | Page | …). So
+ * when the user re-opens a saved extracted workbook (and attaches its source PDFs), we
+ * rebuild the same map client-side. Returns {} when there's no parseable ledger.
+ */
+export function reconstructSheetSources(sheets: ParsedSheet[]): SheetSources {
+  const ledger = sheets.find((s) => s.name.trim().toLowerCase() === 'source ledger')
+  if (!ledger) return {}
+  const header = ledger.cellData[0]
+  if (!header) return {}
+
+  const colOf = (label: string): number | null => {
+    for (const [c, cell] of Object.entries(header)) {
+      const v = cell?.v
+      if (typeof v === 'string' && v.trim().toLowerCase() === label) return Number(c)
+    }
+    return null
+  }
+  const cSheet = colOf('sheet')
+  const cFile = colOf('report file')
+  const cPage = colOf('page')
+  if (cSheet == null || cFile == null || cPage == null) return {}
+
+  // accumulate: sheet → report_file → { pages, weight (# contributing cells) }
+  const acc: Record<string, Record<string, { pages: Set<number>; weight: number }>> = {}
+  for (const [rowKey, row] of Object.entries(ledger.cellData)) {
+    if (Number(rowKey) === 0) continue // header row
+    const sheet = row?.[cSheet]?.v
+    const file = row?.[cFile]?.v
+    if (typeof sheet !== 'string' || typeof file !== 'string' || !sheet || !file) continue
+    const rawPage = row?.[cPage]?.v
+    const page = typeof rawPage === 'number' ? rawPage : Number(rawPage)
+    const ent = ((acc[sheet] ||= {})[file] ||= { pages: new Set<number>(), weight: 0 })
+    if (Number.isFinite(page) && page >= 1) ent.pages.add(page)
+    ent.weight += 1
+  }
+
+  const out: SheetSources = {}
+  for (const [sheet, byFile] of Object.entries(acc)) {
+    const entries: SheetSourceEntry[] = Object.entries(byFile)
+      .map(([report_file, e]) => ({
+        report_file,
+        pages: [...e.pages].sort((a, b) => a - b),
+        weight: e.weight
+      }))
+      .filter((e) => e.pages.length) // an entry with no page can't drive navigation
+      .sort((a, b) => b.weight - a.weight || a.report_file.localeCompare(b.report_file))
+    if (entries.length) out[sheet] = entries
+  }
+  return out
+}
+
 interface AppState {
   backend: { status: 'starting' | 'ready' | 'error'; logPath: string }
   session: SessionMeta | null
@@ -56,6 +180,7 @@ interface AppState {
   validation: ValidationSummary | null
   sheetSources: SheetSources       // worksheet → source PDF pages (from extraction)
   activeSheet: string | null       // currently selected worksheet tab name
+  activePdf: string | null         // filename of the PDF currently shown in the viewer
   syncPdfToSheet: boolean          // auto-jump the PDF to the active sheet's source page
   panels: { pdf: boolean; askAI: boolean }
   panelWidth: { pdf: number; askAI: number }
@@ -63,11 +188,16 @@ interface AppState {
     cell: { sheet: string; cell: string } | null
     pdfFile: string | null         // target PDF (by filename); null = keep current
     pdfPage: number | null
-    seq: number
+    // Separate trigger counters so grid-cell navigation and PDF navigation don't cross-fire.
+    // (PDF-sync on a sheet activation bumps pdfSeq only; otherwise it would re-trigger the
+    // cell-nav effect, whose activate() fires the sheet-change that runs PDF-sync — a loop.)
+    cellSeq: number
+    pdfSeq: number
   }
   chat: { messages: ChatTurn[]; pending: boolean }
   view: View
   uploadOpen: boolean
+  attachPdfsOpen: boolean // "Attach PDFs" modal (view PDFs alongside a workbook with no source)
   confirmDiscard: boolean // "Discard Changes?" prompt before navigating to upload (New)
   toasts: Toast[]
 
@@ -90,6 +220,7 @@ interface AppState {
   setValidation: (v: ValidationSummary | null) => void
   setSheetSources: (s: SheetSources) => void
   setActiveSheet: (name: string) => void
+  setActivePdf: (file: string | null) => void
   setSyncPdfToSheet: (v: boolean) => void
   focusSheetSource: (entry: SheetSourceEntry, page?: number) => void
   toggleShowSource: () => void
@@ -99,6 +230,8 @@ interface AppState {
   reopenLast: () => Promise<void>
   openUpload: () => void
   closeUpload: () => void
+  openAttachPdfs: () => void
+  closeAttachPdfs: () => void
   cancelDiscard: () => void
   discardAndUpload: () => void
   toast: (kind: Toast['kind'], text: string) => void
@@ -119,13 +252,15 @@ export const useApp = create<AppState>((set) => ({
   validation: null,
   sheetSources: {},
   activeSheet: null,
+  activePdf: null,
   syncPdfToSheet: true,
   panels: { pdf: false, askAI: false },
   panelWidth: { pdf: 380, askAI: 400 },
-  nav: { cell: null, pdfFile: null, pdfPage: null, seq: 0 },
+  nav: { cell: null, pdfFile: null, pdfPage: null, cellSeq: 0, pdfSeq: 0 },
   chat: { messages: [], pending: false },
   view: 'home',
   uploadOpen: false,
+  attachPdfsOpen: false,
   confirmDiscard: false,
   toasts: [],
 
@@ -138,10 +273,14 @@ export const useApp = create<AppState>((set) => ({
       loadSeq: st.loadSeq + 1,
       workbook: { dirty: false, filePath, origin },
       chat: { messages: [], pending: false },
-      // lineage is workbook-specific — clear it; review()/extraction sets it after load
+      // PDFs + lineage are workbook-specific — clear them so a prior workbook's source PDFs
+      // don't leak into this one; review()/extraction (or the attach modal) sets them after.
+      pdfPaths: [],
+      validation: null,
       sheetSources: {},
       activeSheet: null,
-      nav: { cell: null, pdfFile: null, pdfPage: null, seq: 0 },
+      activePdf: null,
+      nav: { cell: null, pdfFile: null, pdfPage: null, cellSeq: 0, pdfSeq: 0 },
       view: 'sheet',
       uploadOpen: false
     }))
@@ -160,27 +299,40 @@ export const useApp = create<AppState>((set) => ({
       window.api.openExternal(url)
       return
     }
+    // The workbook is ALWAYS present; the source PDF is optional. So resolve a sheet/cell
+    // target for the citation and open the grid — only fall back to the PDF when there is
+    // no workbook location to point at at all.
+    let target: { sheet: string; cell: string } | null = null
     if (loc.sheet && loc.cell) {
+      target = { sheet: String(loc.sheet), cell: String(loc.cell) } // exact ledger cell
+    } else if (loc.primary_sheet && loc.primary_cell) {
+      target = { sheet: String(loc.primary_sheet), cell: String(loc.primary_cell) } // originating fact cell
+    } else if (cite.kind === 'insight') {
+      target = findInsightCell(useApp.getState().sheets, loc) // Insights sheet row
+    } else if (loc.sheet) {
+      target = { sheet: String(loc.sheet), cell: String(loc.cell ?? 'A1') } // sheet-level
+    } else if (loc.primary_sheet) {
+      target = { sheet: String(loc.primary_sheet), cell: String(loc.primary_cell ?? 'A1') }
+    }
+    if (target) {
       set((s) => ({
         view: 'sheet',
-        nav: {
-          cell: { sheet: String(loc.sheet), cell: String(loc.cell) },
-          pdfFile: null,
-          pdfPage: null,
-          seq: s.nav.seq + 1
-        }
+        // cell navigation: bump cellSeq only (leave the PDF where it is)
+        nav: { ...s.nav, cell: target, pdfFile: null, pdfPage: null, cellSeq: s.nav.cellSeq + 1 }
       }))
       return
     }
+    // last resort — no workbook location on this citation; show the source page if any
     if (loc.page != null) {
       set((s) => ({
         panels: { ...s.panels, pdf: true },
+        // PDF navigation: bump pdfSeq only (don't re-trigger the cell-nav effect)
         nav: {
+          ...s.nav,
           cell: null,
-          // citations carry a page only — let the viewer keep the current PDF
           pdfFile: (loc.report_file as string) ?? (loc.file as string) ?? null,
           pdfPage: Number(loc.page),
-          seq: s.nav.seq + 1
+          pdfSeq: s.nav.pdfSeq + 1
         }
       }))
       return
@@ -242,17 +394,37 @@ export const useApp = create<AppState>((set) => ({
   setActiveSheet: (name) => {
     const st = useApp.getState()
     if (st.activeSheet !== name) set({ activeSheet: name })
-    // auto-sync the PDF to this sheet's primary source page (when enabled).
-    // Does NOT force the PDF panel open — non-intrusive on plain tab switches; the
-    // badge click (focusSheetSource) is the explicit "open & jump" affordance.
+    // auto-sync the PDF to this sheet's source page (when enabled). Prefer the PDF the
+    // user already has open — switching sheets keeps you in that document if it's one of
+    // the sheet's sources; otherwise fall back to the primary (highest-weight) entry.
+    // Does NOT force the PDF panel open — the badge click is the explicit "open & jump".
     if (!st.syncPdfToSheet) return
-    const entries = st.sheetSources[name]
-    if (!entries || !entries.length) return // no lineage for this sheet → leave PDF as-is
-    const primary = entries[0]
-    const page = primary.pages?.[0]
-    if (!primary.report_file || !page) return
+    // sheet-sync only applies to extracted workbooks with provenance — attached PDFs (e.g. on
+    // an Excel workbook) have no lineage, so switching sheets must never move the viewer.
+    if (!Object.keys(st.sheetSources).length) return
+    const entry = pickSourceEntry(st.sheetSources[name], st.activePdf)
+    if (!entry) return // no lineage for this sheet → leave PDF as-is
+    const page = entry.pages?.[0]
+    if (!entry.report_file || !page) return
     set((s) => ({
-      nav: { ...s.nav, pdfFile: primary.report_file, pdfPage: page, seq: s.nav.seq + 1 }
+      nav: { ...s.nav, pdfFile: entry.report_file, pdfPage: page, pdfSeq: s.nav.pdfSeq + 1 }
+    }))
+  },
+  setActivePdf: (file) => {
+    const st = useApp.getState()
+    if (st.activePdf === file) return
+    set({ activePdf: file })
+    // when the user switches PDFs, re-align the current sheet to a page within the
+    // newly-opened PDF — but only if that PDF is actually a source for the sheet,
+    // otherwise leave the viewer where the user put it.
+    if (!st.syncPdfToSheet || !file || !st.activeSheet) return
+    if (!Object.keys(st.sheetSources).length) return // attached PDFs have no lineage → no sync
+    const entries = st.sheetSources[st.activeSheet]
+    const match = entries?.find((e) => e.report_file.toLowerCase() === file.toLowerCase())
+    const page = match?.pages?.[0]
+    if (!match || !page) return
+    set((s) => ({
+      nav: { ...s.nav, pdfFile: match.report_file, pdfPage: page, pdfSeq: s.nav.pdfSeq + 1 }
     }))
   },
   setSyncPdfToSheet: (v) => {
@@ -268,7 +440,7 @@ export const useApp = create<AppState>((set) => ({
         ...s.nav,
         pdfFile: entry.report_file,
         pdfPage: page ?? entry.pages?.[0] ?? null,
-        seq: s.nav.seq + 1
+        pdfSeq: s.nav.pdfSeq + 1
       }
     })),
   toggleShowSource: () => set((s) => ({ showSource: !s.showSource })),
@@ -326,6 +498,9 @@ export const useApp = create<AppState>((set) => ({
     const meta = res.body as SessionMeta
     const sheets = await parseWorkbook(await window.api.readFile(path), meta.sheets)
     useApp.getState().loadWorkbook(meta, sheets, path, origin)
+    // recover sheet→PDF lineage from the embedded Source Ledger (extracted workbooks),
+    // so sheet-sync works once the user attaches the matching source PDFs.
+    useApp.getState().setSheetSources(reconstructSheetSources(sheets))
     return true
   },
   reopenLast: async () => {
@@ -341,6 +516,8 @@ export const useApp = create<AppState>((set) => ({
     set({ uploadOpen: true })
   },
   closeUpload: () => set({ uploadOpen: false }),
+  openAttachPdfs: () => set({ attachPdfsOpen: true }),
+  closeAttachPdfs: () => set({ attachPdfsOpen: false }),
   cancelDiscard: () => set({ confirmDiscard: false }),
   discardAndUpload: () => {
     // abandon unsaved changes and open the upload screen

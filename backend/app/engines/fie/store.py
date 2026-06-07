@@ -231,7 +231,7 @@ class FinancialFactStore:
             # tier 1: direct (sheet, cell) hit  — true for detail rows
             direct = sl[(sl.get("Sheet") == fact.sheet) & (sl.get("Cell") == fact.cell)]
             if not direct.empty:
-                return self._rows_to_citations(direct, basis="direct")
+                return self._rows_to_citations(direct, basis="direct", fact=fact)
 
         # tier 2: headline -> via the contributing detail sheet
         if (sl is not None and not sl.empty
@@ -248,7 +248,7 @@ class FinancialFactStore:
             # collapse to distinct source locations rather than one cite per line item.
             cand = self._newest_report_rows(cand)
             if not cand.empty:
-                return self._rows_to_citations(cand, basis="via_detail", collapse=True)
+                return self._rows_to_citations(cand, basis="via_detail", collapse=True, fact=fact)
 
         # tier 3: workbook-cell fallback (e.g. no-template OCR workbooks have no
         # Source Ledger) — the value's provenance is the workbook cell itself.
@@ -272,12 +272,17 @@ class FinancialFactStore:
         return rows
 
     def _rows_to_citations(self, rows: pd.DataFrame, *, basis: str,
-                           collapse: bool = False) -> list[Citation]:
+                           collapse: bool = False, fact: FactRef | None = None) -> list[Citation]:
         """Build Citations from Source Ledger rows.
 
         When ``collapse`` is set, rows are grouped by distinct source location
         (report_file, page, table_id) so a derived total cites the source
         table/pages once each, not once per underlying line item (A1 decision).
+
+        ``primary_sheet``/``primary_cell`` carry the originating fact's workbook location
+        (where the value is displayed) so the UI can open the cell in the always-present
+        workbook — the source PDF is optional. For a collapsed/via-detail citation the
+        ledger ``cell`` is None, but the fact's own cell still pinpoints the value.
         """
         cites: list[Citation] = []
         if rows.empty:
@@ -321,6 +326,9 @@ class FinancialFactStore:
                     "table_id": r.get("Table id"),
                     "sheet": r.get("Sheet"),
                     "cell": (r.get("Cell") if len(group) == 1 else None),
+                    # originating workbook location (always present) for in-grid navigation
+                    "primary_sheet": getattr(fact, "sheet", None),
+                    "primary_cell": getattr(fact, "cell", None),
                     "year": r.get("Year"), "report_year": ry,
                     "basis": basis,
                     "derived_from_rows": len(group),

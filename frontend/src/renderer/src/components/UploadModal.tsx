@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, DragEvent } from 'react'
-import { useApp, type SessionMeta, type ValidationSummary, type SheetSources } from '@/store'
+import {
+  useApp,
+  reconstructSheetSources,
+  type SessionMeta,
+  type ValidationSummary,
+  type SheetSources
+} from '@/store'
 import { parseWorkbook } from '@/lib/sheetjs'
 import { Button } from './ui/Button'
 import { Plus, UploadCloud } from './ui/icons'
@@ -210,6 +216,9 @@ export function UploadModal() {
       const meta   = res.body as SessionMeta
       const sheets = await parseWorkbook(await window.api.readFile(f.path), meta.sheets)
       loadWorkbook(meta, sheets, f.path, 'excel')
+      // if this is an extracted workbook, recover sheet→PDF lineage from its Source Ledger
+      // sheet so sheet-sync works once the user attaches the matching source PDFs.
+      setSheetSources(reconstructSheetSources(sheets))
       toast('success', 'Excel file uploaded successfully.')
     } catch (e) {
       console.error('[upload] excel parse/render failed', e)

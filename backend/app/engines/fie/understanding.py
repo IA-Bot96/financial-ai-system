@@ -101,7 +101,19 @@ _FORMULA_KEYWORDS: list[tuple[re.Pattern, str, list[str]]] = [
      ["total_equity", "shares_outstanding"]),
 ]
 
-_RISK_RE = re.compile(r"\brisk", re.I)
+# Qualitative / MD&A-style questions answered from the workbook's narrative insights.
+# risk_assessment is the engine's qualitative-insights handler, so it owns all of these.
+# This branch sits AFTER every quantitative branch in build_frame, so a broad match here
+# can only catch queries that fell through metric/ratio/trend/etc. detection.
+_RISK_RE = re.compile(
+    r"\brisk|\bchalleng|\bheadwind|\bconcern|\bpressure|\bexposure|\buncertaint"
+    r"|\bmanagement('?s)? (say|view|comment|discuss|expect|believe|note|outlook|guidance)"
+    r"|\b(operational|business|industry|market|economic|macro|competitive|regulatory) "
+    r"(condition|challenge|issue|environment|outlook|landscape|dynamic|factor)"
+    r"|\bmarket share|\bdemand\b|\bcompetiti|\bstrateg|\bstrength|\bweakness"
+    r"|\bopportunit|\boutlook\b|\bguidance\b",
+    re.I,
+)
 # metric keyword -> canonical id (for direct value lookups)
 _METRIC_KEYWORDS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\brevenue|net sales|turnover", re.I), "revenue"),
@@ -344,6 +356,18 @@ _VALIDATE_SYS = (
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
     "metric_lookup, unknown. "
+    "INTENT GUIDANCE: risk_assessment is the QUALITATIVE-INSIGHTS handler — route ANY "
+    "narrative/qualitative question that can be answered from the company's management "
+    "commentary or report insights here, NOT just questions containing the word 'risk'. "
+    "This includes questions about what management says or expects, demand, market share, "
+    "industry / business / economic conditions, operational challenges, strategy, "
+    "competitive position, outlook, guidance, strengths/weaknesses, and risks. "
+    "metric_lookup / ratio_analysis / trend_analysis are for specific NUMERIC figures or "
+    "ratios; risk_assessment is for everything qualitative about this company. "
+    "Use 'unknown' ONLY when the query is not about this company's financials or "
+    "qualitative disclosures at all (e.g. a greeting or an unrelated topic) — whenever the "
+    "question is about the company's performance, position, or commentary, pick a supported "
+    "intent (default to risk_assessment for qualitative questions) rather than 'unknown'. "
     "Only use metric IDs from available_metrics — never invent new ones. "
     "Only use years from available_years. "
     "Return JSON with keys: intent (string), year (int or null), "

@@ -70,14 +70,32 @@ def extract_insights(doc: IngestedDoc, gpt) -> tuple[list[Insight], list[Insight
 
     valid_sources = {(c.page_number, _normalize_section(c.source_section)) for c in ranked}
 
-    collected: list[Insight] = []
-    calls = 0
-    for batch in _batched(ranked, settings.insights_chunks_per_call):
-        calls += 1
+    batches = _batched(ranked, settings.insights_chunks_per_call)
+    calls = len(batches)
+
+    def _call(item: tuple[int, list[NarrativeChunk]]):
+        idx, batch = item
         try:
-            result = gpt.complete_structured(_SYSTEM, _build_user(batch, doc.report_year), InsightList)
+            return idx, gpt.complete_structured(_SYSTEM, _build_user(batch, doc.report_year), InsightList)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Insight batch %d failed for %s: %s", calls, doc.file_name, exc)
+            logger.warning("Insight batch %d failed for %s: %s", idx, doc.file_name, exc)
+            return idx, None
+
+    # Batches are independent GPT calls -> run them concurrently (the insights stage is
+    # otherwise serial GPT time while the table-extraction workers sit idle). Results are
+    # processed in deterministic batch order so dedup/output stay stable.
+    indexed = list(enumerate(batches, start=1))
+    workers = max(1, min(settings.insights_workers, len(batches)))
+    if workers == 1:
+        results = [_call(it) for it in indexed]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_call, indexed))   # map preserves input (batch) order
+
+    collected: list[Insight] = []
+    for _idx, result in results:
+        if result is None:
             continue
         for ins in result.insights:
             ins.source_report_year = doc.report_year

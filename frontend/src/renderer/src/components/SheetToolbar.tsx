@@ -1,11 +1,20 @@
-import { useApp } from '@/store'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useApp, pickSourceEntry } from '@/store'
+
+type SecTarget = { file: string; page: number }
+
+// shared chip styling (used by both the visible chips and the hidden measuring copies)
+const CHIP_CLASS =
+  'shrink-0 whitespace-nowrap rounded px-1 py-0.5 border border-line bg-panel2 ' +
+  'hover:border-accent/60 hover:text-accent transition-colors'
+const GAP = 8 // px, matches gap-2 in the sync row
 
 /** Thin toolbar above the grid: company/session info, validation badge, and the
- *  sheet→PDF source-sync controls (toggle + linked-source badge). */
+ *  sheet→PDF source-sync controls (toggle + linked-source badge + jump chips). */
 export function SheetToolbar() {
   const {
-    session, sheets, workbook, validation,
-    pdfPaths, sheetSources, activeSheet, syncPdfToSheet, setSyncPdfToSheet, focusSheetSource
+    session, sheets, workbook, validation, pdfPaths, sheetSources, activeSheet, activePdf,
+    syncPdfToSheet, setSyncPdfToSheet, focusSheetSource
   } = useApp()
 
   const flagged = (validation?.withheld ?? 0) + (validation?.quarantined ?? 0)
@@ -13,32 +22,36 @@ export function SheetToolbar() {
   // The sync feature is active only when we have PDFs AND lineage survived for this job.
   const hasLineage = pdfPaths.length > 0 && Object.keys(sheetSources).length > 0
   const entries = (activeSheet && sheetSources[activeSheet]) || []
-  const primary = entries[0] // highest weight = the sheet's primary source
+  // the entry the viewer is synced to — prefers the open PDF, so badge ⇄ viewer agree
+  const primary = pickSourceEntry(entries, activePdf)
 
-  // Secondary jump targets: every (file, page) except the primary's first page.
-  const secondary: { file: string; page: number }[] = []
-  entries.forEach((e, ei) =>
+  // Secondary jump targets: every (file, page) except the synced entry's first page,
+  // ordered high → low by (report, page) — newest report first, then page ascending.
+  const secondary: SecTarget[] = []
+  entries.forEach((e) =>
     e.pages.forEach((pg, pi) => {
-      if (ei === 0 && pi === 0) return
+      if (e === primary && pi === 0) return
       secondary.push({ file: e.report_file, page: pg })
     })
   )
+  secondary.sort((a, b) => b.file.localeCompare(a.file) || a.page - b.page)
 
   return (
     <div className="h-9 shrink-0 flex items-center gap-3 px-3 border-b border-line bg-panel text-xs">
-      <span className="font-medium text-ink">{session?.company ?? 'Workbook'}</span>
+      {/* always-visible workbook identity (never collapses) */}
+      <span className="font-medium text-ink shrink-0">{session?.company ?? 'Workbook'}</span>
       {session?.years?.length ? (
-        <span className="text-muted">
+        <span className="text-muted shrink-0">
           {session.years[0]}–{session.years[session.years.length - 1]}
         </span>
       ) : null}
-      <span className="text-muted">· {sheets.length} sheets</span>
+      <span className="text-muted shrink-0">· {sheets.length} sheets</span>
 
       {workbook.origin === 'ocr' && validation && (
         <span
           title="Withheld + quarantined values from extraction (see the Validation Ledger sheet)"
           className={
-            'rounded px-1.5 py-0.5 border ' +
+            'shrink-0 rounded px-1.5 py-0.5 border ' +
             (flagged > 0
               ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
               : 'text-green-400 border-green-500/40 bg-green-500/10')
@@ -48,77 +61,252 @@ export function SheetToolbar() {
         </span>
       )}
 
-      {/* ── sheet → PDF source sync ── */}
+      {/* ── sheet → PDF source sync (collapses by priority as space tightens) ── */}
       {hasLineage && (
-        <div className="flex items-center gap-2 pl-1 border-l border-line">
-          {/* toggle */}
-          <button
-            type="button"
-            role="switch"
-            aria-checked={syncPdfToSheet}
-            onClick={() => setSyncPdfToSheet(!syncPdfToSheet)}
-            title="Automatically scroll the PDF to the active sheet's source page"
-            className="flex items-center gap-1.5 text-muted hover:text-ink transition-colors"
-          >
-            <span
-              className={
-                'relative inline-block h-3.5 w-6 rounded-full transition-colors ' +
-                (syncPdfToSheet ? 'bg-accent' : 'bg-line')
-              }
-            >
-              <span
-                className={
-                  'absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ' +
-                  (syncPdfToSheet ? 'left-3' : 'left-0.5')
-                }
-              />
-            </span>
-            Sync PDF to sheet
-          </button>
+        <SyncControls
+          syncOn={syncPdfToSheet}
+          onToggle={() => setSyncPdfToSheet(!syncPdfToSheet)}
+          primary={primary}
+          onFocusPrimary={() => primary && focusSheetSource(primary)}
+          secondary={secondary}
+          onPick={(t) =>
+            focusSheetSource({ report_file: t.file, pages: [t.page], weight: 0 }, t.page)
+          }
+        />
+      )}
+    </div>
+  )
+}
 
-          {/* primary source badge (clickable → re-center the PDF) */}
-          {primary ? (
+interface SyncLayout {
+  showToggle: boolean
+  showBadge: boolean
+  nChips: number
+  showDropdown: boolean
+}
+
+/**
+ * Sheet→PDF sync controls with priority-based responsive collapse. With ample width the
+ * toggle, source badge, and all jump chips show. As width shrinks, pieces drop out in
+ * ascending priority — chips collapse into the dropdown first, then the toggle, then the
+ * dropdown, and finally the badge — so only the workbook name (in the parent) always
+ * survives. Re-measured on every resize.
+ */
+function SyncControls({
+  syncOn,
+  onToggle,
+  primary,
+  onFocusPrimary,
+  secondary,
+  onPick
+}: {
+  syncOn: boolean
+  onToggle: () => void
+  primary: { report_file: string; pages: number[] } | null
+  onFocusPrimary: () => void
+  secondary: SecTarget[]
+  onPick: (t: SecTarget) => void
+}) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const meas = useRef<Record<string, HTMLElement | null>>({})
+  const chipsMeasRef = useRef<HTMLDivElement>(null)
+  const [lay, setLay] = useState<SyncLayout>({
+    showToggle: true,
+    showBadge: true,
+    nChips: secondary.length,
+    showDropdown: false
+  })
+
+  useLayoutEffect(() => {
+    const row = rowRef.current
+    if (!row) return
+    const compute = () => {
+      const W = row.clientWidth
+      const wToggle = meas.current.toggle?.offsetWidth ?? 0
+      const wBadge = meas.current.badge?.offsetWidth ?? 0
+      const wDrop = meas.current.drop?.offsetWidth ?? 0
+      const chipW = Array.from(chipsMeasRef.current?.children ?? []).map(
+        (c) => (c as HTMLElement).offsetWidth
+      )
+      const sum = (arr: number[]) => arr.reduce((s, w) => s + w + GAP, 0)
+
+      // fast path: everything fits → show it all, no dropdown
+      if (wBadge + GAP + wToggle + GAP + sum(chipW) <= W) {
+        setLay({ showToggle: true, showBadge: true, nChips: secondary.length, showDropdown: false })
+        return
+      }
+
+      // priority inclusion (keep longest → drop last): badge > dropdown > toggle > chips
+      let used = 0
+      const place = (w: number) => {
+        const need = (used > 0 ? GAP : 0) + w
+        if (used + need <= W) {
+          used += need
+          return true
+        }
+        return false
+      }
+      const showBadge = place(wBadge)
+      const reserveDropdown = secondary.length > 0 ? place(wDrop) : false
+      const showToggle = place(wToggle)
+      let nChips = 0
+      for (const w of chipW) {
+        if (place(w)) nChips++
+        else break
+      }
+      const showDropdown = reserveDropdown && nChips < secondary.length
+      setLay({ showToggle, showBadge, nChips, showDropdown })
+    }
+    compute()
+    const ro = new ResizeObserver(compute)
+    ro.observe(row)
+    return () => ro.disconnect()
+  }, [secondary, primary, syncOn])
+
+  const setRef = (key: string) => (el: HTMLElement | null) => {
+    meas.current[key] = el
+  }
+
+  // ── reusable element renderers (same markup for measuring + real render) ──
+  const toggle = (ref?: (el: HTMLElement | null) => void) => (
+    <button
+      ref={ref as React.Ref<HTMLButtonElement>}
+      type="button"
+      role="switch"
+      aria-checked={syncOn}
+      onClick={onToggle}
+      title="Automatically scroll the PDF to the active sheet's source page"
+      className="shrink-0 flex items-center gap-1.5 text-muted hover:text-ink transition-colors"
+    >
+      <span
+        className={
+          'relative inline-block h-3.5 w-6 rounded-full transition-colors ' +
+          (syncOn ? 'bg-accent' : 'bg-line')
+        }
+      >
+        <span
+          className={
+            'absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ' +
+            (syncOn ? 'left-3' : 'left-0.5')
+          }
+        />
+      </span>
+      Sync PDF to sheet
+    </button>
+  )
+
+  const badge = (ref?: (el: HTMLElement | null) => void) =>
+    primary ? (
+      <button
+        ref={ref as React.Ref<HTMLButtonElement>}
+        type="button"
+        onClick={onFocusPrimary}
+        title={`Open ${primary.report_file} at page ${primary.pages[0]}`}
+        className="shrink-0 rounded px-1.5 py-0.5 border border-line bg-panel2 text-ink hover:border-accent/60 hover:text-accent transition-colors whitespace-nowrap"
+      >
+        📄 {primary.report_file} p.{primary.pages[0]}
+      </button>
+    ) : (
+      <span
+        ref={ref as React.Ref<HTMLSpanElement>}
+        title="This sheet has no linked source page in the extracted PDFs"
+        className="shrink-0 rounded px-1.5 py-0.5 border border-line text-muted/60 whitespace-nowrap"
+      >
+        no source page
+      </span>
+    )
+
+  return (
+    <div ref={rowRef} className="flex items-center gap-2 pl-1 border-l border-line flex-1 min-w-0">
+      {/* hidden measuring copies — natural widths, never affect layout */}
+      <div className="absolute w-0 h-0 overflow-hidden" aria-hidden>
+        {toggle(setRef('toggle'))}
+        {badge(setRef('badge'))}
+        <span ref={setRef('drop')} className={CHIP_CLASS}>
+          +{secondary.length} ▾
+        </span>
+        <div ref={chipsMeasRef} className="flex">
+          {secondary.map((t, i) => (
+            <span key={`m${i}`} className={CHIP_CLASS}>
+              {t.file} p.{t.page}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {lay.showToggle && toggle()}
+      {lay.showBadge && badge()}
+      {secondary.slice(0, lay.nChips).map((t, i) => (
+        <button
+          key={`${t.file}:${t.page}:${i}`}
+          type="button"
+          onClick={() => onPick(t)}
+          title={`Open ${t.file} at page ${t.page}`}
+          className={CHIP_CLASS}
+        >
+          {t.file} p.{t.page}
+        </button>
+      ))}
+      {lay.showDropdown && <OverflowDropdown items={secondary.slice(lay.nChips)} onPick={onPick} />}
+    </div>
+  )
+}
+
+/** Collapses overflow "also on:" targets into a dropdown (styled like the PDF selector). */
+function OverflowDropdown({
+  items,
+  onPick
+}: {
+  items: { file: string; page: number }[]
+  onPick: (t: { file: string; page: number }) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // close on outside click / Escape
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        title={`${items.length} more source page${items.length === 1 ? '' : 's'}`}
+        className="rounded px-1 py-0.5 border border-line bg-panel2 hover:border-accent/60 hover:text-accent transition-colors"
+      >
+        +{items.length} ▾
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[150px] max-h-60 overflow-auto rounded border border-line bg-panel2 shadow-lg py-1">
+          {items.map((t, i) => (
             <button
+              key={`${t.file}:${t.page}:${i}`}
               type="button"
-              onClick={() => focusSheetSource(primary)}
-              title={`Open ${primary.report_file} at page ${primary.pages[0]}`}
-              className="rounded px-1.5 py-0.5 border border-line bg-panel2 text-ink hover:border-accent/60 hover:text-accent transition-colors"
+              onClick={() => {
+                onPick(t)
+                setOpen(false)
+              }}
+              title={`Open ${t.file} at page ${t.page}`}
+              className="block w-full text-left px-2 py-1 whitespace-nowrap text-ink hover:bg-accent/10 hover:text-accent transition-colors"
             >
-              📄 {primary.report_file} p.{primary.pages[0]}
+              {t.file} p.{t.page}
             </button>
-          ) : (
-            <span
-              title="This sheet has no linked source page in the extracted PDFs"
-              className="rounded px-1.5 py-0.5 border border-line text-muted/60"
-            >
-              no source page
-            </span>
-          )}
-
-          {/* secondary jump targets */}
-          {secondary.length > 0 && (
-            <span className="flex items-center gap-1 text-muted">
-              also on:
-              {secondary.slice(0, 4).map((t, i) => (
-                <button
-                  key={`${t.file}:${t.page}:${i}`}
-                  type="button"
-                  onClick={() =>
-                    focusSheetSource({ report_file: t.file, pages: [t.page], weight: 0 }, t.page)
-                  }
-                  title={`Open ${t.file} at page ${t.page}`}
-                  className="rounded px-1 py-0.5 border border-line bg-panel2 hover:border-accent/60 hover:text-accent transition-colors"
-                >
-                  {t.file} p.{t.page}
-                </button>
-              ))}
-              {secondary.length > 4 && <span>+{secondary.length - 4}</span>}
-            </span>
-          )}
+          ))}
         </div>
       )}
-
-      <div className="flex-1" />
     </div>
   )
 }
