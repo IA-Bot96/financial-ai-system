@@ -4,8 +4,10 @@ import { api } from '@/api'
 import { Splash } from '@/components/Splash'
 import { ErrorScreen } from '@/components/ErrorScreen'
 import { LeftRail } from '@/components/LeftRail'
+import { RightRail } from '@/components/RightRail'
 import { Toaster } from '@/components/Toaster'
 import { UploadModal } from '@/components/UploadModal'
+import { ConfirmDiscardModal } from '@/components/ConfirmDiscardModal'
 import { SaveBar } from '@/components/SaveBar'
 import { SheetToolbar } from '@/components/SheetToolbar'
 import { SheetView } from '@/components/SheetView'
@@ -74,8 +76,8 @@ export default function App() {
       <div className="flex-1 flex min-h-0">
         <LeftRail />
 
-        {/* PDF dock — LEFT, resizable (viewer lands in Phase 5) */}
-        {panels.pdf && (
+        {/* PDF dock — LEFT, resizable. Only on the sheet surface (toggle state persists). */}
+        {panels.pdf && session && view === 'sheet' && (
           <>
             <aside style={{ width: panelWidth.pdf }} className="shrink-0 border-r border-line">
               <PdfPanel />
@@ -101,8 +103,8 @@ export default function App() {
           )}
         </main>
 
-        {/* Ask AI dock — RIGHT, resizable */}
-        {panels.askAI && session && (
+        {/* Ask AI dock — RIGHT, resizable. Only on the sheet surface (toggle state persists). */}
+        {panels.askAI && session && view === 'sheet' && (
           <>
             <PanelResizer panel="askAI" />
             <aside style={{ width: panelWidth.askAI }} className="shrink-0 border-l border-line">
@@ -110,9 +112,13 @@ export default function App() {
             </aside>
           </>
         )}
+
+        {/* far-right rail: PDF / Ask AI panel toggles */}
+        <RightRail />
       </div>
 
       {(!session || uploadOpen) && <UploadModal />}
+      <ConfirmDiscardModal />
       <Toaster />
       <div className="h-6 shrink-0 border-t border-line bg-panel text-[11px] text-muted px-3 flex items-center gap-3">
         <span>backend: ready</span>

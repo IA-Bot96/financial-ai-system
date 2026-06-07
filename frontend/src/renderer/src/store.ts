@@ -48,6 +48,7 @@ interface AppState {
   chat: { messages: ChatTurn[]; pending: boolean }
   view: View
   uploadOpen: boolean
+  confirmDiscard: boolean // "Discard Changes?" prompt before navigating to upload (New)
   toasts: Toast[]
 
   // actions
@@ -74,6 +75,8 @@ interface AppState {
   reopenLast: () => Promise<void>
   openUpload: () => void
   closeUpload: () => void
+  cancelDiscard: () => void
+  discardAndUpload: () => void
   toast: (kind: Toast['kind'], text: string) => void
   dismissToast: (id: string) => void
 }
@@ -96,6 +99,7 @@ export const useApp = create<AppState>((set) => ({
   chat: { messages: [], pending: false },
   view: 'home',
   uploadOpen: false,
+  confirmDiscard: false,
   toasts: [],
 
   setBackend: (status, logPath) =>
@@ -236,11 +240,20 @@ export const useApp = create<AppState>((set) => ({
     if (p) useApp.getState().openWorkbookPath(p, 'excel')
   },
   openUpload: () => {
-    const s = useApp.getState()
-    if (s.workbook.dirty && !window.confirm('You have unsaved changes. Discard them?')) return
+    // unsaved edits -> ask first via the "Discard Changes?" modal; otherwise go straight in
+    if (useApp.getState().workbook.dirty) {
+      set({ confirmDiscard: true })
+      return
+    }
     set({ uploadOpen: true })
   },
   closeUpload: () => set({ uploadOpen: false }),
+  cancelDiscard: () => set({ confirmDiscard: false }),
+  discardAndUpload: () => {
+    // abandon unsaved changes and open the upload screen
+    set({ confirmDiscard: false, uploadOpen: true })
+    useApp.getState().setDirty(false)
+  },
   toast: (kind, text) => set((s) => ({ toasts: [...s.toasts, { id: `t${++_tid}`, kind, text }] })),
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
 }))
