@@ -12,7 +12,7 @@ import { build } from 'esbuild'
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { rm, readFile, readdir } from 'node:fs/promises'
+import { rm, readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 
@@ -263,16 +263,83 @@ function findNumericCell(xml) {
   return null
 }
 
-/** Optional: round-trip a REAL pipeline workbook if one is provided. */
-async function testRealFixture(mod) {
-  const dir = path.join(ROOT, 'scripts', 'fixtures')
-  let file = process.env.FIXTURE_XLSX
-  if (!file && existsSync(dir)) {
-    const xlsx = (await readdir(dir)).filter((f) => /\.xlsx$/i.test(f) && !f.startsWith('~$'))
-    if (xlsx.length) file = path.join(dir, xlsx[0])
+/**
+ * Committable fixture round-trip: deterministic regression guard that reproduces the exact
+ * openpyxl comment+VML layout (the shape that exposed the stripComments bug) plus a
+ * cross-sheet formula, merge, frozen pane, number format, styling and fullCalcOnLoad.
+ * Lives in the repo so CI doesn't depend on ephemeral backend/storage/sessions.
+ *
+ * Known cells (see backend/scripts/make_roundtrip_fixture.py):
+ *   BS!B4   deliberately-empty input cell (edit target)
+ *   BS!B6,C6  =SUM(...) formulas (must stay formulas)
+ *   Notes!A2  =BS!B6 cross-sheet pull (Notes sheet must stay byte-identical)
+ */
+async function testCommittedFixture(mod) {
+  const file = path.join(ROOT, 'scripts', 'fixtures', 'roundtrip_fixture.xlsx')
+  if (!existsSync(file)) {
+    console.log('\nCommitted fixture: scripts/fixtures/roundtrip_fixture.xlsx missing — SKIPPED')
+    return
   }
+  console.log('\nCommitted-fixture round-trip: roundtrip_fixture.xlsx')
+  const buf = await readFile(file)
+  const original = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+  const zip0 = await JSZip.loadAsync(original)
+  const sheetPaths = await sheetNameToPath(zip0)
+  const bsPath = sheetPaths.find((s) => s.name === 'BS')?.path
+  const notesPath = sheetPaths.find((s) => s.name === 'Notes')?.path
+  assert(!!bsPath && !!notesPath, 'BS and Notes sheets resolved')
+
+  const allParts = Object.keys(zip0.files).filter((n) => !zip0.files[n].dir)
+
+  // Edit BS!B4 (row 4 -> index 3, col B -> index 1), the deliberately-empty input cell.
+  const patched = await mod.patchXlsx(original, new Map([['BS', [{ row: 3, col: 1, value: 700 }]]]))
+  const zip1 = await JSZip.loadAsync(patched)
+
+  const bs1 = await partOf(zip1, bsPath)
+  assert(/<c r="B4"[^>]*><v>700<\/v><\/c>/.test(bs1 || ''), 'BS!B4 edit applied (empty input -> 700)')
+  assert(/<c r="B6"[^>]*><f>SUM\(B4:B5\)<\/f>/.test(bs1 || ''), 'BS!B6 stays a =SUM formula (not flattened/overwritten)')
+  assert(/<c r="C6"[^>]*><f>SUM\(C4:C5\)<\/f>/.test(bs1 || ''), 'BS!C6 stays a =SUM formula')
+
+  // comment xml AND the VML drawing the old regex missed — assert BOTH byte-identical
+  assert(
+    (await partOf(zip0, 'xl/comments/comment1.xml')) === (await partOf(zip1, 'xl/comments/comment1.xml')),
+    'xl/comments/comment1.xml byte-identical (provenance)'
+  )
+  assert(
+    (await partOf(zip0, 'xl/drawings/commentsDrawing1.vml')) ===
+      (await partOf(zip1, 'xl/drawings/commentsDrawing1.vml')),
+    'xl/drawings/commentsDrawing1.vml byte-identical (the part the old stripComments regex missed)'
+  )
+
+  // Notes sheet untouched, cross-sheet pull preserved
+  assert((await partOf(zip0, notesPath)) === (await partOf(zip1, notesPath)),
+    'Notes sheet byte-identical (untouched sheet)')
+  assert(/<f>BS!B6<\/f>/.test(await partOf(zip1, notesPath)), 'Notes!A2 cross-sheet pull =BS!B6 preserved')
+
+  // workbook-level parts unchanged; only the edited worksheet differs
+  assert((await partOf(zip0, 'xl/styles.xml')) === (await partOf(zip1, 'xl/styles.xml')), 'styles.xml unchanged')
+  const wbA = await partOf(zip0, 'xl/workbook.xml')
+  const wbB = await partOf(zip1, 'xl/workbook.xml')
+  assert(wbA === wbB && /fullCalcOnLoad="1"/.test(wbB || ''), 'workbook.xml unchanged incl. calcPr/fullCalcOnLoad')
+  if (zip0.file('xl/sharedStrings.xml'))
+    assert((await partOf(zip0, 'xl/sharedStrings.xml')) === (await partOf(zip1, 'xl/sharedStrings.xml')),
+      'sharedStrings.xml unchanged')
+  let otherChanged = 0
+  for (const p of allParts) {
+    if (p === bsPath) continue
+    if ((await partOf(zip0, p)) !== (await partOf(zip1, p))) {
+      otherChanged++
+      console.error(`    UNEXPECTED change in ${p}`)
+    }
+  }
+  assert(otherChanged === 0, 'only the edited worksheet (BS) differs; every other part intact')
+}
+
+/** Optional: round-trip an arbitrary REAL pipeline workbook via FIXTURE_XLSX=<path>. */
+async function testRealFixture(mod) {
+  const file = process.env.FIXTURE_XLSX
   if (!file || !existsSync(file)) {
-    console.log('\nReal-workbook fixture: none found (set FIXTURE_XLSX or drop one in scripts/fixtures/) — SKIPPED')
+    console.log('\nAd-hoc real workbook (FIXTURE_XLSX): not set — SKIPPED')
     return
   }
   console.log(`\nReal-workbook round-trip: ${path.basename(file)}`)
@@ -340,6 +407,7 @@ async function run() {
   await testDiff()
   const { mod, cleanup } = await loadTsModule('src/renderer/src/lib/xlsxPatch.ts', '.xlsxPatch.real.gen.mjs')
   try {
+    await testCommittedFixture(mod)
     await testRealFixture(mod)
   } finally {
     await cleanup()

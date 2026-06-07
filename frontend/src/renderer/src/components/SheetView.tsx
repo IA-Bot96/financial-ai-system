@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createUniver, defaultTheme, LocaleType, merge } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
-import { ICommandService, IUndoRedoService } from '@univerjs/core'
+import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
 import * as enUSns from '@univerjs/preset-sheets-core/locales/en-US'
 import '@univerjs/preset-sheets-core/lib/index.css'
 import { useApp } from '@/store'
@@ -105,8 +105,13 @@ export function SheetView() {
             )
           lastToast = now
         }
-        // veto: aborts the command before any mutation runs (keeps topology fixed)
-        throw new Error(`structural command blocked: ${cmd.id}`)
+        // Veto: before-listeners run BEFORE the command's _execute (verified in
+        // @univerjs/core CommandService.executeCommand/syncExecuteCommand), so throwing here
+        // aborts the mutation outright — the grid topology never changes. We throw
+        // CustomCommandExecutionError specifically: the command service catches that type
+        // and returns false (a clean cancel), whereas a plain Error would re-throw and
+        // surface as an unhandled rejection in the toolbar/keyboard caller.
+        throw new CustomCommandExecutionError(`structural command blocked: ${cmd.id}`)
       })
     } catch (e) {
       // If the guard can't be installed, fail safe by NOT silently allowing structural edits
