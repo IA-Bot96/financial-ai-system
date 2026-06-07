@@ -13,7 +13,7 @@ from app.api.middleware import (
     SecurityHeadersMiddleware,
     TimeoutMiddleware,
 )
-from app.api.routes import extraction, fie
+from app.api.routes import extraction, fie, sessions
 from app.core.config import STORAGE_ROOT, get_settings, secrets_status
 from app.core.logging import configure_logging
 from app.core.metrics import METRICS
@@ -41,7 +41,8 @@ app = FastAPI(title=settings.app_name)
 
 # --- middleware (outermost first; add order is reverse of execution) -------
 app.add_middleware(SecurityHeadersMiddleware, force_https=settings.force_https)
-app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes)
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes,
+                   exempt_prefixes=("/api/fie/sessions", "/api/extraction/jobs"))
 app.add_middleware(TimeoutMiddleware, seconds=settings.request_timeout_seconds)
 _limiter = make_rate_limiter(settings) if settings.rate_limit_enabled else None
 _limiter_kind = type(_limiter).__name__ if _limiter else "disabled"
@@ -58,6 +59,7 @@ app.add_middleware(
 
 app.include_router(extraction.router, prefix="/api")
 app.include_router(fie.router, prefix="/api")
+app.include_router(sessions.router, prefix="/api")
 
 
 # --- error handling: never leak internals; correlate with a request id -----

@@ -9,6 +9,7 @@ venv/
 backend/.env
 
 # Runtime storage (uploads / generated files)
+backend/storage/sessions/*
 backend/storage/inputs/*
 backend/storage/templates/*
 backend/storage/outputs/*

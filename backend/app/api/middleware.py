@@ -14,16 +14,20 @@ from app.core.security import TokenBucket
 
 
 class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject oversized requests up front via Content-Length (413)."""
+    """Reject oversized JSON requests up front via Content-Length (413). Multipart upload
+    paths are exempt — they enforce their own per-file limits via assert_safe_upload."""
 
-    def __init__(self, app, *, max_bytes: int) -> None:
+    def __init__(self, app, *, max_bytes: int, exempt_prefixes: tuple[str, ...] = ()) -> None:
         super().__init__(app)
         self.max_bytes = max_bytes
+        self.exempt_prefixes = exempt_prefixes
 
     async def dispatch(self, request, call_next):
-        cl = request.headers.get("content-length")
-        if cl and cl.isdigit() and int(cl) > self.max_bytes:
-            return JSONResponse({"detail": "request entity too large"}, status_code=413)
+        path = request.url.path
+        if not any(path.startswith(p) for p in self.exempt_prefixes):
+            cl = request.headers.get("content-length")
+            if cl and cl.isdigit() and int(cl) > self.max_bytes:
+                return JSONResponse({"detail": "request entity too large"}, status_code=413)
         return await call_next(request)
 
 

@@ -25,8 +25,10 @@ class Settings(BaseSettings):
     force_https: bool = False          # prod (Heroku): True -> HSTS + http->https redirect
     # request input limits
     fie_max_query_chars: int = 256     # max NL query length
-    max_request_bytes: int = 2_000_000         # max JSON request body (2 MB)
-    max_upload_bytes: int = 150 * 1024 * 1024  # max uploaded file (150 MB)
+    max_request_bytes: int = 2_000_000         # max JSON request body (2 MB; uploads exempt)
+    max_upload_bytes: int = 200 * 1024 * 1024  # generic upload cap (fallback)
+    max_excel_upload_bytes: int = 200 * 1024 * 1024  # Excel workbook upload cap (200 MB)
+    max_pdf_upload_bytes: int = 50 * 1024 * 1024     # per-PDF upload cap (50 MB)
     request_timeout_seconds: int = 60          # per-request wall-clock cap (504 on exceed)
     max_external_calls_per_request: int = 12   # hard cap on adapter fan-out per query
     # rate limiting (token bucket: burst `capacity`, refill 1 per `refill_seconds`)

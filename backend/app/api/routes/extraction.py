@@ -18,9 +18,10 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 async def _read_checked(f: UploadFile, *, kinds) -> bytes:
     """Read an upload fully and run the safety gate before it is persisted/parsed."""
     data = await f.read()
+    s = get_settings()
+    max_bytes = s.max_excel_upload_bytes if "xlsx" in kinds else s.max_pdf_upload_bytes
     try:
-        assert_safe_upload(f.filename or "", data,
-                           max_bytes=get_settings().max_upload_bytes, kinds=kinds)
+        assert_safe_upload(f.filename or "", data, max_bytes=max_bytes, kinds=kinds)
     except UploadRejected as e:
         raise HTTPException(status_code=400, detail=f"Rejected {f.filename!r}: {e}")
     return data

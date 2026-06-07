@@ -4,11 +4,32 @@ empty), generic error handler, and the rate-limit middleware (429)."""
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+from app.api.middleware import BodySizeLimitMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 from app.core.security import TokenBucket
 from app.main import app
 
 client = TestClient(app)
+
+
+def test_body_size_limit_exempts_upload_paths():
+    """Large JSON requests are rejected (413), but multipart upload paths are exempt
+    (they enforce their own per-file limits) — the bug that 413'd workbook uploads."""
+    sub = FastAPI()
+
+    @sub.post('/api/other')
+    def other():
+        return {'ok': True}
+
+    @sub.post('/api/fie/sessions')
+    def sessions():
+        return {'ok': True}
+
+    sub.add_middleware(BodySizeLimitMiddleware, max_bytes=10,
+                       exempt_prefixes=('/api/fie/sessions', '/api/extraction/jobs'))
+    c = TestClient(sub)
+    big = b'x' * 100  # > max_bytes=10
+    assert c.post('/api/other', content=big).status_code == 413          # capped
+    assert c.post('/api/fie/sessions', content=big).status_code == 200   # exempt
 
 
 # --- security headers on every response ------------------------------------
