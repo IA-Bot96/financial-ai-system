@@ -231,6 +231,7 @@ interface AppState {
   view: View
   uploadOpen: boolean
   attachPdfsOpen: boolean // "Attach PDFs" modal (view PDFs alongside a workbook with no source)
+  settingsOpen: boolean   // Settings page (engine config) overlay
   confirmDiscard: boolean // "Discard Changes?" prompt before navigating to upload (New)
   toasts: Toast[]
 
@@ -267,6 +268,8 @@ interface AppState {
   closeUpload: () => void
   openAttachPdfs: () => void
   closeAttachPdfs: () => void
+  openSettings: () => void
+  closeSettings: () => void
   cancelDiscard: () => void
   discardAndUpload: () => void
   toast: (kind: Toast['kind'], text: string) => void
@@ -297,6 +300,7 @@ export const useApp = create<AppState>((set) => ({
   view: 'home',
   uploadOpen: false,
   attachPdfsOpen: false,
+  settingsOpen: false,
   confirmDiscard: false,
   toasts: [],
 
@@ -602,6 +606,8 @@ export const useApp = create<AppState>((set) => ({
   closeUpload: () => set({ uploadOpen: false }),
   openAttachPdfs: () => set({ attachPdfsOpen: true }),
   closeAttachPdfs: () => set({ attachPdfsOpen: false }),
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
   cancelDiscard: () => set({ confirmDiscard: false }),
   discardAndUpload: () => {
     // abandon unsaved changes and open the upload screen

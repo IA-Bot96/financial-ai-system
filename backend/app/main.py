@@ -13,7 +13,7 @@ from app.api.middleware import (
     SecurityHeadersMiddleware,
     TimeoutMiddleware,
 )
-from app.api.routes import extraction, fie, sessions
+from app.api.routes import extraction, fie, sessions, settings as settings_routes
 from app.core.config import STORAGE_ROOT, get_settings, secrets_status
 from app.core.logging import configure_logging
 from app.core.metrics import METRICS
@@ -60,6 +60,7 @@ app.add_middleware(
 app.include_router(extraction.router, prefix="/api")
 app.include_router(fie.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
+app.include_router(settings_routes.router, prefix="/api")
 
 
 # --- error handling: never leak internals; correlate with a request id -----

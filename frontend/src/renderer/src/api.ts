@@ -45,6 +45,30 @@ async function post<T>(path: string, json: unknown): Promise<{ status: number; b
   return { status: r.status, body: r.body as T }
 }
 
+// ── Settings (engine config) ──────────────────────────────────────────────────
+export type SettingKind = 'int' | 'float' | 'bool' | 'enum' | 'str' | 'secret'
+export interface SettingsField {
+  key: string
+  group: string
+  label: string
+  help: string
+  kind: SettingKind
+  advanced: boolean
+  minimum: number | null
+  maximum: number | null
+  step: number | null
+  options: (string | number)[] | null
+  overridden: boolean
+  // non-secret fields only:
+  value?: unknown
+  default?: unknown
+  // secret fields only:
+  configured?: boolean
+}
+export interface SettingsSnapshot {
+  fields: SettingsField[]
+}
+
 export const api = {
   readiness: () => get<Readiness>('/readiness'),
   health: () => get<{ status: string }>('/health'),
@@ -55,7 +79,13 @@ export const api = {
     history: Array<{ role: string; text: string; frame?: Record<string, unknown> }> = []
   ) => post<FieResponse>(`/api/fie/sessions/${sessionId}/answer`, { query, history }),
   series: (sessionId: string) =>
-    get<SeriesResponse>(`/api/fie/sessions/${sessionId}/series`)
+    get<SeriesResponse>(`/api/fie/sessions/${sessionId}/series`),
+  // settings — read/update/reset engine config. POST returns the same { fields } snapshot;
+  // a 400 carries { detail } which the caller maps to the offending field.
+  getSettings: () => get<SettingsSnapshot>('/api/settings'),
+  updateSettings: (values: Record<string, unknown>) =>
+    post<SettingsSnapshot & { detail?: string }>('/api/settings', { values }),
+  resetSettings: () => post<SettingsSnapshot>('/api/settings/reset', {})
 }
 
 export interface SeriesResponse {

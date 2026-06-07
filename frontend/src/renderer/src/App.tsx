@@ -8,6 +8,7 @@ import { RightRail } from '@/components/RightRail'
 import { Toaster } from '@/components/Toaster'
 import { UploadModal } from '@/components/UploadModal'
 import { AttachPdfModal } from '@/components/AttachPdfModal'
+import { SettingsModal } from '@/components/SettingsModal'
 import { ConfirmDiscardModal } from '@/components/ConfirmDiscardModal'
 import { SaveBar } from '@/components/SaveBar'
 import { SheetToolbar } from '@/components/SheetToolbar'
@@ -23,7 +24,7 @@ const TIMEOUT_MS = 40_000
 
 export default function App() {
   const { backend, setBackend, session, view, panels, panelWidth, uploadOpen, attachPdfsOpen,
-    pdfPaths } = useApp()
+    settingsOpen, pdfPaths } = useApp()
   const [msg, setMsg] = useState('Starting the analysis engine…')
 
   const boot = useCallback(async () => {
@@ -64,6 +65,7 @@ export default function App() {
       else if (action === 'toggleAskAI') s().togglePanel('askAI')
       else if (action === 'dashboard') s().setView('dashboard')
       else if (action === 'sheet') s().setView('sheet')
+      else if (action === 'settings') s().openSettings()
     })
   }, [])
 
@@ -127,6 +129,7 @@ export default function App() {
 
       {(!session || uploadOpen) && <UploadModal />}
       {attachPdfsOpen && <AttachPdfModal />}
+      {settingsOpen && <SettingsModal />}
       <ConfirmDiscardModal />
       <Toaster />
       <div className="h-6 shrink-0 border-t border-line bg-panel text-[11px] text-muted px-3 flex items-center gap-3">

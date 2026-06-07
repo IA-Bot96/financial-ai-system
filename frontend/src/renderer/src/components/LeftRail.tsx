@@ -1,7 +1,7 @@
 import { ComponentType } from 'react'
 import { useApp } from '@/store'
 import { cn } from '@/lib/util'
-import { Plus, Grid, BarChart } from './ui/icons'
+import { Plus, Grid, BarChart, Settings } from './ui/icons'
 import appLogo from '@/public/icons/app-icon.svg'
 
 const ICONS: Record<string, ComponentType<{ className?: string }>> = {
@@ -20,7 +20,7 @@ const ITEMS: Item[] = [
 ]
 
 export function LeftRail() {
-  const { session, view, uploadOpen, setView, openUpload } = useApp()
+  const { session, view, uploadOpen, settingsOpen, setView, openUpload, openSettings } = useApp()
   const hasSession = !!session
 
   function onClick(key: string) {
@@ -66,6 +66,22 @@ export function LeftRail() {
           </button>
         )
       })}
+
+      {/* Settings — pinned to the bottom; always available so engine config / the API key
+          can be reached from any screen. */}
+      <button
+        onClick={openSettings}
+        aria-pressed={settingsOpen}
+        title="Settings"
+        className={cn(
+          'mt-auto w-[60px] py-2 rounded-lg text-[11px] font-medium flex flex-col items-center gap-1',
+          'text-muted hover:bg-panel2 hover:text-ink transition-colors',
+          settingsOpen && 'bg-panel2 text-accent'
+        )}
+      >
+        <Settings className="h-5 w-5" />
+        Settings
+      </button>
     </nav>
   )
 }

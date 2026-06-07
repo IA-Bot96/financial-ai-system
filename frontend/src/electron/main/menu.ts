@@ -73,6 +73,10 @@ export function buildMenu(getWin: () => BrowserWindow | null,
         { label: 'Toggle Ask AI', enabled: onSheet, click: () => send('toggleAskAI') },
         viewToggle,
         { type: 'separator' },
+        // Settings (engine config) — always reachable, even before a workbook is open, so the
+        // API key / extraction knobs can be set up front.
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('settings') },
+        { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' }
       ]

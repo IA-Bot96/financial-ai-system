@@ -4,7 +4,12 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    JsonConfigSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 # backend/ root (…/backend). When bundled by PyInstaller (sys.frozen) the source tree
 # lives inside the archive, so anchor to the directory holding the launched executable
@@ -19,12 +24,39 @@ else:
 # backend/storage for normal dev runs.
 STORAGE_ROOT = Path(os.environ.get("FIE_STORAGE_ROOT", BACKEND_ROOT / "storage"))
 
+# User-tweakable settings persisted by the settings page (see app/api/routes/settings.py).
+# Merged on top of the .env/code defaults but BELOW process env vars (see precedence in
+# Settings.settings_customise_sources) so per-run CLI prefixes still win.
+SETTINGS_OVERRIDE_PATH = STORAGE_ROOT / "settings.json"
+
 
 class Settings(BaseSettings):
     # Anchor .env to the backend root so the key/model load regardless of CWD.
     model_config = SettingsConfigDict(
-        env_file=str(BACKEND_ROOT / ".env"), env_file_encoding="utf-8", extra="ignore"
+        env_file=str(BACKEND_ROOT / ".env"), env_file_encoding="utf-8", extra="ignore",
+        json_file=str(SETTINGS_OVERRIDE_PATH), json_file_encoding="utf-8",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls, settings_cls,
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Precedence, highest first: explicit init kwargs > process env vars (per-run CLI
+        # prefixes) > settings.json (the settings page) > .env file > docker secrets.
+        # Placing the JSON overrides ABOVE .env lets the UI persist tweaks over the .env
+        # seed, while keeping it BELOW process env so a one-off `OCR_DPI=300 python ...`
+        # still wins for that run.
+        return (
+            init_settings,
+            env_settings,
+            JsonConfigSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
     app_name: str = "AI Financial Intelligence - Extraction Engine"
     debug: bool = False
@@ -152,8 +184,11 @@ class Settings(BaseSettings):
     tesseract_cmd: str = ""
     # Optional language(s) for tesseract, e.g. "eng" or "eng+fra".
     ocr_lang: str = "eng"
-    # DPI used when rasterizing a page for OCR. Higher = better accuracy, slower.
-    ocr_dpi: int = 300
+    # DPI used when rasterizing a page for OCR. Higher = better accuracy, slower, and more
+    # memory per page. 200 is the memory-safe default for large scanned reports; when vision
+    # extraction is on, the page image is sent to GPT too, which compensates for the lower DPI.
+    # Bump to 300 for text-only (no-vision) runs that need maximum OCR fidelity.
+    ocr_dpi: int = 200
     # A page with fewer than this many extractable characters is treated as
     # scanned/image-only and sent to OCR.
     min_text_chars: int = 40
@@ -161,7 +196,10 @@ class Settings(BaseSettings):
     # ingest bottleneck; a flat process pool drains all PDFs' scanned pages at once
     # (page- AND document-level parallelism under one core budget). 0 = auto
     # (cpu_count - 1); 1 = serial (the original in-process path).
-    ocr_max_workers: int = 0
+    # Default 2: 0/auto (cpu_count-1) can exhaust memory on large scanned PDFs (each worker
+    # holds the open doc + a full-page bitmap + tesseract buffers) -> the OS kills a worker
+    # -> BrokenProcessPool. 2 is the memory-safe default; raise it on high-RAM machines.
+    ocr_max_workers: int = 2
 
     # --- Layer 2: table & section detection / classification ---
     # Local, free embedding model (sentence-transformers). No API cost.
@@ -187,6 +225,35 @@ def get_settings() -> Settings:
     settings = Settings()
     settings.ensure_dirs()
     return settings
+
+
+# --- settings-page override store (persisted JSON merged by the source above) ----------
+import json as _json  # noqa: E402  (local alias; keep top imports lean)
+
+
+def read_overrides() -> dict:
+    """The persisted user overrides ({} if none / unreadable)."""
+    try:
+        return _json.loads(SETTINGS_OVERRIDE_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — missing/corrupt file -> behave as no overrides
+        return {}
+
+
+def write_overrides(values: dict) -> None:
+    """Persist the override map and drop the settings cache so the next get_settings()
+    (and the next extraction job / OCR subprocess) sees the new values."""
+    SETTINGS_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    SETTINGS_OVERRIDE_PATH.write_text(_json.dumps(values, indent=2), encoding="utf-8")
+    get_settings.cache_clear()
+
+
+def reset_overrides() -> None:
+    """Remove all persisted overrides (one-click 'reset to defaults')."""
+    try:
+        SETTINGS_OVERRIDE_PATH.unlink()
+    except FileNotFoundError:
+        pass
+    get_settings.cache_clear()
 
 
 # secret-bearing settings, by logical name -> attribute (values are NEVER exposed)
