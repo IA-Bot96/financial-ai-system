@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useApp, pickSourceEntry } from '@/store'
 
 type SecTarget = { file: string; page: number }
@@ -121,7 +122,7 @@ function SyncControls({
     const row = rowRef.current
     if (!row) return
     const compute = () => {
-      const W = row.clientWidth
+      const W = row.clientWidth - 4 // small slack so content never reaches the exact edge
       const wToggle = meas.current.toggle?.offsetWidth ?? 0
       const wBadge = meas.current.badge?.offsetWidth ?? 0
       const wDrop = meas.current.drop?.offsetWidth ?? 0
@@ -217,7 +218,10 @@ function SyncControls({
     )
 
   return (
-    <div ref={rowRef} className="flex items-center gap-2 pl-1 border-l border-line flex-1 min-w-0">
+    <div
+      ref={rowRef}
+      className="flex items-center gap-2 pl-1 border-l border-line flex-1 min-w-0 overflow-hidden"
+    >
       {/* hidden measuring copies — natural widths, never affect layout */}
       <div className="absolute w-0 h-0 overflow-hidden" aria-hidden>
         {toggle(setRef('toggle'))}
@@ -252,7 +256,9 @@ function SyncControls({
   )
 }
 
-/** Collapses overflow "also on:" targets into a dropdown (styled like the PDF selector). */
+/** Collapses overflow "also on:" targets into a dropdown. The menu is portaled to <body>
+ *  with fixed positioning clamped to the viewport, so it can never render off-screen even
+ *  when the trigger sits at (or past) the right edge of the toolbar. */
 function OverflowDropdown({
   items,
   onPick
@@ -261,26 +267,44 @@ function OverflowDropdown({
   onPick: (t: { file: string; page: number }) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
-  // close on outside click / Escape
+  function place() {
+    const b = btnRef.current?.getBoundingClientRect()
+    if (!b) return
+    // anchor the menu's right edge to the button, but never closer than 8px to the
+    // viewport edge — so it stays fully on-screen regardless of the button's position.
+    setPos({ top: b.bottom + 4, right: Math.max(8, window.innerWidth - b.right) })
+  }
+
   useEffect(() => {
     if (!open) return
+    place()
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
+      setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    const onShift = () => setOpen(false) // scroll/resize → re-anchoring is moot; just close
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('resize', onShift)
+    window.addEventListener('scroll', onShift, true)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onShift)
+      window.removeEventListener('scroll', onShift, true)
     }
   }, [open])
 
   return (
-    <div ref={ref} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -289,24 +313,31 @@ function OverflowDropdown({
       >
         +{items.length} ▾
       </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[150px] max-h-60 overflow-auto rounded border border-line bg-panel2 shadow-lg py-1">
-          {items.map((t, i) => (
-            <button
-              key={`${t.file}:${t.page}:${i}`}
-              type="button"
-              onClick={() => {
-                onPick(t)
-                setOpen(false)
-              }}
-              title={`Open ${t.file} at page ${t.page}`}
-              className="block w-full text-left px-2 py-1 whitespace-nowrap text-ink hover:bg-accent/10 hover:text-accent transition-colors"
-            >
-              {t.file} p.{t.page}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 1000 }}
+            className="max-w-[min(360px,90vw)] min-w-[150px] max-h-60 overflow-auto rounded border border-line bg-panel2 shadow-lg py-1 text-xs"
+          >
+            {items.map((t, i) => (
+              <button
+                key={`${t.file}:${t.page}:${i}`}
+                type="button"
+                onClick={() => {
+                  onPick(t)
+                  setOpen(false)
+                }}
+                title={`Open ${t.file} at page ${t.page}`}
+                className="block w-full text-left px-2 py-1 whitespace-nowrap text-ink hover:bg-accent/10 hover:text-accent transition-colors"
+              >
+                {t.file} p.{t.page}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

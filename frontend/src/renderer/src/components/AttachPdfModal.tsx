@@ -74,7 +74,7 @@ export function AttachPdfModal() {
     if (!pdfs.length) return
     setPdfPaths(pdfs.map((f) => f.path))
     setPanel('pdf', true)
-    toast('success', `Attached ${pdfs.length} PDF${pdfs.length === 1 ? '' : 's'}.`)
+    toast('success', `${pdfs.length} PDF${pdfs.length === 1 ? '' : 's'} added successfully`)
     closeAttachPdfs()
   }
 
