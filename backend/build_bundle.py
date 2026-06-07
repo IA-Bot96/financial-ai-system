@@ -83,12 +83,34 @@ def stage_embedding_model() -> None:
         print(f"  staged model {m.name}")
 
 
+def stage_env() -> None:
+    """Ship backend/.env inside the bundle, next to the exe.
+
+    config.Settings anchors its env_file to the executable's directory when frozen
+    (BACKEND_ROOT = dir of sys.executable), so a .env placed beside the exe is read
+    automatically — the packaged app gets the API keys without any runtime provisioning.
+
+    NOTE: this embeds your API keys in the distributable; anyone with the installer can
+    extract them. Only distribute the build to trusted users.
+    """
+    print("== Staging .env ==")
+    src = ROOT / ".env"
+    if not src.is_file():
+        print(f"  ! no .env at {src} — the bundled app will start without API keys.")
+        return
+    shutil.copy2(src, DIST / ".env")
+    print(f"  staged {src} -> {DIST / '.env'} (keys are embedded in the bundle)")
+
+
 def main() -> None:
     run_pyinstaller()
     stage_tesseract()
     stage_embedding_model()
+    stage_env()
     size_mb = sum(f.stat().st_size for f in DIST.rglob("*") if f.is_file()) / 1e6
-    print(f"\n✓ bundle ready: {DIST}  (~{size_mb:.0f} MB)")
+    # ASCII only — the Windows console (cp1252) can't encode non-ASCII (e.g. a check mark),
+    # and a UnicodeEncodeError here would fail the whole `dist:full` chain after a clean build.
+    print(f"\n[OK] bundle ready: {DIST}  (~{size_mb:.0f} MB)")
     print("  Electron picks this up via extraResources on `npm run dist`.")
 
 

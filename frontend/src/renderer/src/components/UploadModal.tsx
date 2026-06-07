@@ -114,6 +114,7 @@ export function UploadModal() {
 
   const [mode,            setMode]            = useState<Mode>('choose')
   const [busyName,        setBusyName]        = useState('')
+  const [busySize,        setBusySize]        = useState(0)
   const [drag,            setDrag]            = useState(false)
   const [pdfs,            setPdfs]            = useState<Picked[]>([])
   const [template,        setTemplate]        = useState<Picked | null>(null)
@@ -207,6 +208,7 @@ export function UploadModal() {
   async function ingestExcel(f: Picked) {
     setMode('working')
     setBusyName(f.name)
+    setBusySize(f.size)
     const res = await window.api.createSession(f.path)
     if (res.status !== 200) {
       console.error('[upload] createSession failed', { status: res.status, body: res.body })
@@ -265,7 +267,7 @@ export function UploadModal() {
         setMode('review')
       } else if (j.status === 'cancelled') {
         stopPoll()
-        toast('info', 'Extraction cancelled.')
+        toast('info', 'Extraction cancelled successfully.')
         resetToChoose()
       } else if (j.status === 'failed') {
         stopPoll()
@@ -282,6 +284,7 @@ export function UploadModal() {
     if (!jobId) return
     setMode('working')
     setBusyName('extracted workbook')
+    setBusySize(0)
     const res = await window.api.ingestJobResult(jobId)
     if (res.status !== 200 || !res.path) {
       console.error('[upload] ingestJobResult failed', { status: res.status, body: res.body })
@@ -441,12 +444,15 @@ export function UploadModal() {
             </>
           )}
 
-          {/* ════════════════ WORKING SPINNER ════════════════ */}
+          {/* ════════════════ WORKING (bar loader) ════════════════ */}
           {mode === 'working' && (
-            <div className="py-12 text-center">
-              <div className="mx-auto mb-4 h-6 w-6 rounded-full border-2 border-muted border-t-transparent animate-spin" />
-              <div className="text-sm text-muted">Analyzing {busyName}…</div>
-            </div>
+            <>
+              <p className="text-sm text-muted mb-4 shrink-0">
+                Analyzing the workbook — reading sheets, styles and formulas…
+              </p>
+              <SectionHeader label="Workbook" />
+              <WorkingFileRow icon={excelIcon} name={busyName} size={busySize} />
+            </>
           )}
 
           {/* ════════════════ STAGE ════════════════ */}
@@ -732,6 +738,25 @@ function ProgressFileRow({
         <div className="text-xs text-muted mt-0.5">{kb(size)}</div>
       </div>
       <StageChip stage={stage} />
+    </div>
+  )
+}
+
+// ── Working file row (indeterminate bar — no measurable % yet) ────────────────
+
+function WorkingFileRow({ icon, name, size }: { icon: string; name: string; size: number }) {
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-panel2 border border-line px-3 py-2.5">
+      <img src={icon} className="w-7 h-7 shrink-0" alt="" />
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-sm">{name}</div>
+        <div className="relative mt-1.5 h-1.5 rounded-full bg-line/60 overflow-hidden">
+          <span className="indeterminate-bar bg-accent" />
+        </div>
+      </div>
+      {size > 0 && (
+        <span className="shrink-0 text-xs text-muted tabular-nums">{kb(size)}</span>
+      )}
     </div>
   )
 }

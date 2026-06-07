@@ -19,6 +19,38 @@ _log = logging.getLogger("app.engines.fie")
 _MISS = object()  # cache sentinel (distinguish "no entry" from a cached None)
 
 
+def _loads_lenient(content: Optional[str]) -> Optional[dict]:
+    """Parse a JSON object from an LLM reply, tolerating common malformations.
+
+    Even under ``response_format={"type": "json_object"}`` smaller models occasionally
+    emit a markdown fence, leading prose, or a *second* object on the next line — which
+    makes a strict ``json.loads`` raise ``JSONDecodeError: Extra data``. Rather than drop
+    the whole response (and, for the agent, abort the run with zero tool calls), salvage
+    the FIRST well-formed object via ``raw_decode``.
+    """
+    if not content:
+        return None
+    s = content.strip()
+    try:
+        out = json.loads(s)
+        return out if isinstance(out, dict) else None
+    except json.JSONDecodeError:
+        pass
+    # strip a leading ```json / ``` fence if present
+    if s.startswith("```"):
+        s = s.lstrip("`")
+        if s[:4].lower() == "json":
+            s = s[4:]
+    i = s.find("{")
+    if i == -1:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(s[i:])
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
 @runtime_checkable
 class LLMClient(Protocol):
     def complete_json(self, system: str, user: str, schema: dict) -> Optional[dict]:
@@ -104,7 +136,7 @@ class OpenAILLM:
                 temperature=0,
                 max_completion_tokens=self.max_output_tokens,
             )
-            out = json.loads(resp.choices[0].message.content)
+            out = _loads_lenient(resp.choices[0].message.content)
             usage = resp.usage
             _log.debug(
                 "OpenAI complete_json ok: model=%s prompt_tokens=%s completion_tokens=%s",

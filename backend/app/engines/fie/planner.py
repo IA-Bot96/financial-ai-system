@@ -36,11 +36,6 @@ _INTENT_SOURCES: dict[str, list[str]] = {
     "dividend_analysis": ["company_payouts"],
     "risk_assessment": ["news"],
 }
-# Intents where the LLM may *augment* the rule-chosen sources. risk_assessment is excluded:
-# it must use exactly the rule-declared news+psx, so the LLM can't attach sources that are
-# noisy or unfetchable for a qualitative question (it previously added macro/company_payouts).
-_EXTERNAL_INTENTS = set(_INTENT_SOURCES) - {"risk_assessment"}
-
 # Query-driven registry selection (apis.registry catalog of 17 APIs). For intents that
 # consult external data via the generic RegistryFetcher path (`_fetch_external`), we pick a
 # RELEVANT SUBSET per query with shortlist(), unioned with a per-intent FLOOR so a
@@ -67,26 +62,6 @@ def _registry_apis(frame: QueryFrame) -> list[str]:
             out.append(api.name)
     return out
 
-_LLM_SYS = (
-    "Given a financial query and intent, list which external data sources are needed. "
-    f"Choose only from: {sorted(SOURCE_CATALOG)}. Respond JSON: {{\"sources\": [..]}}."
-)
-_LLM_SCHEMA = {"type": "object",
-               "properties": {"sources": {"type": "array", "items": {"type": "string"}}},
-               "required": ["sources"]}
-
-
-def _llm_sources(frame: QueryFrame, llm) -> list[str]:
-    """LLM-assisted fallback/augmentation for source selection (validated to catalog)."""
-    if llm is None or frame.intent not in _EXTERNAL_INTENTS:
-        return []
-    data = llm.complete_json(_LLM_SYS, f"intent={frame.intent}; query={frame.raw_query}",
-                             _LLM_SCHEMA)
-    if not isinstance(data, dict):
-        return []
-    return [s for s in data.get("sources", []) if s in SOURCE_CATALOG]
-
-
 def plan(frame: QueryFrame, llm=None) -> SourcePlan:
     notes: list[str] = []
     requirements: list[SourceRequirement] = []
@@ -102,12 +77,11 @@ def plan(frame: QueryFrame, llm=None) -> SourcePlan:
                 level=frame.level, period_type=frame.period_type,
             ))
 
-    # external source selection: rules first, LLM-assisted augmentation second
+    # external source selection: rule-chosen tokens + the deterministic, query-driven
+    # registry shortlist (below). The old LLM source-augmentation call was removed — it is
+    # now redundant: shortlist()+intent-floor selects the query-relevant subset for free,
+    # saving one GPT request per external-data query with no quality loss.
     external = list(_INTENT_SOURCES.get(frame.intent, []))
-    for s in _llm_sources(frame, llm):
-        if s not in external:
-            external.append(s)
-            notes.append(f"LLM-added source: {s}")
 
     registry_apis = _registry_apis(frame)
     if registry_apis:

@@ -141,6 +141,36 @@ export function SheetView() {
     // seed the initial active sheet (the event may not fire for the first sheet on mount)
     if (visible.length) useApp.getState().setActiveSheet(visible[0].name)
 
+    // Selecting a cell highlights its value on the open PDF page (only while the PDF panel
+    // is open; debounced so arrow-key roaming doesn't thrash). Citations also flow through
+    // here because they programmatically select the cited cell.
+    let selSub: { dispose: () => void } | null = null
+    let selTimer: ReturnType<typeof setTimeout> | null = null
+    try {
+      const evt = univerAPI as unknown as {
+        Event: { SelectionChanged: string }
+        addEvent: (
+          e: string,
+          cb: (p: { worksheet?: { getActiveRange?: () => { getValue?: () => unknown } | null } }) => void
+        ) => { dispose: () => void }
+      }
+      selSub = evt.addEvent(evt.Event.SelectionChanged, (params) => {
+        if (!useApp.getState().panels.pdf) return // no point unless the PDF is showing
+        if (selTimer) clearTimeout(selTimer)
+        selTimer = setTimeout(() => {
+          try {
+            const v = params?.worksheet?.getActiveRange?.()?.getValue?.()
+            const term = v == null ? '' : String(v).trim()
+            useApp.getState().highlightPdf(term || null)
+          } catch {
+            /* best-effort */
+          }
+        }, 150)
+      })
+    } catch (e) {
+      console.error('[sheet] selection tracking unavailable', e)
+    }
+
     // Derive dirty from Univer's undo/redo stack: dirty when the current undo depth
     // differs from the depth at the last save/load. This makes the top bar respond to
     // edits, in-grid undo (back to baseline => clean) and redo (=> dirty again) — all of
@@ -198,6 +228,12 @@ export function SheetView() {
       } catch {
         /* noop */
       }
+      try {
+        if (selTimer) clearTimeout(selTimer)
+        selSub?.dispose()
+      } catch {
+        /* noop */
+      }
       // defer disposal so Univer's React-root unmount doesn't run during React's render
       // phase (StrictMode double-mount) — that caused "unmount a root while rendering".
       setTimeout(() => {
@@ -225,10 +261,14 @@ export function SheetView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cleanToken])
 
-  // citation → cell: best-effort select/scroll via the Univer Facade (GUI-verify pending)
+  // citation → cell: activate the sheet, select the cell, AND scroll it into view.
   useEffect(() => {
     if (!nav.cell) return
-    type FSheet = { activate?: () => void; getRange?: (a1: string) => { activate?: () => void } }
+    type FSheet = {
+      activate?: () => void
+      getRange?: (a1: string) => { activate?: () => void } | null
+      scrollToCell?: (row: number, column: number, duration?: number) => void
+    }
     const api = apiRef.current as {
       getActiveWorkbook?: () => {
         getSheetByName?: (n: string) => FSheet | null
@@ -240,8 +280,14 @@ export function SheetView() {
       const ws: FSheet | null | undefined =
         wb?.getSheetByName?.(nav.cell.sheet) ?? wb?.getActiveSheet?.()
       ws?.activate?.()
-      const range = ws?.getRange?.(nav.cell.cell)
-      range?.activate?.()
+      ws?.getRange?.(nav.cell.cell)?.activate?.() // select the cell
+      // parse the A1 ref to 0-based row/col and scroll so the selection is visible
+      const m = /^([A-Z]+)(\d+)$/.exec(nav.cell.cell.toUpperCase())
+      if (m && ws?.scrollToCell) {
+        let col = 0
+        for (const ch of m[1]) col = col * 26 + (ch.charCodeAt(0) - 64)
+        ws.scrollToCell(Number(m[2]) - 1, col - 1)
+      }
     } catch {
       toast('info', `${nav.cell.sheet}!${nav.cell.cell}`)
     }

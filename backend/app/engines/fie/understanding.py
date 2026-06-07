@@ -195,10 +195,50 @@ def _extract_period(q: str) -> tuple[list[int], Optional[int]]:
 
 
 _PEER_RE = re.compile(r"\bvs\.?\b|versus|compare|against|peer", re.I)
+# Comparison of two METRICS/series within one company (not peer companies): split the query
+# on the connector, then resolve each side to a metric (and a growth flag).
+_COMPARE_SPLIT = re.compile(r"\b(?:versus|vs\.?|against|compared?\s+(?:to|with|against))\b", re.I)
+_GROWTH_RE = re.compile(r"\b(growth|change|increase|decline|grew|rose|fell)\b", re.I)
+
+
+def _comparison_terms(query: str, matcher=None) -> list[tuple[str, str, bool]]:
+    """Split a 'A vs B' query into comparable terms -> [(label, metric_id, is_growth)].
+
+    Strips the leading verb ('compare …') and a trailing time phrase ('… across all years'),
+    splits on the comparison connector, and resolves each side to a workbook metric. A side
+    that mentions growth/change is flagged so the handler computes YoY growth, not the level.
+    """
+    q = re.sub(r"^\s*\W*(?:compare|contrast|calculate|show(?:\s+me)?|what(?:'s| is)?)\b",
+               "", query, flags=re.I)
+    q = re.sub(r"\b(?:across|over|for|during|between)\b[\s\S]*$", "", q, flags=re.I)
+    out: list[tuple[str, str, bool]] = []
+    for part in _COMPARE_SPLIT.split(q):
+        part = part.strip()
+        if not part:
+            continue
+        mid = _matched_metric(part, matcher)
+        if mid:
+            out.append((part, mid, bool(_GROWTH_RE.search(part))))
+    return out
 _VALUATION_RE = re.compile(
     r"\bp/?e\b|pe ratio|price[- ]to[- ]earnings|price[- ]to[- ]book|\bp/?b\b|"
     r"ev/?ebitda|enterprise value|valuation|how cheap|expensive", re.I)
 _FORECAST_RE = re.compile(r"forecast|guidance|on track|remain(ed)? valid|projection", re.I)
+_OVERVIEW_RE = re.compile(
+    r"\bsummar(?:y|i[sz]e)\b|\boverview\b|\bsnapshot\b|at a glance|financial highlights"
+    r"|key (?:financial )?(?:metrics|figures|kpis?|highlights|indicators)"
+    r"|top \d+ .*(?:kpi|metric|figure)|\bkpis?\b|how is the company (?:doing|performing)",
+    re.I,
+)
+# Driver / decomposition: "which line item drove the largest change in total assets?",
+# "what drove the movement in equity?" — needs a driver word AND a change word, OR an
+# explicit "largest/biggest … change/contributor".
+_DRIVER_RE = re.compile(
+    r"(?=.*\b(?:drove|driven|drive[sr]?|contribut\w*|responsible|account(?:ed)?\s+for|caused|led to|behind)\b)"
+    r"(?=.*\b(?:change|movement|increase|decrease|growth|swing|rise|fall|delta|shift)\b)"
+    r"|\b(?:largest|biggest|main|primary|key)\b[\s\S]{0,40}\b(?:change|movement|driver|contributor)\b",
+    re.I,
+)
 _NEWS_RE = re.compile(r"\bnews\b|headlines|announcements?", re.I)
 _DIVIDEND_RE = re.compile(r"dividend|payout|book closure|bonus issue", re.I)
 _EARNINGS_RE = re.compile(r"earnings review|review (the )?earnings|latest results", re.I)
@@ -214,13 +254,17 @@ def _matched_formula(query: str):
 def _matched_metric(query: str, matcher=None) -> Optional[str]:
     """Return the first canonical metric id whose pattern matches query.
 
-    Uses *matcher* (workbook-specific, built from the ontology) when supplied;
-    falls back to the hardcoded _METRIC_KEYWORDS for backwards-compat / tests.
+    Tries the workbook-specific *matcher* (built from the ontology) FIRST, then falls back to
+    the curated _METRIC_KEYWORDS. The fallback matters: the ontology aliases miss common
+    phrasings (e.g. "operating profit", "gross profit" resolve to None via the workbook
+    matcher, only "operating income" works), so without it those metrics never resolve —
+    which is why "operating profit growth vs revenue growth" only saw one side.
     """
-    source = matcher if matcher is not None else _METRIC_KEYWORDS
-    for pattern, metric in source:
-        if pattern.search(query):
-            return metric
+    sources = ([matcher] if matcher is not None else []) + [_METRIC_KEYWORDS]
+    for source in sources:
+        for pattern, metric in source:
+            if pattern.search(query):
+                return metric
     return None
 
 
@@ -247,6 +291,14 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
             metrics=([m] if (not formula_id and m) else []),
         )
 
+    # metric comparison (no second company): "operating profit growth vs revenue growth",
+    # "current ratio vs quick ratio". Two resolvable metric terms -> metric_comparison.
+    if _PEER_RE.search(query) and not companies:
+        terms = _comparison_terms(query, metric_matcher)
+        if len(terms) >= 2:
+            return QueryFrame(raw_query=query, intent="metric_comparison", company=company,
+                              year=year, metrics=[t[1] for t in terms])
+
     # valuation (needs market data)
     if _VALUATION_RE.search(query):
         return QueryFrame(raw_query=query, intent="valuation", company=company, year=year,
@@ -265,6 +317,31 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
 
     if _DIVIDEND_RE.search(query):
         return QueryFrame(raw_query=query, intent="dividend_analysis", company=company, year=year)
+
+    # overview / summary: "summarize the KPIs", "financial highlights", "key metrics",
+    # "top N metrics", "overview/snapshot/at a glance" — a request for the headline figures,
+    # NOT a single-metric lookup. Routed to the overview handler which surfaces the
+    # workbook's key metrics. (Checked before trend/ratio/metric so it isn't mis-parsed as
+    # a lookup for whichever metric word happens to appear.)
+    if _OVERVIEW_RE.search(query):
+        return QueryFrame(raw_query=query, intent="overview", company=company, year=year)
+
+    # driver / decomposition: "which line item drove the largest change in total assets?"
+    # Decomposes a TOTAL's period-over-period change into its component line items and ranks
+    # them. Resolve which total from the query (assets / equity+liabilities / revenue).
+    if _DRIVER_RE.search(query):
+        ql = query.lower()
+        if "asset" in ql:
+            tgt = "total_assets"
+        elif "equity" in ql or "liabilit" in ql:
+            tgt = "total_equity_and_liabilities"
+        elif "revenue" in ql or "sales" in ql:
+            tgt = "revenue"
+        else:
+            tgt = _matched_metric(query, metric_matcher)
+        if tgt:
+            return QueryFrame(raw_query=query, intent="driver_analysis", company=company,
+                              year=year, metrics=[tgt])
 
     # trend / multi-year: explicit range, a "last N years" window, an aggregation
     # operator ("average increase/growth"), or trend keywords
@@ -318,7 +395,8 @@ _KNOWN_FORMULAS = {f for _, f, _ in _FORMULA_KEYWORDS}
 _ALL_INTENTS = {
     "peer_comparison", "valuation", "forecast_validation", "earnings_review",
     "news_impact", "dividend_analysis", "trend_analysis", "ratio_analysis",
-    "risk_assessment", "metric_lookup", "unknown",
+    "risk_assessment", "metric_lookup", "overview", "metric_comparison",
+    "driver_analysis", "agent", "unknown",
 }
 
 _LLM_SYS = (
@@ -355,7 +433,14 @@ _VALIDATE_SYS = (
     "metrics list for a year-only query if the history shows a prior resolved metric. "
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
-    "metric_lookup, unknown. "
+    "metric_lookup, overview, metric_comparison, unknown. "
+    "overview is for requests to SUMMARIZE the company's key financials / KPIs / highlights "
+    "(e.g. 'summarize the top 5 KPIs', 'financial overview') — NOT a single-metric lookup. "
+    "metric_comparison is for comparing TWO of the company's own metrics/series — e.g. "
+    "'operating profit growth vs revenue growth', 'current ratio vs quick ratio' — when no "
+    "second company is named (two companies = peer_comparison). "
+    "driver_analysis is for 'what/which line item drove the largest change in <total>' — "
+    "decomposing a total (assets, equity+liabilities, revenue) into the component that moved most. "
     "INTENT GUIDANCE: risk_assessment is the QUALITATIVE-INSIGHTS handler — route ANY "
     "narrative/qualitative question that can be answered from the company's management "
     "commentary or report insights here, NOT just questions containing the word 'risk'. "

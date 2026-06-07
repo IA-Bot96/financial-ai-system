@@ -168,6 +168,33 @@ export function reconstructSheetSources(sheets: ParsedSheet[]): SheetSources {
   return out
 }
 
+/** The source pages of a given PDF for a sheet (e.g. BS → 2025.pdf → [137,138,139,179]).
+ *  Used to scope the PDF value-highlight search to a sheet's source pages, not just one. */
+function sourcePagesFor(
+  sheetSources: SheetSources,
+  sheetName: string,
+  file: string | null
+): number[] {
+  if (!file) return []
+  const pages = new Set<number>()
+  for (const e of sheetSources[sheetName] ?? []) {
+    if (e.report_file.toLowerCase() === file.toLowerCase()) e.pages.forEach((p) => pages.add(p))
+  }
+  return [...pages].sort((a, b) => a - b)
+}
+
+/** Read a cell's value (as a string) from a parsed sheet by A1 reference, e.g. "C30". */
+function cellValueAt(sheets: ParsedSheet[], sheetName: string, a1: string): string | null {
+  const m = /^([A-Za-z]+)(\d+)$/.exec(a1.trim())
+  if (!m) return null
+  let c = 0
+  for (const ch of m[1].toUpperCase()) c = c * 26 + (ch.charCodeAt(0) - 64)
+  const r = Number(m[2]) - 1
+  const sheet = sheets.find((s) => s.name === sheetName)
+  const v = sheet?.cellData[r]?.[c - 1]?.v
+  return v == null || v === '' ? null : String(v)
+}
+
 interface AppState {
   backend: { status: 'starting' | 'ready' | 'error'; logPath: string }
   session: SessionMeta | null
@@ -189,11 +216,16 @@ interface AppState {
     cell: { sheet: string; cell: string } | null
     pdfFile: string | null         // target PDF (by filename); null = keep current
     pdfPage: number | null
-    // Separate trigger counters so grid-cell navigation and PDF navigation don't cross-fire.
-    // (PDF-sync on a sheet activation bumps pdfSeq only; otherwise it would re-trigger the
-    // cell-nav effect, whose activate() fires the sheet-change that runs PDF-sync — a loop.)
+    pdfQuery: string | null        // term to highlight on the PDF page (cell/citation value)
+    pdfQueryPage: number | null    // preferred page (null = the page currently in view)
+    pdfQueryPages: number[]        // source pages of this PDF to search (sheet lineage)
+    // Separate trigger counters so grid-cell navigation, PDF navigation, and PDF highlight
+    // don't cross-fire. (PDF-sync on a sheet activation bumps pdfSeq only; otherwise it would
+    // re-trigger the cell-nav effect, whose activate() fires the sheet-change → PDF-sync loop.
+    // pdfQuerySeq is bumped only by citation/cell-select so plain navigation never re-highlights.)
     cellSeq: number
     pdfSeq: number
+    pdfQuerySeq: number
   }
   chat: { messages: ChatTurn[]; pending: boolean }
   view: View
@@ -223,6 +255,7 @@ interface AppState {
   setActiveSheet: (name: string) => void
   setActivePdf: (file: string | null) => void
   setActivePdfPage: (page: number | null) => void
+  highlightPdf: (term: string | null) => void
   setSyncPdfToSheet: (v: boolean) => void
   focusSheetSource: (entry: SheetSourceEntry, page?: number) => void
   toggleShowSource: () => void
@@ -259,7 +292,7 @@ export const useApp = create<AppState>((set) => ({
   syncPdfToSheet: true,
   panels: { pdf: false, askAI: false },
   panelWidth: { pdf: 380, askAI: 400 },
-  nav: { cell: null, pdfFile: null, pdfPage: null, cellSeq: 0, pdfSeq: 0 },
+  nav: { cell: null, pdfFile: null, pdfPage: null, pdfQuery: null, pdfQueryPage: null, pdfQueryPages: [], cellSeq: 0, pdfSeq: 0, pdfQuerySeq: 0 },
   chat: { messages: [], pending: false },
   view: 'home',
   uploadOpen: false,
@@ -284,7 +317,7 @@ export const useApp = create<AppState>((set) => ({
       activeSheet: null,
       activePdf: null,
       activePdfPage: null,
-      nav: { cell: null, pdfFile: null, pdfPage: null, cellSeq: 0, pdfSeq: 0 },
+      nav: { cell: null, pdfFile: null, pdfPage: null, pdfQuery: null, pdfQueryPage: null, pdfQueryPages: [], cellSeq: 0, pdfSeq: 0, pdfQuerySeq: 0 },
       view: 'sheet',
       uploadOpen: false
     }))
@@ -303,41 +336,63 @@ export const useApp = create<AppState>((set) => ({
       window.api.openExternal(url)
       return
     }
-    // The workbook is ALWAYS present; the source PDF is optional. So resolve a sheet/cell
-    // target for the citation and open the grid — only fall back to the PDF when there is
-    // no workbook location to point at at all.
+    const s = useApp.getState()
+    // The workbook is ALWAYS present; the source PDF is optional. Open the relevant cell in
+    // the grid AND — when that source PDF is actually loaded — jump the PDF to its page too.
     let target: { sheet: string; cell: string } | null = null
     if (loc.sheet && loc.cell) {
       target = { sheet: String(loc.sheet), cell: String(loc.cell) } // exact ledger cell
     } else if (loc.primary_sheet && loc.primary_cell) {
       target = { sheet: String(loc.primary_sheet), cell: String(loc.primary_cell) } // originating fact cell
     } else if (cite.kind === 'insight') {
-      target = findInsightCell(useApp.getState().sheets, loc) // Insights sheet row
+      target = findInsightCell(s.sheets, loc) // Insights sheet row
     } else if (loc.sheet) {
       target = { sheet: String(loc.sheet), cell: String(loc.cell ?? 'A1') } // sheet-level
     } else if (loc.primary_sheet) {
       target = { sheet: String(loc.primary_sheet), cell: String(loc.primary_cell ?? 'A1') }
     }
-    if (target) {
-      set((s) => ({
-        view: 'sheet',
-        // cell navigation: bump cellSeq only (leave the PDF where it is)
-        nav: { ...s.nav, cell: target, pdfFile: null, pdfPage: null, cellSeq: s.nav.cellSeq + 1 }
+
+    // PDF side: only if the cited report file is among the loaded PDFs (else skip silently —
+    // the grid cell is the answer; don't toast "not loaded" when Excel already handled it).
+    const base = (p: string) => p.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
+    const file = ((loc.report_file ?? loc.file) as string | undefined) || null
+    const page = loc.page != null ? Number(loc.page) : null
+    const pdfLoaded = !!file && s.pdfPaths.some((p) => base(p) === file.toLowerCase())
+    const navPdf = page != null && page >= 1 && pdfLoaded
+    // value to highlight on the PDF page = the cited cell's value (e.g. the figure 182,625)
+    const pdfQuery = navPdf && target ? cellValueAt(s.sheets, target.sheet, target.cell) : null
+    // scope the highlight search to this sheet's source pages for the cited PDF
+    const pdfQueryPages = navPdf && target ? sourcePagesFor(s.sheetSources, target.sheet, file) : []
+
+    if (target || navPdf) {
+      set((st) => ({
+        view: target ? 'sheet' : st.view,
+        panels: navPdf ? { ...st.panels, pdf: true } : st.panels,
+        nav: {
+          ...st.nav,
+          // grid cell: bump cellSeq so the grid selects + scrolls to it
+          cell: target ?? st.nav.cell,
+          cellSeq: target ? st.nav.cellSeq + 1 : st.nav.cellSeq,
+          // PDF page: bump pdfSeq so the viewer jumps (only when the PDF is loaded)
+          pdfFile: navPdf ? file : st.nav.pdfFile,
+          pdfPage: navPdf ? page : st.nav.pdfPage,
+          pdfSeq: navPdf ? st.nav.pdfSeq + 1 : st.nav.pdfSeq,
+          // PDF highlight: search the cited cell's value across the sheet's source pages
+          pdfQuery: navPdf ? pdfQuery : st.nav.pdfQuery,
+          pdfQueryPage: navPdf ? page : st.nav.pdfQueryPage,
+          pdfQueryPages: navPdf ? pdfQueryPages : st.nav.pdfQueryPages,
+          pdfQuerySeq: navPdf ? st.nav.pdfQuerySeq + 1 : st.nav.pdfQuerySeq
+        }
       }))
       return
     }
-    // last resort — no workbook location on this citation; show the source page if any
-    if (loc.page != null) {
-      set((s) => ({
-        panels: { ...s.panels, pdf: true },
-        // PDF navigation: bump pdfSeq only (don't re-trigger the cell-nav effect)
-        nav: {
-          ...s.nav,
-          cell: null,
-          pdfFile: (loc.report_file as string) ?? (loc.file as string) ?? null,
-          pdfPage: Number(loc.page),
-          pdfSeq: s.nav.pdfSeq + 1
-        }
+
+    // Nothing in the workbook to point at and no loaded PDF — surface the page if the
+    // citation has one (the viewer will note if that source isn't loaded), else just toast.
+    if (page != null) {
+      set((st) => ({
+        panels: { ...st.panels, pdf: true },
+        nav: { ...st.nav, cell: null, pdfFile: file, pdfPage: page, pdfQuery: null, pdfSeq: st.nav.pdfSeq + 1 }
       }))
       return
     }
@@ -433,6 +488,24 @@ export const useApp = create<AppState>((set) => ({
   },
   setActivePdfPage: (page) => {
     if (useApp.getState().activePdfPage !== page) set({ activePdfPage: page })
+  },
+  // highlight a term across the active sheet's source pages for the open PDF — used when the
+  // user selects a grid cell; the viewer searches those pages and jumps to the one with a hit.
+  highlightPdf: (term) => {
+    const st = useApp.getState()
+    const pages =
+      st.activeSheet && st.activePdf
+        ? sourcePagesFor(st.sheetSources, st.activeSheet, st.activePdf)
+        : []
+    set((s) => ({
+      nav: {
+        ...s.nav,
+        pdfQuery: term,
+        pdfQueryPage: null,
+        pdfQueryPages: pages,
+        pdfQuerySeq: s.nav.pdfQuerySeq + 1
+      }
+    }))
   },
   setSyncPdfToSheet: (v) => {
     set({ syncPdfToSheet: v })

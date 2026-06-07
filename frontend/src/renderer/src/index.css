@@ -50,3 +50,20 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ── Indeterminate progress bar ──────────────────────────────────────────────
+   Used while a step has no measurable percentage (e.g. loading/analyzing an
+   Excel workbook). A short segment slides left→right inside the track.
+   ─────────────────────────────────────────────────────────────────────────── */
+@keyframes indeterminate-bar {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+.indeterminate-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: 9999px;
+  animation: indeterminate-bar 1.1s ease-in-out infinite;
+}

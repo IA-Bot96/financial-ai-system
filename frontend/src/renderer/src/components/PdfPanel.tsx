@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
@@ -14,6 +14,17 @@ const basename = (p: string) => p.replace(/\\/g, '/').split('/').pop() || p
 // render pages this far (px) outside the viewport so they're ready before scrolled to
 const MOUNT_MARGIN = '1200px 0px'
 
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+type Match = { page: number; indexOnPage: number }
+// minimal pdf.js document surface we use for text search
+type PdfDoc = {
+  numPages: number
+  getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: { str?: string }[] }> }>
+}
+
 export function PdfPanel() {
   const { pdfPaths, nav, toast } = useApp()
   const [active, setActive] = useState(0)
@@ -27,12 +38,36 @@ export function PdfPanel() {
   // estimated page height (px) for not-yet-rendered placeholders; refined as pages render
   const [estHeight, setEstHeight] = useState(900)
 
+  // ── search state ──
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [matches, setMatches] = useState<Match[]>([])
+  const [activeMatch, setActiveMatch] = useState(-1)
+  const [searching, setSearching] = useState(false)
+  // term highlighted from a cell/citation value (shown when the search bar isn't driving it)
+  const [cellHl, setCellHl] = useState('')
+
   const scrollRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   // a page to scroll to once it (and the pages above it) have laid out
   const pendingJump = useRef<number | null>(null)
   // measured height per page → placeholders keep the exact height when a page unmounts,
   // so scrolling past virtualized pages doesn't shift the layout
   const pageHeights = useRef<Map<number, number>>(new Map())
+  // search plumbing
+  const pdfDocRef = useRef<PdfDoc | null>(null)
+  const textCacheRef = useRef<Map<number, string[]>>(new Map()) // page -> escaped text items
+  const searchSeqRef = useRef(0) // ignore stale async search results
+  const pendingMatchRef = useRef<Match | null>(null) // match awaiting its page to render
+  const matchesRef = useRef<Match[]>([])
+  const activeMatchRef = useRef(-1)
+  matchesRef.current = matches
+  activeMatchRef.current = activeMatch
+  // cell/citation highlight plumbing
+  const pendingCellRef = useRef<number | null>(null) // page whose first cell-match to focus on render
+  // a cell/citation highlight deferred until the (newly-switched) doc loads
+  const pendingCellHl = useRef<{ term: string; preferred: number; candidates: number[] } | null>(null)
+  const cellSeqRef = useRef(0)
 
   // ── load bytes for the active pdf ──────────────────────────────────────────
   useEffect(() => {
@@ -42,6 +77,15 @@ export function PdfPanel() {
     setCurrentPage(1)
     setVisible(new Set([1, 2, 3]))
     pageHeights.current.clear()
+    // reset search for the new document
+    pdfDocRef.current = null
+    textCacheRef.current.clear()
+    setMatches([])
+    setActiveMatch(-1)
+    pendingMatchRef.current = null
+    setCellHl('')
+    pendingCellRef.current = null
+    pendingCellHl.current = null
     if (!path) {
       setData(null)
       return
@@ -95,9 +139,7 @@ export function PdfPanel() {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
         const mid = container.scrollTop + container.clientHeight / 2
-        const wraps = Array.from(
-          container.querySelectorAll<HTMLElement>('[data-page]')
-        )
+        const wraps = Array.from(container.querySelectorAll<HTMLElement>('[data-page]'))
         let best = currentPage
         for (const el of wraps) {
           const top = el.offsetTop
@@ -155,6 +197,44 @@ export function PdfPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scale])
 
+  // ── search: (re)run as the query/document changes (debounced) ───────────────
+  useEffect(() => {
+    if (!searchOpen) return
+    const t = setTimeout(() => runSearch(query), 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, searchOpen, numPages])
+
+  // ── cell/citation → highlight the value on its PDF page ─────────────────────
+  useEffect(() => {
+    if (!nav.pdfQuerySeq) return
+    if (searchOpen) return // manual search owns the highlight while its bar is open
+    const term = (nav.pdfQuery ?? '').trim()
+    if (!term) {
+      setCellHl('')
+      pendingCellRef.current = null
+      pendingCellHl.current = null
+      return
+    }
+    // a citation carries a target page (pdfQueryPage); a plain cell-select doesn't (uses the
+    // current page). Only a citation can be switching documents — a cell-select never is, so
+    // don't defer it on a stale nav.pdfFile.
+    // Set the highlight term synchronously so pages render WITH marks (renderText matches the
+    // value's variants directly). The TARGET page is resolved by searching the sheet's source
+    // pages for this PDF and jumping to the first that actually contains the value.
+    setCellHl(term)
+    const preferred = nav.pdfQueryPage ?? currentPage
+    const candidates = nav.pdfQueryPages.length ? nav.pdfQueryPages : [preferred]
+    const switching =
+      nav.pdfQueryPage != null &&
+      !!nav.pdfFile &&
+      basename(pdfPaths[active] ?? '').toLowerCase() !== nav.pdfFile.toLowerCase()
+    // A citation switching documents must wait for the new doc to load before we can search.
+    if (switching) pendingCellHl.current = { term, preferred, candidates }
+    else resolveAndFocus(term, candidates, preferred)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nav.pdfQuerySeq])
+
   function scrollToPage(n: number, smooth = true) {
     const container = scrollRef.current
     const el = container?.querySelector<HTMLElement>(`[data-page="${n}"]`)
@@ -179,7 +259,9 @@ export function PdfPanel() {
     scrollToPage(p)
   }
 
-  function onDocLoad({ numPages: n }: { numPages: number }) {
+  function onDocLoad(pdf: PdfDoc) {
+    pdfDocRef.current = pdf
+    const n = pdf.numPages
     setNumPages(n)
     setVisible(new Set([1, 2, 3].filter((x) => x <= n)))
     if (pendingJump.current) {
@@ -194,10 +276,17 @@ export function PdfPanel() {
       const target = pendingJump.current
       requestAnimationFrame(() => scrollToPage(target, false))
     }
+    // a cell/citation highlight that was waiting for this (newly-switched) doc to load
+    if (pendingCellHl.current) {
+      const { term, preferred, candidates } = pendingCellHl.current
+      pendingCellHl.current = null
+      setCellHl(term)
+      resolveAndFocus(term, candidates, preferred)
+    }
   }
 
-  // as pages render their real height settles — refine the placeholder estimate and,
-  // if a jump is pending, re-scroll so it converges on the correct offset.
+  // as pages render their real height settles — refine the placeholder estimate; if a jump
+  // or a search match is awaiting this page, scroll/highlight it now that the layer exists.
   function onPageRender(pn: number) {
     const el = scrollRef.current?.querySelector<HTMLElement>(`[data-page="${pn}"]`)
     if (el && el.offsetHeight) {
@@ -208,7 +297,203 @@ export function PdfPanel() {
       scrollToPage(pendingJump.current, false)
       if (pn >= pendingJump.current) pendingJump.current = null
     }
+    // re-apply the active-match highlight on (re)render of its page; scroll only if pending
+    const am = matchesRef.current[activeMatchRef.current]
+    if (am && am.page === pn) focusMark(am, pendingMatchRef.current?.page === pn)
+    // focus a cell/citation highlight that was awaiting this page's text layer
+    if (pendingCellRef.current === pn) focusFirstCellMark(pn)
   }
+
+  // ── cell/citation highlight helpers ─────────────────────────────────────────
+  // a cell holds a figure like "182,625" or "(2,736)"; the PDF may format it differently,
+  // so try a few normalized variants and highlight the first that appears on the page.
+  function buildVariants(term: string): string[] {
+    const t = term.trim()
+    if (!t) return []
+    const out = new Set<string>([t])
+    const neg = /^\(.*\)$/.test(t)
+    const digits = t.replace(/[()]/g, '').replace(/\s+/g, '').replace(/,/g, '')
+    if (/^-?\d+(\.\d+)?$/.test(digits)) {
+      const n = Math.abs(Number(digits))
+      if (Number.isFinite(n)) {
+        out.add(n.toLocaleString('en-US')) // grouped: 182,625
+        out.add(String(n)) // plain: 182625
+        if (neg || Number(digits) < 0) {
+          out.add(`(${n.toLocaleString('en-US')})`)
+          out.add(`(${n})`)
+        }
+      }
+    }
+    return [...out].filter((s) => s.length > 0)
+  }
+
+  async function ensurePageText(p: number): Promise<void> {
+    if (textCacheRef.current.has(p) || !pdfDocRef.current) return
+    try {
+      const page = await pdfDocRef.current.getPage(p)
+      const tc = await page.getTextContent()
+      textCacheRef.current.set(p, tc.items.map((it) => escapeHtml(it.str ?? '')))
+    } catch {
+      textCacheRef.current.set(p, [])
+    }
+  }
+
+  function pageHasVariant(page: number, variants: string[]): boolean {
+    const items = textCacheRef.current.get(page) ?? []
+    return variants.some((v) => {
+      const re = new RegExp(escapeRe(escapeHtml(v)), 'i')
+      return items.some((s) => re.test(s))
+    })
+  }
+
+  // Search the sheet's source pages for this PDF and focus the value on the first page that
+  // contains it — preferring the citation/current page when it has the value.
+  async function resolveAndFocus(term: string, candidates: number[], preferred: number): Promise<void> {
+    const doc = pdfDocRef.current
+    if (!doc) {
+      pendingCellHl.current = { term, preferred, candidates } // run after onDocLoad
+      return
+    }
+    const seq = ++cellSeqRef.current
+    const pages = [...new Set([preferred, ...candidates])].filter((p) => p >= 1 && p <= doc.numPages)
+    for (const p of pages) {
+      await ensurePageText(p)
+      if (seq !== cellSeqRef.current) return // superseded by a newer highlight
+    }
+    const variants = buildVariants(term)
+    const order = [preferred, ...pages.filter((p) => p !== preferred)]
+    const target = order.find((p) => pageHasVariant(p, variants)) ?? preferred
+    focusCellOnPage(target)
+  }
+
+  // ensure the page is mounted + scrolled into view, then focus its first highlight once its
+  // text layer renders (onRenderTextLayerSuccess) — that's when the <mark>s actually exist.
+  function focusCellOnPage(page: number): void {
+    const p = Math.max(1, Math.floor(page) || 1)
+    setVisible((prev) => (prev.has(p) ? prev : new Set(prev).add(p)))
+    pendingCellRef.current = p
+    setCurrentPage(p)
+    scrollToPage(p)
+    requestAnimationFrame(() => focusFirstCellMark(p)) // if it's already rendered
+  }
+
+  function focusFirstCellMark(page: number): void {
+    const container = scrollRef.current
+    if (!container) return
+    container.querySelectorAll('mark.pdf-hl-active').forEach((el) => el.classList.remove('pdf-hl-active'))
+    const el = container.querySelector<HTMLElement>(`[data-page="${page}"] mark.pdf-hl`)
+    if (el) {
+      el.classList.add('pdf-hl-active')
+      el.scrollIntoView({ block: 'center' })
+      pendingCellRef.current = null
+    }
+  }
+
+  // ── search helpers ──────────────────────────────────────────────────────────
+  async function ensureText(): Promise<void> {
+    const pdf = pdfDocRef.current
+    if (!pdf) return
+    for (let p = 1; p <= pdf.numPages; p++) {
+      if (textCacheRef.current.has(p)) continue
+      try {
+        const page = await pdf.getPage(p)
+        const tc = await page.getTextContent()
+        // store HTML-escaped items so counts line up with what customTextRenderer marks
+        textCacheRef.current.set(p, tc.items.map((it) => escapeHtml(it.str ?? '')))
+      } catch {
+        textCacheRef.current.set(p, [])
+      }
+    }
+  }
+
+  async function runSearch(raw: string): Promise<void> {
+    const q = raw.trim()
+    if (!q || !pdfDocRef.current) {
+      setMatches([])
+      setActiveMatch(-1)
+      pendingMatchRef.current = null
+      return
+    }
+    const seq = ++searchSeqRef.current
+    setSearching(true)
+    await ensureText()
+    if (seq !== searchSeqRef.current) return // a newer search superseded this one
+    const re = new RegExp(escapeRe(escapeHtml(q)), 'gi')
+    const list: Match[] = []
+    const total = pdfDocRef.current.numPages
+    for (let p = 1; p <= total; p++) {
+      let k = 0
+      for (const s of textCacheRef.current.get(p) ?? []) {
+        const found = s.match(re)
+        if (found) for (let j = 0; j < found.length; j++) list.push({ page: p, indexOnPage: k++ })
+      }
+    }
+    setSearching(false)
+    setMatches(list)
+    if (list.length) gotoMatch(0, list)
+    else setActiveMatch(-1)
+  }
+
+  function focusMark(m: Match, doScroll: boolean) {
+    const container = scrollRef.current
+    if (!container) return
+    container.querySelectorAll('mark.pdf-hl-active').forEach((el) => el.classList.remove('pdf-hl-active'))
+    const pageEl = container.querySelector(`[data-page="${m.page}"]`)
+    const marks = pageEl?.querySelectorAll<HTMLElement>('mark.pdf-hl')
+    const el = marks?.[m.indexOnPage]
+    if (el) {
+      el.classList.add('pdf-hl-active')
+      if (doScroll) el.scrollIntoView({ block: 'center' })
+      pendingMatchRef.current = null
+    }
+  }
+
+  function gotoMatch(i: number, list: Match[] = matches) {
+    if (!list.length) return
+    const idx = ((i % list.length) + list.length) % list.length
+    setActiveMatch(idx)
+    const m = list[idx]
+    setVisible((prev) => (prev.has(m.page) ? prev : new Set(prev).add(m.page)))
+    pendingMatchRef.current = m // onPageRender scrolls once the page's text layer exists
+    setCurrentPage(m.page)
+    scrollToPage(m.page)
+    requestAnimationFrame(() => focusMark(m, true))
+  }
+
+  function openSearch() {
+    setSearchOpen(true)
+    requestAnimationFrame(() => searchInputRef.current?.focus())
+  }
+  function closeSearch() {
+    setSearchOpen(false)
+    setQuery('')
+    setMatches([])
+    setActiveMatch(-1)
+    pendingMatchRef.current = null
+  }
+
+  // highlight every occurrence of the active term within each text item. The manual search
+  // query wins while its bar is open; otherwise the cell/citation value is highlighted.
+  const renderText = useCallback(
+    ({ str }: { str: string }) => {
+      const manual = searchOpen ? query.trim() : ''
+      const term = manual || cellHl
+      if (!term) return str
+      let re: RegExp
+      if (manual) {
+        re = new RegExp(escapeRe(escapeHtml(manual)), 'gi')
+      } else {
+        // cell value: match any normalized variant (182,625 / 182625 / (2,736)); numeric
+        // boundaries so a figure isn't matched inside a longer number.
+        const alts = buildVariants(cellHl).map((v) => escapeRe(escapeHtml(v)))
+        if (!alts.length) return str
+        re = new RegExp(`(?<![\\d.,])(?:${alts.join('|')})(?![\\d.,])`, 'gi')
+      }
+      return escapeHtml(str).replace(re, (mm) => `<mark class="pdf-hl">${mm}</mark>`)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [searchOpen, query, cellHl]
+  )
 
   const file = useMemo(() => (data ? { data } : null), [data])
 
@@ -222,6 +507,12 @@ export function PdfPanel() {
 
   return (
     <div className="h-full flex flex-col bg-panel">
+      {/* highlight styles for the text-layer <mark>s injected by renderText */}
+      <style>{`
+        .pdf-hl { background: rgba(255, 213, 0, 0.45); color: inherit; border-radius: 2px; }
+        .pdf-hl-active { background: rgba(255, 138, 0, 0.85); }
+      `}</style>
+
       <div className="h-9 shrink-0 flex items-center gap-2 px-2 border-b border-line text-xs">
         {pdfPaths.length > 1 ? (
           <select
@@ -239,6 +530,14 @@ export function PdfPanel() {
           <span className="truncate text-muted">{basename(pdfPaths[0])}</span>
         )}
         <div className="flex-1" />
+        <button
+          onClick={() => (searchOpen ? closeSearch() : openSearch())}
+          aria-pressed={searchOpen}
+          className={'px-1 hover:text-accent ' + (searchOpen ? 'text-accent' : '')}
+          title="Search in PDF"
+        >
+          <SearchIcon />
+        </button>
         <button
           onClick={() => jumpTo(currentPage - 1)}
           disabled={currentPage <= 1}
@@ -287,11 +586,51 @@ export function PdfPanel() {
         </button>
       </div>
 
+      {/* ── search bar ── */}
+      {searchOpen && (
+        <div className="h-9 shrink-0 flex items-center gap-2 px-2 border-b border-line bg-panel2 text-xs">
+          <SearchIcon className="text-muted shrink-0" />
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') gotoMatch(activeMatch + (e.shiftKey ? -1 : 1))
+              else if (e.key === 'Escape') closeSearch()
+            }}
+            placeholder="Find in document…"
+            className="flex-1 min-w-0 bg-panel border border-line rounded px-2 py-0.5 text-ink placeholder:text-muted outline-none focus:border-accent/50"
+          />
+          <span className="text-muted tabular-nums shrink-0 w-16 text-center">
+            {searching ? '…' : matches.length ? `${activeMatch + 1}/${matches.length}` : '0/0'}
+          </span>
+          <button
+            onClick={() => gotoMatch(activeMatch - 1)}
+            disabled={!matches.length}
+            className="px-1 hover:text-accent disabled:opacity-30"
+            title="Previous match (Shift+Enter)"
+          >
+            ‹
+          </button>
+          <button
+            onClick={() => gotoMatch(activeMatch + 1)}
+            disabled={!matches.length}
+            className="px-1 hover:text-accent disabled:opacity-30"
+            title="Next match (Enter)"
+          >
+            ›
+          </button>
+          <button onClick={closeSearch} className="px-1 hover:text-accent" title="Close search">
+            ✕
+          </button>
+        </div>
+      )}
+
       <div ref={scrollRef} className="relative flex-1 min-h-0 overflow-auto p-2">
         {file && (
           <Document
             file={file}
-            onLoadSuccess={onDocLoad}
+            onLoadSuccess={onDocLoad as never}
             loading={<div className="text-sm text-muted mt-6 text-center">Loading PDF…</div>}
             error={<div className="text-sm text-red-300 mt-6 text-center">Failed to render PDF.</div>}
           >
@@ -311,7 +650,15 @@ export function PdfPanel() {
                     <Page
                       pageNumber={pn}
                       scale={scale}
+                      customTextRenderer={renderText}
                       onRenderSuccess={() => onPageRender(pn)}
+                      onRenderTextLayerSuccess={() => {
+                        // marks live in the text layer — focus the pending highlight here,
+                        // where (unlike canvas render) the <mark>s are guaranteed to exist.
+                        if (pendingCellRef.current === pn) focusFirstCellMark(pn)
+                        const am = matchesRef.current[activeMatchRef.current]
+                        if (am && am.page === pn) focusMark(am, pendingMatchRef.current?.page === pn)
+                      }}
                       loading={
                         <div
                           style={{ height: estHeight }}
@@ -331,5 +678,25 @@ export function PdfPanel() {
         )}
       </div>
     </div>
+  )
+}
+
+function SearchIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </svg>
   )
 }

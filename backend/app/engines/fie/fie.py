@@ -20,7 +20,7 @@ from app.core.logging import per_query_log
 from . import citations as citations_mod
 from . import insights as insights_mod
 from .debug_dump import restore_llms, wrap_llms
-from . import (admission, entity_registry, forecast_rules, metric_resolve,
+from . import (admission, agent, entity_registry, forecast_rules, metric_resolve,
                news_retrieval, planner, qualitative, response, retrieval, scale,
                synthesis, understanding)
 from .apis import ExternalSources
@@ -76,6 +76,9 @@ class FinancialIntelligenceEngine:
     _INTENT_HANDLERS = {
         "ratio_analysis": "_h_ratio_analysis",
         "metric_lookup": "_h_metric_lookup",
+        "overview": "_h_overview",
+        "metric_comparison": "_h_metric_comparison",
+        "driver_analysis": "_h_driver_analysis",
         "risk_assessment": "_h_risk_assessment",
         "peer_comparison": "_h_peer_comparison",
         "valuation": "_h_valuation",
@@ -147,6 +150,18 @@ class FinancialIntelligenceEngine:
         elif frame.intent != "unknown":
             _layer("Route", "no handler registered for intent=%r; degrading to empty answer",
                    frame.intent)
+
+        # Agentic planner: when the deterministic handler couldn't answer — an `unknown`
+        # intent, or a recognized intent that found NOTHING in the workbook — hand off to the
+        # LLM agent, which composes deterministic tools (lookups / ratios / growth / decompose
+        # / insights / external) to assemble a cited answer. A clarify prompt is left alone.
+        # No real LLM (or the agent gathered nothing) -> deterministic external fallback.
+        internal_empty = not ctx.evidence and not ctx.calcs and not ctx.selected_insights
+        clarifying = bool((ctx.extra or {}).get("clarify"))
+        if not clarifying and (frame.intent == "unknown" or internal_empty):
+            self._run_agent(frame, ctx)
+            if not ctx.evidence and not (ctx.extra or {}).get("agent_answer"):
+                self._external_fallback(frame, ctx)  # no-LLM / agent found nothing
 
         # per-layer dump: intent-stage outputs (evidence / calcs / conflicts / extras)
         if dumper.enabled:
@@ -264,13 +279,41 @@ class FinancialIntelligenceEngine:
     # Uniform signature (frame, ctx, plan); registered in _INTENT_HANDLERS.
 
     def _h_ratio_analysis(self, frame, ctx, plan) -> None:
-        if not (frame.formula and frame.year is not None):
-            return                                  # nothing to compute -> empty (as before)
-        cr = self.calc.evaluate(frame.formula, frame.year)
-        ctx.calcs = [cr]
-        ctx.evidence = retrieval.evidence_from_facts(self.store, cr.inputs)
+        # Recover the formula if the intent is ratio_analysis but the id was dropped (e.g. the
+        # LLM reclassified "return on equity over the years" to ratio_analysis but left
+        # formula=None). Without this the handler no-ops and the renderer used to crash.
+        formula = frame.formula
+        if not formula:
+            m = understanding._matched_formula(frame.raw_query)
+            if m:
+                formula = frame.formula = m[0]
+        if not formula:
+            return  # genuinely no ratio to compute -> empty (fallback/renderer handle it)
+
+        # A specific year -> just that year; "for each year / over the years" (no year) ->
+        # the ratio for every year that has the needed inputs (a per-year series).
+        years = [frame.year] if frame.year is not None else sorted(self.store.years)
+        pairs: list[tuple[int, object]] = []
+        for y in years:
+            try:
+                pairs.append((y, self.calc.evaluate(formula, y)))
+            except Exception as exc:  # noqa: BLE001 — one bad year shouldn't abort the series
+                _log.debug("fie _h_ratio_analysis: evaluate(%s, %s) failed: %s", formula, y, exc,
+                           extra={"component": "Calc"})
+        valued = [(y, c) for (y, c) in pairs if c is not None and c.value is not None]
+
+        if valued:
+            ctx.calcs = [c for (_, c) in valued]
+        elif pairs:
+            ctx.calcs = [pairs[0][1]]  # keep one failed calc so the renderer can show its note
+        else:
+            ctx.calcs = []
+        ctx.extra = {"ratio_series": [{"year": y, "value": c.value, "unit": c.unit}
+                                      for (y, c) in valued]}
+        inputs = [f for (_, c) in valued for f in c.inputs]
+        ctx.evidence = retrieval.evidence_from_facts(self.store, inputs) if inputs else []
         ctx.conflicts = self.conflicts.detect(
-            facts=cr.inputs, report_year_preference=frame.report_year_preference)
+            facts=inputs, report_year_preference=frame.report_year_preference) if inputs else []
 
     def _h_metric_lookup(self, frame, ctx, plan) -> None:
         # availability-gated resolution + clarification on ambiguous terms
@@ -290,6 +333,166 @@ class FinancialIntelligenceEngine:
         ctx.conflicts = self.conflicts.detect(
             facts=[f for e in ctx.evidence for f in e.fact_refs],
             report_year_preference=frame.report_year_preference)
+
+    # Headline KPIs surfaced for an "overview / summarize the financials" request, in
+    # priority order; intersected with what the workbook actually has.
+    _OVERVIEW_METRICS = ("revenue", "gross_profit", "operating_profit", "profit_before_tax",
+                         "pat", "eps", "total_assets", "total_equity", "total_liabilities")
+
+    def _h_overview(self, frame, ctx, plan) -> None:
+        avail = set(self.store.available_metrics())
+        keys = [m for m in self._OVERVIEW_METRICS if m in avail] or sorted(avail)[:8]
+        # latest year that actually HAS data (workbook years include empty forecast years)
+        year = frame.year
+        if year is None:
+            for y in sorted(self.store.years, reverse=True):
+                try:
+                    rev = self.store.lookup("revenue", y)
+                except KeyError:
+                    rev = None
+                if rev is not None and rev.value is not None:
+                    year = y
+                    break
+            if year is None and self.store.years:
+                year = max(self.store.years)
+        facts = []
+        for m in keys:
+            if year is None:
+                break
+            try:
+                f = self.store.lookup(m, year)
+            except KeyError:
+                f = None
+            if f is not None and f.value is not None:
+                facts.append(f)
+        ctx.evidence = retrieval.evidence_from_facts(self.store, facts) if facts else []
+        ctx.extra = {
+            "overview_year": year,
+            "overview_items": [{"label": (f.metric or f.label).replace("_", " "),
+                                "value": f.value, "unit": f.unit} for f in facts],
+        }
+        ctx.conflicts = self.conflicts.detect(
+            facts=facts, report_year_preference=frame.report_year_preference) if facts else []
+
+    # Component line items per total, for "what drove the change" decomposition. Curated
+    # (clean accounting structure) and intersected with what the workbook actually has.
+    _ASSET_COMPONENTS = (
+        "property_plant_equipment", "operating_fixed_assets", "capital_work_in_progress",
+        "intangible_assets", "investment_property", "long_term_investments",
+        "long_term_deposits", "long_term_loans_and_advances", "right_of_use_assets",
+        "deferred_tax_asset", "stock_in_trade", "stores_spares_loose_tools", "trade_debts",
+        "loans_and_advances", "deposits_prepayments_other_receivables", "cash_and_bank",
+        "short_term_investments",
+    )
+    _LIABEQ_COMPONENTS = (
+        "paid_up_capital", "reserves", "capital_reserves", "revenue_reserves",
+        "unappropriated_profit", "long_term_financing", "lease_liabilities",
+        "deferred_tax_liability", "trade_payables", "short_term_borrowings",
+        "creditors_accrued_other_liabilities", "accrued_liabilities", "contract_liabilities",
+        "unclaimed_dividend",
+    )
+    _DRIVER_COMPONENTS = {
+        "total_assets": _ASSET_COMPONENTS,
+        "total_equity_and_liabilities": _LIABEQ_COMPONENTS,
+        "total_liabilities": _LIABEQ_COMPONENTS,
+        "total_equity": ("paid_up_capital", "reserves", "capital_reserves",
+                         "revenue_reserves", "unappropriated_profit"),
+    }
+
+    def _run_agent(self, frame, ctx) -> None:
+        """Hand off to the agentic planner. Re-labels the intent 'agent' so the response
+        layer renders + numerically-verifies the composed answer."""
+        frame.intent = "agent"
+        agent.run(self, frame, ctx)
+
+    def _h_driver_analysis(self, frame, ctx, plan) -> None:
+        """Decompose a total's period-over-period change into its component line items and
+        rank by absolute change — the top mover 'drove' the change."""
+        target = (frame.metrics[0] if frame.metrics else "total_assets")
+        avail = set(self.store.available_metrics()) | set(
+            self.store.available_metrics(level="detail"))
+        components = [m for m in self._DRIVER_COMPONENTS.get(target, ()) if m in avail]
+        # the two most recent years for which the TOTAL has values (the change period)
+        yrs = [y for y in sorted(self.store.years) if self._safe_lookup(target, y) is not None]
+        if len(yrs) < 2 or not components:
+            return  # nothing to decompose -> empty (fallback may help)
+        y0, y1 = yrs[-2], yrs[-1]
+        t0, t1 = self._safe_lookup(target, y0), self._safe_lookup(target, y1)
+        total_delta = (t1 - t0) if (t0 is not None and t1 is not None) else None
+
+        drivers = []
+        facts = []
+        for m in components:
+            v0, v1 = self._safe_lookup(m, y0), self._safe_lookup(m, y1)
+            if v0 is None or v1 is None:
+                continue
+            drivers.append({"label": m.replace("_", " "), "delta": v1 - v0,
+                            "from": v0, "to": v1})
+            for yy in (y0, y1):
+                try:
+                    f = self.store.lookup(m, yy)
+                    if f is not None and f.value is not None:
+                        facts.append(f)
+                except KeyError:
+                    pass
+        for yy in (y0, y1):  # cite the total too
+            try:
+                f = self.store.lookup(target, yy)
+                if f is not None and f.value is not None:
+                    facts.append(f)
+            except KeyError:
+                pass
+        drivers.sort(key=lambda d: abs(d["delta"]), reverse=True)
+        ctx.evidence = retrieval.evidence_from_facts(self.store, facts) if facts else []
+        ctx.extra = {"driver": {"target": target.replace("_", " "), "y0": y0, "y1": y1,
+                                "total_delta": total_delta, "drivers": drivers[:5]}}
+        ctx.conflicts = self.conflicts.detect(
+            facts=facts, report_year_preference=frame.report_year_preference) if facts else []
+
+    def _h_metric_comparison(self, frame, ctx, plan) -> None:
+        """Compare two of the company's own metrics/series side by side, per year. Each term
+        is a level or (when phrased as 'growth/change') a YoY growth series computed directly
+        from the workbook. Renders both series so the LLM can contrast them."""
+        terms = understanding._comparison_terms(frame.raw_query, self.store.query_metric_matcher())
+        # The raw-query splitter only handles explicit connectors ("A vs B"); phrasings like
+        # "what changed more: revenue or profit after tax?" don't split, but the LLM already
+        # resolved the two metrics into frame.metrics — use those rather than re-parsing.
+        if len(terms) < 2 and len(frame.metrics or []) >= 2:
+            growth = bool(understanding._GROWTH_RE.search(frame.raw_query)) or bool(
+                re.search(r"chang|grew|grow|increas|decreas|\bmore\b|\bless\b|bigger|smaller|"
+                          r"faster|slower|movement", frame.raw_query, re.I))
+            terms = [(m.replace("_", " "), m, growth) for m in frame.metrics]
+        if len(terms) < 2:
+            return  # not actually comparable -> empty (agent / external fallback may help)
+        years = sorted(self.store.years)
+        comparison: list[dict] = []
+        facts = []
+        for label, metric, growth in terms:
+            pts = []
+            for y in years:
+                cur = self._safe_lookup(metric, y)
+                if cur is None:
+                    continue
+                try:
+                    f = self.store.lookup(metric, y)
+                    if f is not None and f.value is not None:
+                        facts.append(f)
+                except KeyError:
+                    pass
+                if growth:
+                    prev = self._safe_lookup(metric, y - 1)
+                    if prev not in (None, 0):
+                        pts.append({"year": y, "value": round((cur - prev) / prev, 4),
+                                    "unit": "percent"})
+                else:
+                    pts.append({"year": y, "value": cur, "unit": "currency"})
+            if pts:
+                comparison.append({"label": label.strip(), "metric": metric,
+                                   "growth": growth, "points": pts})
+        ctx.evidence = retrieval.evidence_from_facts(self.store, facts) if facts else []
+        ctx.extra = {"comparison": comparison}
+        ctx.conflicts = self.conflicts.detect(
+            facts=facts, report_year_preference=frame.report_year_preference) if facts else []
 
     def _h_risk_assessment(self, frame, ctx, plan) -> None:
         all_insights = self.store.insights(include_review=True)
@@ -649,76 +852,108 @@ class FinancialIntelligenceEngine:
         ctx.extra = {"valuation": pe, "pb": pb, "ev_ebitda": (ev or {}).get("ev_ebitda"),
                      "ticker": ticker, "caveats": caveats}
 
+    @staticmethod
+    def _stated_forecast_target(query: str, latest_value):
+        """Extract a target the user stated IN THE QUERY (e.g. 'is a 10% revenue growth
+        forecast reasonable?') and convert it to an absolute value to validate. A percentage
+        is read as a growth rate applied to the latest actual. Returns (value, desc, pct) or
+        (None, None, None)."""
+        m = re.search(r"(-?\d+(?:\.\d+)?)\s*%", query or "")
+        if not m or latest_value is None:
+            return None, None, None
+        pct = float(m.group(1)) / 100.0
+        return latest_value * (1 + pct), f"{pct:.0%} growth", pct
+
+    def _margin_trend(self) -> list[dict]:
+        """Per-year gross & operating margins (from the workbook) for years with revenue."""
+        out = []
+        for y in sorted(self.store.years):
+            rev = self._safe_lookup("revenue", y)
+            if not rev:
+                continue
+            gp = self._safe_lookup("gross_profit", y)
+            op = self._safe_lookup("operating_profit", y)
+            row = {"year": y,
+                   "gross_margin": round(gp / rev, 4) if gp is not None else None,
+                   "operating_margin": round(op / rev, 4) if op is not None else None}
+            if row["gross_margin"] is not None or row["operating_margin"] is not None:
+                out.append(row)
+        return out
+
     def _forecast_validation(self, frame, ctx) -> None:
         repo = self.external.forecast
         metric = frame.metrics[0] if frame.metrics else "revenue"
         fyear = frame.year
 
-        # Gather the full historical series (all years with values)
+        # Full historical actual series (the trusted baseline)
         history: list[tuple[int, float]] = []
         history_facts: list = []
         for y in sorted(self.store.years):
             try:
                 f = self.store.lookup(metric, y)
-                if f.value is not None and f.period_type == "historical":
-                    history.append((y, f.value))
-                    history_facts.append(f)
             except KeyError:
                 continue
-
-        # Add evidence for the full series (not just latest)
+            if f.value is not None and f.period_type == "historical":
+                history.append((y, f.value))
+                history_facts.append(f)
         if history_facts:
             ctx.evidence += retrieval.evidence_from_facts(self.store, history_facts)
-
         latest = history_facts[-1] if history_facts else None
+        latest_val = latest.value if latest else None
 
+        # What to validate: an external forecast on record first, else the target the user
+        # stated in the query ("10% revenue growth"). This is the key fix — a stated target
+        # is now actually judged instead of punted back to the user.
         fc = repo.get(self.store.company, metric, fyear) if (repo and fyear) else None
-        if fc is None:
-            ctx.degraded = True
+        target_val, target_desc, target_pct = self._stated_forecast_target(frame.raw_query, latest_val)
+        test_value = fc.value if fc is not None else target_val
+        if fc is not None:
+            ctx.evidence.append(fc)
 
-            # Compute CAGR from the available series
-            cagr = None
-            if len(history) >= 2:
-                first_val, last_val = history[0][1], history[-1][1]
-                n_years = history[-1][0] - history[0][0]
-                if first_val and first_val > 0 and n_years >= 1:
-                    cagr = round((last_val / first_val) ** (1 / n_years) - 1, 4)
+        # Qualitative context (always): insights for the LLM's narration.
+        all_insights = self.store.insights(include_review=True)
+        sel_insights, resolutions = self.insights.select_and_resolve(frame, all_insights)
+        if sel_insights:
+            ctx.selected_insights = sel_insights
+            ctx.insight_resolutions = resolutions
+            ctx.total_insights = len(all_insights)
+            ctx.evidence += [insights_mod.insight_evidence(r) for r in sel_insights]
 
-            # Pull relevant insights — gives the LLM qualitative context for its assessment
-            all_insights = self.store.insights(include_review=True)
-            sel_insights, resolutions = self.insights.select_and_resolve(frame, all_insights)
-            if sel_insights:
-                ctx.selected_insights = sel_insights
-                ctx.insight_resolutions = resolutions
-                ctx.total_insights = len(all_insights)
-                ctx.evidence += [insights_mod.insight_evidence(r) for r in sel_insights]
+        # Volatility-aware validation against the company's own actuals (exclude the forecast
+        # year). validate_forecast applies growth-band / trend-break / plausibility rules.
+        hist_rules = [(y, v) for (y, v) in history if (fyear is None or y < fyear)]
+        validation = (forecast_rules.validate_forecast(hist_rules, test_value)
+                      if test_value is not None else None)
 
-            _layer("Forecast", "no external forecast; series=%d points cagr=%s insights=%d",
-                   len(history), f"{cagr:.1%}" if cagr is not None else "n/a",
-                   len(sel_insights) if sel_insights else 0)
+        # CAGR + YoY volatility (so the answer doesn't pretend a smooth trend exists)
+        cagr = None
+        if len(history) >= 2:
+            fv, lv, n = history[0][1], history[-1][1], history[-1][0] - history[0][0]
+            if fv and fv > 0 and n >= 1:
+                cagr = round((lv / fv) ** (1 / n) - 1, 4)
+        yoy = [round(history[i][1] / history[i - 1][1] - 1, 4)
+               for i in range(1, len(history)) if history[i - 1][1]]
+        margins = (self._margin_trend()
+                   if metric in ("revenue", "gross_profit", "operating_profit", "pat") else [])
 
-            history_span = (history[0][0], history[-1][0]) if len(history) >= 2 else None
-            ctx.extra = {
-                "forecast": None, "metric": metric, "year": fyear,
-                "latest_actual": (latest.value if latest else None),
-                "latest_year": (latest.year if latest else None),
-                "history_series": [{"year": y, "value": v} for y, v in history],
-                "history_cagr": cagr,
-                "history_span": history_span,
-                "note": "no forecast on record",
-            }
-            return
+        # Degrade ONLY when there's nothing to assess (no external forecast AND no stated target).
+        ctx.degraded = fc is None and target_val is None
+        _layer("Forecast", "metric=%s test=%s verdict=%s cagr=%s yoy=%s margins=%d",
+               metric, test_value, (validation or {}).get("outcome"),
+               f"{cagr:.1%}" if cagr is not None else "n/a", yoy, len(margins))
 
-        ctx.evidence.append(fc)
-        # validate the forecast against the company's OWN historical actual series
-        # (workbook = trusted baseline): volatility-adaptive growth / trend / scale rules.
-        if fyear:
-            history = [(y, v) for y, v in history if y < fyear]
-        validation = forecast_rules.validate_forecast(history, fc.value)
-        ctx.extra = {"forecast": fc.value, "metric": metric, "year": fyear,
-                     "latest_actual": (latest.value if latest else None),
-                     "latest_year": (latest.year if latest else None),
-                     "validation": validation}
+        ctx.extra = {
+            "metric": metric, "year": fyear,
+            "forecast": (fc.value if fc is not None else None),
+            "stated_target": target_val, "target_desc": target_desc, "target_pct": target_pct,
+            "latest_actual": latest_val, "latest_year": (latest.year if latest else None),
+            "history_series": [{"year": y, "value": v} for y, v in history],
+            "history_cagr": cagr, "history_yoy": yoy,
+            "history_span": ((history[0][0], history[-1][0]) if len(history) >= 2 else None),
+            "validation": validation, "margins": margins,
+            "note": ("external forecast" if fc is not None
+                     else ("stated target" if target_val is not None else "no forecast on record")),
+        }
 
     def _trend(self, frame, ctx) -> None:
         metric = frame.metrics[0] if frame.metrics else "revenue"
@@ -794,6 +1029,28 @@ class FinancialIntelligenceEngine:
     _FETCH_HERE = frozenset({"news"})
     _FETCH_ELSEWHERE = frozenset({"forecast", "psx", "company_payouts",
                                   "psx_announcements", "secp"})
+
+    def _external_fallback(self, frame, ctx) -> None:
+        """Last-resort external lookup when the workbook had nothing for an internal-only
+        intent. Builds a query-driven plan (news + a shortlisted PSX subset) and fetches it
+        as supporting context so the answer isn't a bare 'not found'. Never degrades the
+        answer (degrade_on_empty=False) — this is a best-effort augmentation."""
+        from .apis.registry import shortlist
+        from .models import SourcePlan
+        fetcher = getattr(self.external, "registry_fetcher", None)
+        if self.external.news is None and fetcher is None:
+            return  # no external adapters configured — nothing to fall back to
+        apis = [a.name for a, _ in shortlist(frame.raw_query, intent=frame.intent, top_k=5)]
+        fb = SourcePlan(
+            external_sources=(["news"] if self.external.news is not None else []),
+            registry_apis=(apis if fetcher is not None else []),
+        )
+        _log.info(
+            "fie: workbook lookup empty for intent=%s -> external fallback (news=%s registry=%s)",
+            frame.intent, fb.external_sources != [], apis,
+            extra={"component": "News"},
+        )
+        self._fetch_external(frame, ctx, fb, degrade_on_empty=False)
 
     def _fetch_external(self, frame, ctx, plan, *, degrade_on_empty: bool = True) -> None:
         """Fetch every external source the planner attached to ``plan.external_sources``.

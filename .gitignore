@@ -28,6 +28,10 @@ backend/logs/
 .idea/
 .vscode/
 
+# Backend bundle (PyInstaller output)
+backend/dist/
+backend/build/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/

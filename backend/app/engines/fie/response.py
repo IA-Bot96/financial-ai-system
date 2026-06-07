@@ -75,15 +75,25 @@ def render(
     primary = calcs[0] if calcs else None
 
     if frame.intent == "ratio_analysis":
-        if primary and primary.value is not None:
-            direct = (f"{company}'s {frame.formula.replace('_', ' ')} for {frame.year} "
-                      f"is {_fmt(primary.value, primary.unit)}.")
-            analysis = (f"Computed as {primary.expression}. Inputs drawn from the "
-                        f"workbook (authoritative) and cited below.")
+        # formula may be None if it couldn't be resolved — never crash on .replace().
+        label = (frame.formula or "the requested ratio").replace("_", " ")
+        series = (extra or {}).get("ratio_series") or []  # [{year,value,unit}] per-year
+        if series:
+            if len(series) == 1:
+                s = series[0]
+                direct = f"{company}'s {label} for {s['year']} is {_fmt(s['value'], s.get('unit'))}."
+                if primary and primary.expression:
+                    analysis = (f"Computed as {primary.expression}. Inputs drawn from the "
+                                f"workbook (authoritative) and cited below.")
+            else:
+                parts = ", ".join(f"{s['year']}: {_fmt(s['value'], s.get('unit'))}" for s in series)
+                direct = f"{company}'s {label} by year — {parts}."
+                analysis = ("Computed per year from workbook inputs (authoritative); "
+                            "see citations.")
         else:
             note = primary.note if primary else "insufficient data"
-            direct = (f"Unable to compute {frame.formula.replace('_', ' ')} for "
-                      f"{frame.year}: {note}.")
+            yr = f" for {frame.year}" if frame.year else ""
+            direct = f"Unable to compute {label}{yr}: {note}."
         findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
 
     elif frame.intent == "metric_lookup":
@@ -105,6 +115,78 @@ def render(
                         ) if sugg else ""
                 direct = f"{company}'s {metric} for {frame.year} was not found in the workbook.{hint}"
             findings = [f"{e.claim} [{_cite_of(e)}]" for e in valued]
+
+    elif frame.intent == "overview":
+        items = (extra or {}).get("overview_items") or []
+        yr = (extra or {}).get("overview_year")
+        if items:
+            listed = "; ".join(f"{it['label']} {_fmt(it['value'], it.get('unit'))}" for it in items)
+            direct = (f"{company}'s key financials" + (f" for {yr}" if yr else "")
+                      + f": {listed}.")
+            findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+        else:
+            direct = "No headline financial metrics were found in the workbook to summarize."
+            findings = []
+
+    elif frame.intent == "driver_analysis":
+        d = (extra or {}).get("driver") or {}
+        drivers = d.get("drivers") or []
+        if drivers:
+            top = drivers[0]
+            td = d.get("total_delta")
+            arrow = "increase" if top["delta"] >= 0 else "decrease"
+            base = (f"{top['label'].title()} had the largest single change among {d['target']} "
+                    f"line items between FY{d['y0']} and FY{d['y1']}: a {_fmt(top['delta'], 'currency')} "
+                    f"{arrow} ({_fmt(top['from'], 'currency')} → {_fmt(top['to'], 'currency')})")
+            # Only express a "% of the net change" when the net change is material relative to
+            # the mover — otherwise large offsetting line-item moves make that ratio nonsensical.
+            if td not in (None, 0) and abs(td) >= 0.5 * abs(top["delta"]):
+                direct = base + f", ~{abs(top['delta'] / td):.0%} of the {_fmt(td, 'currency')} net change in {d['target']}."
+            elif td is not None:
+                direct = (base + f". Net {d['target']} barely moved ({_fmt(td, 'currency')}) — "
+                          f"large line-item moves largely offset each other.")
+            else:
+                direct = base + "."
+            ranked = "; ".join(f"{x['label']} Δ{_fmt(x['delta'], 'currency')}" for x in drivers)
+            analysis = f"Top movers FY{d['y0']}→FY{d['y1']}: {ranked}."
+            findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+        else:
+            direct = f"Couldn't decompose the change in {d.get('target', 'the total')} from the workbook."
+            findings = []
+
+    elif frame.intent == "metric_comparison":
+        comp = (extra or {}).get("comparison") or []
+        resolved = [c for c in comp if c.get("points")]
+        if len(resolved) >= 2:
+            lines = []
+            for c in resolved:
+                ser = ", ".join(f"{p['year']}: {_fmt(p['value'], p.get('unit'))}" for p in c["points"])
+                lines.append(f"{c['label']} — {ser}")
+            direct = f"{company} — comparison by year. " + " | ".join(lines)
+        elif resolved:
+            c = resolved[0]
+            ser = ", ".join(f"{p['year']}: {_fmt(p['value'], p.get('unit'))}" for p in c["points"])
+            direct = (f"Only one of the requested series resolved from the workbook — "
+                      f"{c['label']} — {ser}.")
+        else:
+            direct = "Couldn't resolve the metrics to compare from the workbook."
+        # findings carry citation refs (the underlying facts) so citation-enforcement keeps
+        # them; the per-year comparison itself lives in `direct` above.
+        findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+
+    elif frame.intent == "agent":
+        # The agentic planner composed deterministic tools. Its prose answer lives on
+        # llm_analysis and is promoted to `direct` below ONLY if it passes the numeric guard;
+        # this is the safe deterministic fallback shown if it doesn't (so an unverified
+        # figure is never surfaced).
+        valued = [e for e in evidence if e.value is not None]
+        findings = [f"{e.claim} [{_cite_of(e)}]" for e in valued][:12]
+        if valued:
+            direct = f"Compiled {len(valued)} workbook data point(s) for your question — see findings."
+        elif evidence:
+            direct = f"Gathered {len(evidence)} item(s) of context for your question — see findings."
+        else:
+            direct = "I couldn't find data to answer that — try a specific metric or rephrasing."
 
     elif frame.intent == "risk_assessment":
         themes = extra.get("themes") or []
@@ -170,41 +252,40 @@ def render(
             analysis = ("Not reported: " + "; ".join(caveats) + ".") + (f" {analysis}" if analysis else "")
 
     elif frame.intent == "forecast_validation":
-        fc, act = extra.get("forecast"), extra.get("latest_actual")
+        fc = extra.get("forecast")
+        target = extra.get("stated_target")
+        act = extra.get("latest_actual")
         metric = (extra.get("metric") or "metric").replace("_", " ")
-        if fc is None:
-            history_series = extra.get("history_series", [])
-            cagr = extra.get("history_cagr")
-            span = extra.get("history_span")
-            if history_series and span:
-                cagr_txt = f" (CAGR {cagr:.1%})" if cagr is not None else ""
-                direct = (
-                    f"No external {metric} forecast on record for {company}. "
-                    f"Historical trend: {metric} {('rose' if (history_series[-1]['value'] or 0) > (history_series[0]['value'] or 0) else 'fell')} "
-                    f"from {_fmt(history_series[0]['value'], 'currency')} (FY{span[0]}) to "
-                    f"{_fmt(history_series[-1]['value'], 'currency')} (FY{span[1]}){cagr_txt}. "
-                    f"Assess the stated target against this {len(history_series)}-year trend."
-                )
-                findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+        val = extra.get("validation") or {}
+        verdict = val.get("outcome")
+        implied = val.get("implied_growth")
+        cagr = extra.get("history_cagr")
+        yoy = extra.get("history_yoy") or []
+        margins = extra.get("margins") or []
+        cagr_txt = f"{cagr:.1%}" if cagr is not None else "n/a"
+        yoy_txt = f"{min(yoy):.0%} to {max(yoy):.0%}" if yoy else "n/a"
+        # margin trend sentence (the question often asks about margins too)
+        mtxt = ""
+        gm = [m for m in margins if m.get("gross_margin") is not None]
+        if len(gm) >= 2:
+            g0, g1 = gm[0]["gross_margin"], gm[-1]["gross_margin"]
+            trend = "improving" if g1 > g0 else ("declining" if g1 < g0 else "broadly stable")
+            mtxt = (f" Gross margin is {trend} ({g0:.1%} FY{gm[0]['year']} → {g1:.1%} FY{gm[-1]['year']}).")
+
+        test = fc if fc is not None else target
+        _VERDICT = {"PASS": "reasonable", "WARNING": "optimistic but within the historical range",
+                    "FAIL": "not supported by the historical trend"}
+        if test is not None and verdict and verdict != "SKIPPED":
+            if fc is not None:
+                what = f"the forecast of {_fmt(fc, 'currency')}"
             else:
-                year_str = f" (FY{extra.get('year')})" if extra.get("year") else ""
-                base = f"No {metric} forecast on record for {company}{year_str}, so it cannot be validated against a target."
-                if act is not None:
-                    direct = (base + f" Latest actual {metric} is {_fmt(act, 'currency')} "
-                              f"(Rs '000, FY{extra.get('latest_year')}).")
-                    findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
-                else:
-                    direct = base
-        elif act is not None:
-            delta = (fc - act) / act if act else None
-            direction = "above" if fc > act else "below"
-            val = extra.get("validation") or {}
-            verdict = val.get("outcome")
-            vtxt = f" Validation: {verdict}." if verdict and verdict != "SKIPPED" else ""
-            direct = (f"{company}'s {metric} forecast for {extra.get('year')} "
-                      f"({_fmt(fc, 'currency')}) is {abs(delta):.1%} {direction} the latest "
-                      f"actual ({_fmt(act, 'currency')}, FY{extra.get('latest_year')}).{vtxt}")
-            # per-rule verdicts cited to the workbook history (the trusted baseline)
+                what = f"a {extra.get('target_desc') or 'stated'} target (≈{_fmt(test, 'currency')})"
+            impl_txt = f" (implies ~{implied:.1%} growth)" if implied is not None else ""
+            direct = (f"{company}'s {metric}: {what}{impl_txt} appears "
+                      f"{_VERDICT.get(verdict, verdict)} versus a {len(extra.get('history_series', []))}-yr "
+                      f"history — CAGR {cagr_txt}, but YoY ranged {yoy_txt}, so the trend is "
+                      f"{'volatile' if yoy and (max(yoy) - min(yoy)) > 0.3 else 'steady'}.{mtxt}")
+            # cite the per-rule verdicts to the workbook history (trusted baseline)
             act_ref = next((_cite_of(e) for e in evidence
                             if e.value is not None and e.kind in ("statement", "detail")), None)
             rules = [r for r in val.get("rules", []) if r.get("outcome") != "SKIPPED"]
@@ -213,11 +294,20 @@ def render(
             else:
                 findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
             if verdict in ("WARNING", "FAIL"):
-                analysis = (f"Forecast validation ({verdict}) against {val.get('history_points')}y "
-                            f"of actuals: " + "; ".join(f"{r['id']} {r['outcome']}" for r in rules) + ".")
+                analysis = (f"Validation {verdict} against {val.get('history_points')}y of actuals: "
+                            + "; ".join(f"{r['id']} {r['outcome']}" for r in rules) + ".")
         else:
-            direct = (f"{company}'s {metric} forecast for {extra.get('year')} is "
-                      f"{_fmt(fc, 'currency')}; no recent actual to compare.")
+            # nothing concrete to validate (no external forecast and no stated target)
+            hs = extra.get("history_series", [])
+            span = extra.get("history_span")
+            if hs and span:
+                direct = (f"No {metric} forecast on record for {company} and no target was "
+                          f"stated. History: {_fmt(hs[0]['value'], 'currency')} FY{span[0]} → "
+                          f"{_fmt(hs[-1]['value'], 'currency')} FY{span[1]} (CAGR {cagr_txt}); "
+                          f"YoY ranged {yoy_txt}.{mtxt} State a target (e.g. a growth %) to validate it.")
+                findings = [f"{e.claim} [{_cite_of(e)}]" for e in evidence if e.value is not None]
+            else:
+                direct = f"No {metric} history available to validate a forecast for {company}."
 
     elif frame.intent == "trend_analysis":
         metric = (extra.get("trend_metric") or "metric").replace("_", " ")
@@ -290,7 +380,7 @@ def render(
             # the LLM IS the answer — promote it to direct_answer and demote the
             # deterministic text to supporting_analysis so users see the real answer first.
             _promote_intents = {"forecast_validation", "risk_assessment", "news_impact",
-                                "earnings_review"}
+                                "earnings_review", "agent"}
             if frame.intent in _promote_intents:
                 analysis = direct   # deterministic context summary moves to supporting
                 direct = llm_text   # LLM assessment becomes the primary answer
