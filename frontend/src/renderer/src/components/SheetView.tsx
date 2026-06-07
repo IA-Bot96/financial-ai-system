@@ -164,9 +164,16 @@ export function SheetView() {
         if (first) {
           baselineUndos.current = status.undos // baseline of the freshly loaded workbook
           first = false
-          return
+        } else {
+          setDirty(status.undos !== baselineUndos.current)
         }
-        setDirty(status.undos !== baselineUndos.current)
+        // keep the Edit menu's Undo/Redo enablement in step with the grid's stacks.
+        // Undo is measured against the post-load baseline so a freshly loaded workbook
+        // (whose data population sits on the stack) reads as "nothing to undo".
+        window.api.setMenuState({
+          canUndo: status.undos > baselineUndos.current,
+          canRedo: status.redos > 0
+        })
       })
     } catch (e) {
       // dirty-tracking is non-essential; never let it block the grid from rendering

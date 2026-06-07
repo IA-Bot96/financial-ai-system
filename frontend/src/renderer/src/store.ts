@@ -181,6 +181,7 @@ interface AppState {
   sheetSources: SheetSources       // worksheet → source PDF pages (from extraction)
   activeSheet: string | null       // currently selected worksheet tab name
   activePdf: string | null         // filename of the PDF currently shown in the viewer
+  activePdfPage: number | null     // 1-based page currently in view (reported by PdfPanel)
   syncPdfToSheet: boolean          // auto-jump the PDF to the active sheet's source page
   panels: { pdf: boolean; askAI: boolean }
   panelWidth: { pdf: number; askAI: number }
@@ -221,6 +222,7 @@ interface AppState {
   setSheetSources: (s: SheetSources) => void
   setActiveSheet: (name: string) => void
   setActivePdf: (file: string | null) => void
+  setActivePdfPage: (page: number | null) => void
   setSyncPdfToSheet: (v: boolean) => void
   focusSheetSource: (entry: SheetSourceEntry, page?: number) => void
   toggleShowSource: () => void
@@ -253,6 +255,7 @@ export const useApp = create<AppState>((set) => ({
   sheetSources: {},
   activeSheet: null,
   activePdf: null,
+  activePdfPage: null,
   syncPdfToSheet: true,
   panels: { pdf: false, askAI: false },
   panelWidth: { pdf: 380, askAI: 400 },
@@ -280,6 +283,7 @@ export const useApp = create<AppState>((set) => ({
       sheetSources: {},
       activeSheet: null,
       activePdf: null,
+      activePdfPage: null,
       nav: { cell: null, pdfFile: null, pdfPage: null, cellSeq: 0, pdfSeq: 0 },
       view: 'sheet',
       uploadOpen: false
@@ -427,6 +431,9 @@ export const useApp = create<AppState>((set) => ({
       nav: { ...s.nav, pdfFile: match.report_file, pdfPage: page, pdfSeq: s.nav.pdfSeq + 1 }
     }))
   },
+  setActivePdfPage: (page) => {
+    if (useApp.getState().activePdfPage !== page) set({ activePdfPage: page })
+  },
   setSyncPdfToSheet: (v) => {
     set({ syncPdfToSheet: v })
     // turning sync on re-aligns the PDF to whatever sheet is currently active
@@ -436,6 +443,10 @@ export const useApp = create<AppState>((set) => ({
   focusSheetSource: (entry, page) =>
     set((s) => ({
       panels: { ...s.panels, pdf: true }, // explicit click → ensure the PDF is visible
+      // Claim the target PDF as active up front. Switching docs makes PdfPanel report
+      // setActivePdf(file); if activePdf weren't already this file, that handler would
+      // re-sync the sheet to the file's FIRST page and clobber the page picked here.
+      activePdf: entry.report_file,
       nav: {
         ...s.nav,
         pdfFile: entry.report_file,

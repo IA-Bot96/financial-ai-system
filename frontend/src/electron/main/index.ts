@@ -14,12 +14,19 @@ import {
   ingestJobResult,
   type BackendRequest
 } from './backend'
-import { buildMenu } from './menu'
+import { buildMenu, type MenuState } from './menu'
 import { readState, writeState } from './statefile'
 
 let win: BrowserWindow | null = null
 let dirty = false // mirrored from the renderer for the close guard
 let lastFile: string | null = null
+let menuState: MenuState = {
+  view: 'home',
+  hasPdf: false,
+  hasSession: false,
+  canUndo: false,
+  canRedo: false
+}
 let forceQuit = false
 
 // App icon for the title bar / taskbar. Generated from app-icon.svg via `npm run icons`
@@ -147,8 +154,18 @@ app.whenReady().then(async () => {
     persist()
   })
   ipcMain.handle('app:getLastFile', () => lastFile)
+  // renderer pushes view/pdf/session state so the menus can adapt. SheetView pushes
+  // canUndo/canRedo on every undo-stack tick (i.e. every edit), so skip the rebuild when
+  // nothing actually changed — otherwise we'd reset the whole native menu on each keystroke.
+  ipcMain.handle('app:setMenuState', (_e, state: Partial<MenuState>) => {
+    const next = { ...menuState, ...state }
+    const changed = (Object.keys(next) as (keyof MenuState)[]).some((k) => next[k] !== menuState[k])
+    if (!changed) return
+    menuState = next
+    buildMenu(() => win, menuState)
+  })
 
-  buildMenu(() => win)
+  buildMenu(() => win, menuState)
   createWindow()
 
   app.on('activate', () => {

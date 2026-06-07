@@ -8,6 +8,27 @@ export function setSheetApi(api: unknown): void {
   _api = api
 }
 
+/** Undo the last grid mutation via Univer's own command stack (the native menu's
+ *  webContents.undo() targets the DOM, not Univer, so it's wired here instead). */
+export async function undoSheet(): Promise<void> {
+  const api = _api as { undo?: () => Promise<boolean> } | null
+  try {
+    await api?.undo?.()
+  } catch (e) {
+    console.error('[sheet] undo failed', e)
+  }
+}
+
+/** Redo the last undone grid mutation via Univer's command stack. */
+export async function redoSheet(): Promise<void> {
+  const api = _api as { redo?: () => Promise<boolean> } | null
+  try {
+    await api?.redo?.()
+  } catch (e) {
+    console.error('[sheet] redo failed', e)
+  }
+}
+
 /** Best-effort current-workbook snapshot (IWorkbookData) — null if unavailable. */
 export function getSnapshot(): { sheets?: Record<string, { name?: string; cellData?: unknown }> } | null {
   const api = _api as {

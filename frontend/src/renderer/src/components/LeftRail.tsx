@@ -2,6 +2,7 @@ import { ComponentType } from 'react'
 import { useApp } from '@/store'
 import { cn } from '@/lib/util'
 import { Plus, Grid, BarChart } from './ui/icons'
+import appLogo from '@/public/icons/app-icon.svg'
 
 const ICONS: Record<string, ComponentType<{ className?: string }>> = {
   new: Plus,
@@ -35,9 +36,12 @@ export function LeftRail() {
 
   return (
     <nav className="w-[76px] shrink-0 h-full bg-panel border-r border-line flex flex-col items-center py-3 gap-1">
-      <div className="h-9 w-9 rounded-lg bg-accent/15 border border-accent/40 flex items-center justify-center text-accent text-sm font-bold mb-2">
-        FI
-      </div>
+      <img
+        src={appLogo}
+        alt="AI Financial Intelligence"
+        className="h-9 w-9 rounded-lg mb-2 select-none"
+        draggable={false}
+      />
       {ITEMS.map((it) => {
         const disabled = it.needsSession && !hasSession
         const Icon = ICONS[it.key]

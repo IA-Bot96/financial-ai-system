@@ -143,6 +143,11 @@ export function PdfPanel() {
   // keep the page-number input in sync with the scrolled-to page
   useEffect(() => setPageInput(String(currentPage)), [currentPage])
 
+  // report the page in view up to the store so the toolbar badge shows the real page
+  useEffect(() => {
+    useApp.getState().setActivePdfPage(numPages ? currentPage : null)
+  }, [currentPage, numPages])
+
   // re-centre on the current page after a zoom change (heights shift)
   useEffect(() => {
     const id = requestAnimationFrame(() => scrollToPage(currentPage, false))

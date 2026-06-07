@@ -16,13 +16,14 @@ import { AskAI } from '@/components/AskAI'
 import { PdfPanel } from '@/components/PdfPanel'
 import { PanelResizer } from '@/components/PanelResizer'
 import { Dashboard } from '@/components/Dashboard'
+import { undoSheet, redoSheet } from '@/lib/sheetApi'
 
 const POLL_MS = 400
 const TIMEOUT_MS = 40_000
 
 export default function App() {
-  const { backend, setBackend, session, view, panels, panelWidth, uploadOpen, attachPdfsOpen } =
-    useApp()
+  const { backend, setBackend, session, view, panels, panelWidth, uploadOpen, attachPdfsOpen,
+    pdfPaths } = useApp()
   const [msg, setMsg] = useState('Starting the analysis engine…')
 
   const boot = useCallback(async () => {
@@ -47,26 +48,30 @@ export default function App() {
     boot()
   }, [boot])
 
-  // native menu + Ctrl+S/O shortcuts → store actions
+  // native menu → store actions. Accelerators (Ctrl+O/S/Shift+S) are owned by the menu
+  // items themselves (menu.ts), so they respect each item's enabled state — no separate
+  // window keydown handler, which would bypass the disabled gating and double-fire save().
   useEffect(() => {
     const s = useApp.getState
     window.api.onMenu((action) => {
       if (action === 'open') s().openUpload()
       else if (action === 'save') s().save()
       else if (action === 'saveAs') s().save(true)
+      else if (action === 'undo') undoSheet()
+      else if (action === 'redo') redoSheet()
       else if (action === 'togglePdf') s().togglePanel('pdf')
+      else if (action === 'addPdfs') s().openAttachPdfs()
       else if (action === 'toggleAskAI') s().togglePanel('askAI')
       else if (action === 'dashboard') s().setView('dashboard')
+      else if (action === 'sheet') s().setView('sheet')
     })
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-        e.preventDefault()
-        useApp.getState().save(e.shiftKey)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  // keep the native View menu in sync with app state (PDF item label, Dashboard/Sheet
+  // toggle, and disabling panel toggles off the sheet surface)
+  useEffect(() => {
+    window.api.setMenuState({ view, hasPdf: pdfPaths.length > 0, hasSession: !!session })
+  }, [view, pdfPaths.length, session])
 
   if (backend.status === 'starting') return <Splash message={msg} />
   if (backend.status === 'error')

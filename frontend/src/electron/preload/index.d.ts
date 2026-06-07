@@ -26,6 +26,13 @@ export interface FieApi {
   setDirty(v: boolean): Promise<void>
   setLastFile(p: string | null): Promise<void>
   getLastFile(): Promise<string | null>
+  setMenuState(state: {
+    view?: string
+    hasPdf?: boolean
+    hasSession?: boolean
+    canUndo?: boolean
+    canRedo?: boolean
+  }): Promise<void>
   onMenu(cb: (action: string) => void): void
 }
 

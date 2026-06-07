@@ -90,7 +90,7 @@ export function AttachPdfModal() {
       >
         <div className="flex items-center gap-2 mb-1 shrink-0">
           <UploadCloud className="w-5 h-5 text-accent" />
-          <h2 className="text-base font-semibold">Attach PDFs</h2>
+          <h2 className="text-base font-semibold">Add PDFs</h2>
         </div>
         <p className="text-sm text-muted mb-4 shrink-0">
           Add PDFs to view alongside this workbook.

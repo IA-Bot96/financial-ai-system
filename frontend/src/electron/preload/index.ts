@@ -31,6 +31,13 @@ const api = {
   setDirty: (v: boolean): Promise<void> => ipcRenderer.invoke('app:setDirty', v),
   setLastFile: (p: string | null): Promise<void> => ipcRenderer.invoke('app:setLastFile', p),
   getLastFile: (): Promise<string | null> => ipcRenderer.invoke('app:getLastFile'),
+  setMenuState: (state: {
+    view?: string
+    hasPdf?: boolean
+    hasSession?: boolean
+    canUndo?: boolean
+    canRedo?: boolean
+  }): Promise<void> => ipcRenderer.invoke('app:setMenuState', state),
   onMenu: (cb: (action: string) => void): void => {
     ipcRenderer.removeAllListeners('menu:action')
     ipcRenderer.on('menu:action', (_e, action: string) => cb(action))
