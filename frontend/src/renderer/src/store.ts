@@ -282,7 +282,7 @@ export const useApp = create<AppState>((set) => ({
     const visible = s.sheets.map((x) => x.name)
     try {
       const original = await window.api.readFile(s.workbook.filePath)
-      const bytes = await buildEditedXlsx(original, visible, s.sheets)
+      const { bytes, warnings } = await buildEditedXlsx(original, visible, s.sheets)
       let path = s.workbook.filePath
       if (asNew || s.workbook.origin === 'ocr') {
         const suggested = `${s.session.company || 'workbook'}.xlsx`
@@ -308,6 +308,9 @@ export const useApp = create<AppState>((set) => ({
       }))
       window.api.setDirty(false)
       window.api.setLastFile(path)
+      // Surface structural edits that the value-only save cannot persist (added/removed
+      // sheets), so the user isn't misled into thinking those changes were written.
+      for (const w of warnings) useApp.getState().toast('warning', w)
       useApp.getState().toast(r.status === 200 ? 'success' : 'warning',
         r.status === 200 ? 'Changes saved successfully' : 'Saved to disk, but re-ingest failed')
     } catch (e) {

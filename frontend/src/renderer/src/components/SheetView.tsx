@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createUniver, defaultTheme, LocaleType, merge } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
-import { IUndoRedoService } from '@univerjs/core'
+import { ICommandService, IUndoRedoService } from '@univerjs/core'
 import * as enUSns from '@univerjs/preset-sheets-core/locales/en-US'
 import '@univerjs/preset-sheets-core/lib/index.css'
 import { useApp } from '@/store'
@@ -10,6 +10,22 @@ import { setSheetApi } from '@/lib/sheetApi'
 
 // locale module may expose the bundle as default or as the namespace itself
 const sheetsEnUS = (enUSns as { default?: unknown }).default ?? enUSns
+
+/**
+ * Structural commands that change the grid TOPOLOGY (insert/remove/move rows or columns,
+ * add/remove/rename/reorder sheets). These are vetoed.
+ *
+ * Rationale: the lossless save is a per-coordinate value diff, which is only sound under a
+ * FIXED topology. A mid-sheet row insert, for example, shifts every cell below it down one
+ * row in Univer's snapshot while the original XML's rows do NOT shift — so the diff would
+ * write shifted values at unshifted coordinates and (because formula cells are skipped)
+ * leave formulas summing the wrong cells. The result opens fine and is silently wrong — the
+ * worst outcome for a financial statement. So we make topology changes impossible at the
+ * command layer (covers toolbar, context menu, keyboard, and programmatic dispatch alike)
+ * rather than warning after the fact. Cell-VALUE edits, width/height, styling are unaffected.
+ */
+const BLOCKED_STRUCTURAL_CMD =
+  /(?:insert|remove|delete|move)-(?:row|col|column)s?\b|(?:insert|remove|delete)-sheet\b|set-worksheet-(?:order|name)\b/i
 
 /**
  * Univer grid (client-side render of the parsed workbook). All sheets are loaded.
@@ -64,6 +80,40 @@ export function SheetView() {
     univerAPI.createWorkbook(data as never)
     apiRef.current = univerAPI
     setSheetApi(univerAPI)
+
+    // Hard-disable topology-changing commands (see BLOCKED_STRUCTURAL_CMD). Throwing in a
+    // before-command listener vetoes the command from EVERY entry point. A throttled toast
+    // explains why so the user isn't left with a silently dead button.
+    let cmdSub: { dispose: () => void } | null = null
+    try {
+      const commandService = (
+        univer as unknown as { __getInjector: () => { get: (t: unknown) => unknown } }
+      ).__getInjector().get(ICommandService) as {
+        beforeCommandExecuted: (cb: (cmd: { id?: string }) => void) => { dispose: () => void }
+      }
+      let lastToast = 0
+      cmdSub = commandService.beforeCommandExecuted((cmd) => {
+        if (!cmd?.id || !BLOCKED_STRUCTURAL_CMD.test(cmd.id)) return
+        const now = Date.now()
+        if (now - lastToast > 1500) {
+          useApp
+            .getState()
+            .toast(
+              'info',
+              'Inserting, deleting, moving, or renaming rows, columns, or sheets is disabled — ' +
+                'the workbook must keep the structure the extraction pipeline produced.'
+            )
+          lastToast = now
+        }
+        // veto: aborts the command before any mutation runs (keeps topology fixed)
+        throw new Error(`structural command blocked: ${cmd.id}`)
+      })
+    } catch (e) {
+      // If the guard can't be installed, fail safe by NOT silently allowing structural edits
+      // to corrupt the save: surface it so it's caught rather than shipping a broken save.
+      console.error('[sheet] structural-command guard unavailable', e)
+      toast('warning', 'Editor safety guard failed to load — avoid inserting/deleting rows or sheets.')
+    }
 
     // Track the active worksheet so the PDF viewer can sync to each sheet's source page.
     let activeSub: { dispose: () => void } | null = null
@@ -123,6 +173,11 @@ export function SheetView() {
       setSheetApi(null)
       try {
         usub?.unsubscribe()
+      } catch {
+        /* noop */
+      }
+      try {
+        cmdSub?.dispose()
       } catch {
         /* noop */
       }

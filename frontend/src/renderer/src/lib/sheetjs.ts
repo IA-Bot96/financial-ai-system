@@ -98,8 +98,12 @@ async function stripComments(buf: ArrayBuffer): Promise<ArrayBuffer> {
   const zip = await JSZip.loadAsync(buf)
   const remove: string[] = []
   zip.forEach((p) => {
-    if (/xl\/(threaded)?comments\d*\.xml$/i.test(p)) remove.push(p)
-    if (/xl\/drawings\/vmlDrawing\d*\.vml$/i.test(p)) remove.push(p)
+    // openpyxl (the pipeline writer) emits xl/comments/comment{n}.xml + a
+    // xl/drawings/commentsDrawing{n}.vml anchor; other writers use xl/comments{n}.xml /
+    // xl/threadedComments/…. Match all so the comment-crash retry actually strips them.
+    if (/xl\/(comments\/comment\d+|(threaded)?comments\d*|threadedComments\/threadedComment\d+)\.xml$/i.test(p))
+      remove.push(p)
+    if (/xl\/drawings\/(vmlDrawing\d*|commentsDrawing\d+)\.vml$/i.test(p)) remove.push(p)
   })
   remove.forEach((p) => zip.remove(p))
 
