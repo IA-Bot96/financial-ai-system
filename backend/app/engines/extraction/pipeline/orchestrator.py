@@ -238,6 +238,11 @@ def process_documents(
     _emit("finalizing")
     from app.engines.extraction.services.validation import recalc_workbook, widen_columns
     widen_columns(output_path)
+    # Embed the sheet -> source-PDF-page map INTO the workbook (custom doc property) so a
+    # side-by-side viewer can sync the PDF page on sheet change straight from the file —
+    # done BEFORE recalc so the subsequent save preserves it. (Also in the manifest below.)
+    from app.engines.extraction.services.provenance import embed_sheet_sources
+    embed_sheet_sources(output_path, sheet_sources)
     # Formula cache (#6): make formula cells readable by non-Excel consumers (sets
     # fullCalcOnLoad; materializes cached values too if LibreOffice is available).
     formula_cache_materialized = recalc_workbook(output_path)

@@ -135,7 +135,11 @@ class Settings(BaseSettings):
     # image of that page; GPT treats the image as authoritative to resolve OCR ambiguity
     # (digits, signs, column alignment, merged cells, consolidated/unconsolidated header)
     # while the text supplies exact figures. Requires a vision-capable model.
-    use_vision_extraction: bool = False
+    # Default ON: materially improves accuracy on scanned/complex pages (the common case
+    # for these reports). Costs more tokens and, combined with gpt_table_workers, holds
+    # more page images in flight — set USE_VISION_EXTRACTION=false per run for a cheap,
+    # text-only pass.
+    use_vision_extraction: bool = True
     vision_dpi: int = 180                    # render DPI for the page image (legibility vs tokens)
     vision_detail: str = "high"             # OpenAI image detail: "high" | "low" | "auto"
     vision_max_pages: int = 0               # cap images/report (0 = all candidate pages)

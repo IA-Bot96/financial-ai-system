@@ -49,6 +49,42 @@ def _finalize(acc: dict) -> dict:
     return out
 
 
+_PROP_NAME = "SheetSources"
+
+
+def embed_sheet_sources(output_path, sheet_sources: dict) -> None:
+    """Embed the sheet -> source-page map INTO the workbook as a custom document property
+    (docProps/custom.xml), so it travels with the .xlsx itself.
+
+    Why a custom property and not a sheet: the viewer opens the workbook file directly
+    (POST /api/fie/sessions), and its per-sheet listing enumerates every WORKSHEET — a
+    helper sheet would show up as a junk tab. A custom doc property is invisible to that
+    listing and to the financial-metric extraction, is preserved by the frontend's
+    round-trip save (untouched docProps part), and survives download/re-upload. The value
+    is the same JSON as the manifest's `sheet_sources`.
+    """
+    if not sheet_sources:
+        return
+    import json as _json
+
+    from openpyxl import load_workbook
+    from openpyxl.packaging.custom import CustomPropertyList, StringProperty
+
+    wb = load_workbook(output_path, data_only=False)   # keep formulas/cached values intact
+    try:
+        # Rebuild the list dropping any prior value (CustomPropertyList has no delete()).
+        existing = wb.custom_doc_props
+        props = CustomPropertyList()
+        for p in (existing or []):
+            if p.name != _PROP_NAME:
+                props.append(p)
+        props.append(StringProperty(name=_PROP_NAME, value=_json.dumps(sheet_sources)))
+        wb.custom_doc_props = props
+        wb.save(output_path)
+    finally:
+        wb.close()
+
+
 def build_sheet_sources(*, mode: str, plan=None, overrides=None, tables=None) -> dict:
     """Build the sheet -> [provenance] map for the given output mode.
 

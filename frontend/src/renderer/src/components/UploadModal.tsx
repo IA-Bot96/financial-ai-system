@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, DragEvent } from 'react'
 import {
   useApp,
-  reconstructSheetSources,
   type SessionMeta,
   type ValidationSummary,
   type SheetSources
@@ -108,7 +107,8 @@ function stageIsActive(s: PipelineStage)    {
 
 export function UploadModal() {
   const {
-    session, closeUpload, loadWorkbook, setPdfPaths, setValidation, setSheetSources, setPanel, toast
+    session, closeUpload, loadWorkbook, setPdfPaths, setValidation, setSheetSources,
+    applySheetSources, setPanel, toast
   } = useApp()
   const canDismiss = !!session
 
@@ -216,11 +216,12 @@ export function UploadModal() {
     }
     try {
       const meta   = res.body as SessionMeta
-      const sheets = await parseWorkbook(await window.api.readFile(f.path), meta.sheets)
+      const buf    = await window.api.readFile(f.path)
+      const sheets = await parseWorkbook(buf, meta.sheets)
       loadWorkbook(meta, sheets, f.path, 'excel')
-      // if this is an extracted workbook, recover sheet→PDF lineage from its Source Ledger
-      // sheet so sheet-sync works once the user attaches the matching source PDFs.
-      setSheetSources(reconstructSheetSources(sheets))
+      // sheet→PDF lineage from the workbook's embedded SheetSources property (or the Source
+      // Ledger fallback) — sheet-sync works once the matching source PDFs are attached.
+      await applySheetSources(buf, sheets)
       toast('success', 'Excel file uploaded successfully.')
     } catch (e) {
       console.error('[upload] excel parse/render failed', e)
@@ -292,11 +293,15 @@ export function UploadModal() {
     }
     try {
       const meta   = res.body as SessionMeta
-      const sheets = await parseWorkbook(await window.api.readFile(res.path), meta.sheets)
+      const buf    = await window.api.readFile(res.path)
+      const sheets = await parseWorkbook(buf, meta.sheets)
       loadWorkbook(meta, sheets, res.path, 'ocr')
       setPdfPaths(pdfs.map((f) => f.path))
       setValidation(job ? pickValidation(job) : null)
-      setSheetSources(job?.sheet_sources ?? {}) // sheet↔PDF page lineage
+      // prefer the workbook's embedded SheetSources; fall back to the job API result
+      await applySheetSources(buf, sheets)
+      if (!Object.keys(useApp.getState().sheetSources).length && job?.sheet_sources)
+        setSheetSources(job.sheet_sources)
       setPanel('pdf', true)
       toast('success', `Extracted ${meta.company}`)
     } catch (e) {

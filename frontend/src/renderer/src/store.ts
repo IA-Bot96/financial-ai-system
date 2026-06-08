@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { ParsedSheet } from '@/lib/sheetjs'
 import { api, type Citation, type FieResponse } from '@/api'
-import { parseWorkbook } from '@/lib/sheetjs'
+import { parseWorkbook, readSheetSources } from '@/lib/sheetjs'
 import { buildEditedXlsx } from '@/lib/save'
 
 // Insights worksheet column order (excel_writer.INSIGHT_COLUMNS), 0-based:
@@ -253,6 +253,7 @@ interface AppState {
   setPdfPaths: (paths: string[]) => void
   setValidation: (v: ValidationSummary | null) => void
   setSheetSources: (s: SheetSources) => void
+  applySheetSources: (buf: ArrayBuffer, sheets: ParsedSheet[]) => Promise<void>
   setActiveSheet: (name: string) => void
   setActivePdf: (file: string | null) => void
   setActivePdfPage: (page: number | null) => void
@@ -454,6 +455,13 @@ export const useApp = create<AppState>((set) => ({
   setPdfPaths: (paths) => set({ pdfPaths: paths }),
   setValidation: (validation) => set({ validation }),
   setSheetSources: (sheetSources) => set({ sheetSources: sheetSources ?? {} }),
+  // Source the sheet→PDF map from the workbook's embedded `SheetSources` custom property;
+  // fall back to reconstructing it from the Source Ledger sheet (older extracted files).
+  applySheetSources: async (buf, sheets) => {
+    let ss = await readSheetSources(buf)
+    if (!Object.keys(ss).length) ss = reconstructSheetSources(sheets)
+    set({ sheetSources: ss })
+  },
   setActiveSheet: (name) => {
     const st = useApp.getState()
     if (st.activeSheet !== name) set({ activeSheet: name })
@@ -584,11 +592,12 @@ export const useApp = create<AppState>((set) => ({
       return false
     }
     const meta = res.body as SessionMeta
-    const sheets = await parseWorkbook(await window.api.readFile(path), meta.sheets)
+    const buf = await window.api.readFile(path)
+    const sheets = await parseWorkbook(buf, meta.sheets)
     useApp.getState().loadWorkbook(meta, sheets, path, origin)
-    // recover sheet→PDF lineage from the embedded Source Ledger (extracted workbooks),
-    // so sheet-sync works once the user attaches the matching source PDFs.
-    useApp.getState().setSheetSources(reconstructSheetSources(sheets))
+    // sheet→PDF lineage from the workbook's embedded SheetSources property (falls back to
+    // the Source Ledger sheet) — works once the matching source PDFs are attached.
+    await useApp.getState().applySheetSources(buf, sheets)
     return true
   },
   reopenLast: async () => {

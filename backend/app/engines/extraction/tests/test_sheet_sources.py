@@ -1,7 +1,14 @@
 """sheet_sources provenance map: sheet -> [{report_file, pages, table_ids, weight}]."""
+import json
 from types import SimpleNamespace
 
-from app.engines.extraction.services.provenance import build_sheet_sources
+import openpyxl
+
+from app.engines.extraction.services.provenance import (
+    _PROP_NAME,
+    build_sheet_sources,
+    embed_sheet_sources,
+)
 
 
 def _src(report_file, pages, table_id):
@@ -96,3 +103,31 @@ def test_no_template_aggregates_value_level_sources():
 def test_empty_inputs_return_empty_map():
     assert build_sheet_sources(mode="template", plan=None, overrides=None) == {}
     assert build_sheet_sources(mode="no_template", tables=[]) == {}
+
+
+def test_embed_sheet_sources_as_custom_prop(tmp_path):
+    # Embedded as a custom doc property: travels with the file, NOT a worksheet (so the
+    # FIE per-sheet listing won't show a junk tab), survives a later save, replaces cleanly.
+    p = tmp_path / "out.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.title = "BS"
+    wb["BS"]["A1"] = "x"
+    wb.save(p)
+    ss = {"BS": [{"report_file": "2024.pdf", "pages": [12, 13], "table_ids": ["t0"], "weight": 9}]}
+
+    embed_sheet_sources(p, ss)
+    embed_sheet_sources(p, ss)                       # idempotent: replace, not duplicate
+    openpyxl.load_workbook(p).save(p)                # simulate a later recalc/scope-note save
+
+    wb2 = openpyxl.load_workbook(p)
+    assert wb2.sheetnames == ["BS"]                  # no helper worksheet added
+    names = [x.name for x in (wb2.custom_doc_props or [])]
+    assert names.count(_PROP_NAME) == 1
+    assert json.loads(wb2.custom_doc_props[_PROP_NAME].value) == ss
+
+
+def test_embed_empty_is_noop(tmp_path):
+    p = tmp_path / "e.xlsx"
+    openpyxl.Workbook().save(p)
+    embed_sheet_sources(p, {})
+    assert not (openpyxl.load_workbook(p).custom_doc_props or [])

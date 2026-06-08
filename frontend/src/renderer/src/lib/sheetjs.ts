@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
 import * as XLSX from 'xlsx'
+import type { SheetSources, SheetSourceEntry } from '@/store'
 
 export interface SheetMeta {
   name: string
@@ -130,6 +131,62 @@ async function stripComments(buf: ArrayBuffer): Promise<ArrayBuffer> {
     if (cleaned !== xml) zip.file(sp, cleaned)
   }
   return zip.generateAsync({ type: 'arraybuffer' })
+}
+
+const decodeXml = (s: string) =>
+  s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, '&') // last, so other entities aren't double-decoded
+
+/**
+ * Read the sheet→PDF-page map the extraction pipeline embeds as the `SheetSources` custom
+ * document property (docProps/custom.xml). This travels inside the workbook, so it works on
+ * any opened file — including re-opened downloads — without the job API or a sidecar.
+ * Returns {} when the property is absent or unparseable (feature simply inactive).
+ */
+export async function readSheetSources(buf: ArrayBuffer): Promise<SheetSources> {
+  try {
+    const zip = await JSZip.loadAsync(buf)
+    const xml = await zip.file('docProps/custom.xml')?.async('string')
+    if (!xml) return {}
+    const prop = xml.match(/<property\b[^>]*\bname="SheetSources"[^>]*>([\s\S]*?)<\/property>/i)
+    if (!prop) return {}
+    const val =
+      prop[1].match(/<vt:lpwstr>([\s\S]*?)<\/vt:lpwstr>/i) ??
+      prop[1].match(/<vt:bstr>([\s\S]*?)<\/vt:bstr>/i)
+    if (!val) return {}
+    const parsed = JSON.parse(decodeXml(val[1].trim())) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object') return {}
+
+    const out: SheetSources = {}
+    for (const [sheet, raw] of Object.entries(parsed)) {
+      if (!Array.isArray(raw)) continue
+      const entries: SheetSourceEntry[] = raw
+        .map((e) => {
+          const o = (e ?? {}) as Record<string, unknown>
+          const pages = Array.isArray(o.pages)
+            ? o.pages.map(Number).filter((n) => Number.isFinite(n) && n >= 1)
+            : []
+          return {
+            report_file: String(o.report_file ?? ''),
+            pages,
+            table_ids: Array.isArray(o.table_ids) ? o.table_ids.map(String) : [],
+            weight: Number(o.weight ?? 0)
+          }
+        })
+        .filter((e) => e.report_file && e.pages.length)
+        .sort((a, b) => b.weight - a.weight) // highest-weight first (defensive)
+      if (entries.length) out[sheet] = entries
+    }
+    return out
+  } catch {
+    return {} // older file / malformed property → feature inactive, never error
+  }
 }
 
 /** Primary parse via ExcelJS (full styles). May throw in some renderer environments. */
