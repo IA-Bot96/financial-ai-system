@@ -77,10 +77,18 @@ def build_sheet_sources(*, mode: str, plan=None, overrides=None, tables=None) ->
         from app.engines.extraction.pipeline.excel_writer import _sheet_name, _table_title
         used: set = set()
         for t in (tables or []):
-            name = _sheet_name(_table_title(t), used)   # consume name even if src is None
-            src = getattr(t, "source", None)
-            if src is None:
-                continue
-            _accumulate(acc, name, getattr(src, "report_file", None),
-                        getattr(src, "pages", None), getattr(src, "table_id", None))
+            name = _sheet_name(_table_title(t), used)   # consume name even if no source
+            # A merged multi-year table carries NO table-level source (resolve_multiyear
+            # builds it fresh) — its provenance lives on each line-item value's source, and
+            # a multi-year table legitimately spans several pages/reports. Aggregate those;
+            # fall back to a table-level source if one happens to be present.
+            srcs = [v.source for li in (getattr(t, "line_items", None) or [])
+                    for v in (getattr(li, "values", None) or []) if getattr(v, "source", None)]
+            if not srcs:
+                tbl_src = getattr(t, "source", None)
+                if tbl_src is not None:
+                    srcs = [tbl_src]
+            for src in srcs:
+                _accumulate(acc, name, getattr(src, "report_file", None),
+                            getattr(src, "pages", None), getattr(src, "table_id", None))
     return _finalize(acc)

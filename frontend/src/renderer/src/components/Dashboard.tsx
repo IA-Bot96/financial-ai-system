@@ -56,12 +56,28 @@ export function Dashboard() {
       .sort((a, b) => a - b)
   }, [data])
 
-  // apply year filter (empty filterYears = show all data years)
+  // forecast years: present as columns in the workbook but carrying no values yet. Offered as
+  // opt-in filter options (unselected by default) so charts stay value-only unless asked for.
+  const forecastYears = useMemo(() => {
+    if (!data) return []
+    const withData = new Set(allDataYears)
+    return data.years.filter((y) => !withData.has(y)).sort((a, b) => a - b)
+  }, [data, allDataYears])
+
+  // Default selection = the data years only (forecast excluded). Re-applied whenever the
+  // underlying series changes (e.g. after a save + reload).
+  useEffect(() => {
+    if (data) setFilterYears(allDataYears.map(String))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data])
+
+  // explicit year selection → the chosen years (data + any opted-in forecast), sorted
   const years = useMemo(() => {
-    if (filterYears.length === 0) return allDataYears
+    const all = [...allDataYears, ...forecastYears].sort((a, b) => a - b)
     const set = new Set(filterYears)
-    return allDataYears.filter((y) => set.has(String(y)))
-  }, [allDataYears, filterYears])
+    const chosen = all.filter((y) => set.has(String(y)))
+    return chosen.length ? chosen : allDataYears
+  }, [allDataYears, forecastYears, filterYears])
 
   // ---- data accessors ---------------------------------------------------------------
   const val = (m: string, y: number): number | null => data?.series?.[m]?.[String(y)] ?? null
@@ -166,6 +182,13 @@ export function Dashboard() {
   const show = (s: Section): boolean =>
     filterSections.length === 0 || filterSections.includes(s)
 
+  // year filter differs from its default (a data year removed, or a forecast year added)?
+  const defaultYears = allDataYears.map(String)
+  const yearsModified =
+    filterYears.length > 0 &&
+    (filterYears.length !== defaultYears.length ||
+      filterYears.some((y) => !defaultYears.includes(y)))
+
   return (
     <div className="h-full overflow-auto bg-bg p-4 space-y-4">
       {/* KPI row — uses the latest year that actually has data */}
@@ -188,16 +211,18 @@ export function Dashboard() {
         />
         <FilterDropdown
           label="Year"
-          options={allDataYears.map(String)}
+          options={defaultYears}
+          forecastOptions={forecastYears.map(String)}
           selected={filterYears}
           onChange={setFilterYears}
+          explicit
           toast={toast}
         />
-        {(filterSections.length > 0 || filterYears.length > 0) && (
+        {(filterSections.length > 0 || yearsModified) && (
           <button
             onClick={() => {
               setFilterSections([])
-              setFilterYears([])
+              setFilterYears(defaultYears)
             }}
             className="ml-1 text-xs text-muted hover:text-ink underline underline-offset-2 transition-colors"
           >
@@ -658,8 +683,9 @@ export function Dashboard() {
       )}
 
       <p className="text-xs text-muted pt-1">
-        Forecast years (no values in this workbook) are hidden. Dividend Yield, P/E and EPS need
-        a share-price source not present in the financials — pending.
+        Forecast years carry no values yet and are off by default — enable them from the Year
+        filter to chart them. Dividend Yield, P/E and EPS need a share-price source not present
+        in the financials — pending.
       </p>
     </div>
   )
@@ -753,21 +779,29 @@ function Chart({ title, option }: { title: string; option: object }) {
 }
 
 /**
- * Searchable multi-select dropdown.
- * `selected = []` means "no filter active → show all".
+ * Searchable multi-select dropdown, two selection models:
+ *  - default (Section): `selected = []` means "no filter active → show all".
+ *  - `explicit` (Year): `selected` is the literal set of chosen items. Lets some options
+ *    (forecast years, passed via `forecastOptions`) stay unselected by default while the rest
+ *    are pre-selected — which the empty=all model can't express.
+ * `forecastOptions` are rendered under a "Forecast" subheading.
  */
 function FilterDropdown({
   label,
   options,
   selected,
   onChange,
-  toast
+  toast,
+  explicit = false,
+  forecastOptions = []
 }: {
   label: string
   options: string[]
   selected: string[]
   onChange: (v: string[]) => void
   toast: (kind: 'info' | 'warning' | 'error' | 'success', text: string) => void
+  explicit?: boolean
+  forecastOptions?: string[]
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -786,45 +820,76 @@ function FilterDropdown({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const filtered = options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
+  const allOptions = explicit ? [...options, ...forecastOptions] : options
+  const match = (o: string) => o.toLowerCase().includes(search.toLowerCase())
+  const dataFiltered = options.filter(match)
+  const fcFiltered = forecastOptions.filter(match)
+  const noResults = dataFiltered.length === 0 && fcFiltered.length === 0
 
-  // empty selected = no filter active = "all selected" visually
-  const allShown = selected.length === 0
-  const isChecked = (o: string) => selected.length === 0 || selected.includes(o)
+  // "Select All" checked state + per-item checked state
+  const allChecked = explicit
+    ? allOptions.length > 0 && allOptions.every((o) => selected.includes(o))
+    : selected.length === 0
+  const isChecked = (o: string) =>
+    explicit ? selected.includes(o) : selected.length === 0 || selected.includes(o)
+
+  const tooFew = () => toast('error', `At least one ${label.toLowerCase()} must stay selected.`)
 
   const toggle = (o: string) => {
-    if (selected.length === 0) {
-      // all are currently shown → unchecking one means "show all except this".
-      // (Only blocked if there's a single option total, which can't go to zero.)
-      if (options.length <= 1) {
-        toast('error', `At least one ${label.toLowerCase()} must stay selected.`)
-        return
+    if (explicit) {
+      if (selected.includes(o)) {
+        const next = selected.filter((x) => x !== o)
+        if (next.length === 0) return tooFew()
+        onChange(next)
+      } else {
+        onChange([...selected, o])
       }
+      return
+    }
+    // empty=all (Section) semantics
+    if (selected.length === 0) {
+      if (options.length <= 1) return tooFew()
       onChange(options.filter((x) => x !== o))
     } else if (selected.includes(o)) {
       const next = selected.filter((x) => x !== o)
-      if (next.length === 0) {
-        // deselecting the last remaining one — not allowed; keep it selected.
-        toast('error', `At least one ${label.toLowerCase()} must stay selected.`)
-        return
-      }
+      if (next.length === 0) return tooFew()
       onChange(next)
     } else {
       const next = [...selected, o]
-      // if every option is now checked → clear filter (= show all)
-      onChange(next.length === options.length ? [] : next)
+      onChange(next.length === options.length ? [] : next) // all checked → clear filter
     }
   }
 
-  // "Select All" always resets to no-filter state
-  const selectAll = () => onChange([])
+  // explicit: "Select All" checks every option (incl. forecast); default model: clear filter
+  const selectAll = () => onChange(explicit ? [...allOptions] : [])
 
-  const displayLabel =
-    selected.length === 0
+  const n = selected.length
+  const displayLabel = explicit
+    ? n === 0 || n === allOptions.length
+      ? `All ${label}s`
+      : n === 1
+        ? selected[0]
+        : `${n} ${label}s`
+    : selected.length === 0
       ? `All ${label}s`
       : selected.length === 1
         ? selected[0]
         : `${selected.length} ${label}s`
+
+  const renderItem = (o: string) => (
+    <label
+      key={o}
+      className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-line cursor-pointer select-none"
+    >
+      <input
+        type="checkbox"
+        checked={isChecked(o)}
+        onChange={() => toggle(o)}
+        className="h-3.5 w-3.5 accent-blue-400 rounded"
+      />
+      <span className="text-sm text-muted">{o}</span>
+    </label>
+  )
 
   return (
     <div className="relative" ref={ref}>
@@ -869,7 +934,7 @@ function FilterDropdown({
             <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-line cursor-pointer select-none">
               <input
                 type="checkbox"
-                checked={allShown}
+                checked={allChecked}
                 onChange={selectAll}
                 className="h-3.5 w-3.5 accent-blue-400 rounded"
               />
@@ -877,23 +942,27 @@ function FilterDropdown({
             </label>
             <div className="border-t border-line my-1" />
 
-            {filtered.length === 0 && (
+            {noResults && (
               <p className="text-xs text-muted px-2 py-2">No results for "{search}"</p>
             )}
-            {filtered.map((o) => (
-              <label
-                key={o}
-                className="flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-line cursor-pointer select-none"
-              >
-                <input
-                  type="checkbox"
-                  checked={isChecked(o)}
-                  onChange={() => toggle(o)}
-                  className="h-3.5 w-3.5 accent-blue-400 rounded"
-                />
-                <span className="text-sm text-muted">{o}</span>
-              </label>
-            ))}
+
+            {/* When a Forecast section exists, label the data years "Historical" to match. */}
+            {forecastOptions.length > 0 && dataFiltered.length > 0 && (
+              <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted/70">
+                Historical
+              </div>
+            )}
+            {dataFiltered.map(renderItem)}
+
+            {fcFiltered.length > 0 && (
+              <>
+                <div className="border-t border-line my-1" />
+                <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted/70">
+                  Forecast
+                </div>
+                {fcFiltered.map(renderItem)}
+              </>
+            )}
           </div>
         </div>
       )}

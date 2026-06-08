@@ -63,6 +63,36 @@ def test_no_template_one_entry_per_sheet_with_writer_naming():
     assert "Income Statement" not in out
 
 
+def _li(values):
+    return SimpleNamespace(values=values)
+
+
+def _val(source):
+    return SimpleNamespace(source=source)
+
+
+def test_no_template_aggregates_value_level_sources():
+    # Real post-multiyear shape: NO table-level source; provenance lives on each value.
+    # A merged multi-year table spans several pages -> all should be collected.
+    t = SimpleNamespace(
+        title="Profit & Loss", statement_type=SimpleNamespace(value="income_statement"),
+        consolidated=None, source=None,
+        line_items=[
+            _li([_val(_src("2024.pdf", [9], "2024.pdf:p9:t0")),
+                 _val(_src("2024.pdf", [10], "2024.pdf:p10:t1"))]),
+            _li([_val(_src("2023.pdf", [9], "2023.pdf:p9:t0")),
+                 _val(None)]),                              # missing source skipped
+        ],
+    )
+    out = build_sheet_sources(mode="no_template", tables=[t])
+
+    entries = out["Profit & Loss"]
+    # 2024.pdf contributed 2 values -> ranked first; pages unioned across the table.
+    assert [e["report_file"] for e in entries] == ["2024.pdf", "2023.pdf"]
+    assert entries[0]["pages"] == [9, 10] and entries[0]["weight"] == 2
+    assert entries[1]["report_file"] == "2023.pdf" and entries[1]["pages"] == [9]
+
+
 def test_empty_inputs_return_empty_map():
     assert build_sheet_sources(mode="template", plan=None, overrides=None) == {}
     assert build_sheet_sources(mode="no_template", tables=[]) == {}
