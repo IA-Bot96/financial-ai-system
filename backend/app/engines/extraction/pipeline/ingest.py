@@ -197,8 +197,14 @@ def ingest_pdf(pdf_path: Path, ocr: OCRService | None = None) -> IngestedDoc:
 
 def _resolve_ocr_workers(configured: int, n_tasks: int) -> int:
     """Worker count for the OCR pool. 0 => auto (cpu_count - 1); never exceed the
-    number of OCR tasks; <=1 task is always serial (pool overhead isn't worth it)."""
-    if n_tasks <= 1:
+    number of OCR tasks; <=1 task is always serial (pool overhead isn't worth it).
+
+    A FROZEN (PyInstaller) build ALWAYS runs serial: a packaged exe cannot spawn
+    multiprocessing workers without freeze_support() wiring, so a ProcessPoolExecutor
+    there breaks immediately (BrokenProcessPool) regardless of worker count. In-process
+    serial OCR is always safe, so we force it in the desktop app."""
+    import sys
+    if n_tasks <= 1 or getattr(sys, "frozen", False):
         return 1
     if configured and configured > 0:
         cap = configured
@@ -206,6 +212,27 @@ def _resolve_ocr_workers(configured: int, n_tasks: int) -> int:
         import os
         cap = max(1, (os.cpu_count() or 2) - 1)
     return max(1, min(cap, n_tasks))
+
+
+def _ocr_serial(tasks, task_owner, ok_paths, dpi) -> dict:
+    """In-process OCR (no process pool). Used when workers==1, in frozen builds, and as
+    the safety fallback if the process pool fails. Reopens each PDF once."""
+    from collections import defaultdict
+
+    import fitz
+    results: dict[tuple[int, int], tuple[str, float | None, list[dict]]] = {}
+    ocr = OCRService()
+    by_doc: dict[int, list[int]] = defaultdict(list)
+    for di, pno in task_owner:
+        by_doc[di].append(pno)
+    for di, pnos in by_doc.items():
+        pdf = fitz.open(ok_paths[di])
+        try:
+            for pno in pnos:
+                results[(di, pno)] = _ocr_page(pdf[pno], ocr, dpi)
+        finally:
+            pdf.close()
+    return results
 
 
 def ingest_pdfs(pdf_paths: list[Path]) -> list[tuple[Path, IngestedDoc]]:
@@ -259,24 +286,20 @@ def ingest_pdfs(pdf_paths: list[Path]) -> list[tuple[Path, IngestedDoc]]:
         logger.info("Parallel OCR: %d scanned pages across %d PDFs on %d workers",
                     len(tasks), len(ok_paths), workers)
         from concurrent.futures import ProcessPoolExecutor
-        with ProcessPoolExecutor(max_workers=workers) as ex:
-            for (_pp, _pno, text, conf, words), owner in zip(
-                    ex.map(_ocr_page_task, tasks), task_owner):
-                results[owner] = (text, conf, words)
+        try:
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for (_pp, _pno, text, conf, words), owner in zip(
+                        ex.map(_ocr_page_task, tasks), task_owner):
+                    results[owner] = (text, conf, words)
+        except Exception as exc:  # noqa: BLE001
+            # A worker died (OOM, a native crash, or a frozen build that can't spawn
+            # workers) surfaces as BrokenProcessPool. NEVER fail the run for this — fall
+            # back to in-process serial OCR so ingest always completes.
+            logger.warning("Parallel OCR failed (%s: %s); falling back to serial in-process OCR.",
+                           type(exc).__name__, exc)
+            results = _ocr_serial(tasks, task_owner, ok_paths, settings.ocr_dpi)
     elif tasks:
-        # Serial fallback (1 worker): OCR in-process, reopening each PDF once.
-        from collections import defaultdict
-        ocr = OCRService()
-        by_doc: dict[int, list[int]] = defaultdict(list)
-        for di, pno in task_owner:
-            by_doc[di].append(pno)
-        for di, pnos in by_doc.items():
-            pdf = fitz.open(ok_paths[di])
-            try:
-                for pno in pnos:
-                    results[(di, pno)] = _ocr_page(pdf[pno], ocr, settings.ocr_dpi)
-            finally:
-                pdf.close()
+        results = _ocr_serial(tasks, task_owner, ok_paths, settings.ocr_dpi)
 
     # Phase C (main process): assemble each IngestedDoc in page order.
     out: list[tuple[Path, IngestedDoc]] = []

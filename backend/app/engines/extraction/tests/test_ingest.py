@@ -107,6 +107,15 @@ def test_resolve_ocr_workers():
     assert ingest._resolve_ocr_workers(0, 100) >= 1        # auto = cpu-1, at least 1
 
 
+def test_resolve_ocr_workers_forces_serial_when_frozen(monkeypatch):
+    # A PyInstaller-frozen (packaged) build can't spawn pool workers -> always serial,
+    # regardless of configured workers or task count. Prevents BrokenProcessPool.
+    import sys
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert ingest._resolve_ocr_workers(8, 100) == 1
+    assert ingest._resolve_ocr_workers(0, 100) == 1
+
+
 def test_ingest_pdfs_matches_serial_for_native(tmp_path):
     # Parallel batch path must produce the same doc as the serial single-PDF path.
     p = _make_pdf(tmp_path, "millat-2025.pdf", [
