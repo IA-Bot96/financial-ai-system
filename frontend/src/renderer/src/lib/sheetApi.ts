@@ -29,6 +29,39 @@ export async function redoSheet(): Promise<void> {
   }
 }
 
+type FRange = { setValue?: (v: unknown) => void; setBackgroundColor?: (c: string) => void }
+type FSheet = { getRange?: (a1: string) => FRange | null }
+type FWorkbook = { getSheetByName?: (n: string) => FSheet | null }
+
+function sheetByName(name: string): FSheet | null {
+  const api = _api as { getActiveWorkbook?: () => FWorkbook | null } | null
+  try {
+    return api?.getActiveWorkbook?.()?.getSheetByName?.(name) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Write a value into a cell via Univer's command stack, so the surgical (value-diff) save
+ *  persists it. Used by the "Manually Verified" checkbox to edit the Validation Ledger cell. */
+export function writeCell(sheetName: string, a1: string, value: unknown): void {
+  try {
+    sheetByName(sheetName)?.getRange?.(a1)?.setValue?.(value)
+  } catch (e) {
+    console.error('[sheet] writeCell failed', e)
+  }
+}
+
+/** Set a cell's background tint (render-only; the value-diff save ignores styles). Flips a
+ *  flagged data cell to/from green when the user toggles "Manually Verified" live. */
+export function setCellBackground(sheetName: string, a1: string, color: string): void {
+  try {
+    sheetByName(sheetName)?.getRange?.(a1)?.setBackgroundColor?.(color)
+  } catch (e) {
+    console.error('[sheet] setCellBackground failed', e)
+  }
+}
+
 /** Best-effort current-workbook snapshot (IWorkbookData) — null if unavailable. */
 export function getSnapshot(): { sheets?: Record<string, { name?: string; cellData?: unknown }> } | null {
   const api = _api as {

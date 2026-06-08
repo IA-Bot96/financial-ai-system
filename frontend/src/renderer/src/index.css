@@ -51,6 +51,15 @@ body {
   background: transparent;
 }
 
+/* Horizontally-scrollable strips (e.g. the validation sheet chips) that should scroll
+   without showing a scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Indeterminate progress bar ──────────────────────────────────────────────
    Used while a step has no measurable percentage (e.g. loading/analyzing an
    Excel workbook). A short segment slides left→right inside the track.

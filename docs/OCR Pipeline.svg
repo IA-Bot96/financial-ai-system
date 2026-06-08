@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="2250" viewBox="0 0 1340 2250" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+<defs><filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.10"/></filter><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/></marker></defs>
+<rect width="1340" height="2250" fill="#f1f5f9"/>
+<text x="670" y="58" text-anchor="middle" font-size="30" font-weight="700" fill="#0f172a">OCR Extraction Pipeline &#8212; PDF(s) to Excel</text>
+<text x="670" y="88" text-anchor="middle" font-size="15" fill="#475569">How annual-report PDFs are converted into a structured, audited .xlsx workbook</text>
+<rect x="370" y="112" width="16" height="16" rx="4" fill="#0d9488"/>
+<text x="394" y="125" font-size="13" fill="#475569">Rule-Based</text>
+<rect x="570" y="112" width="16" height="16" rx="4" fill="#d97706"/>
+<text x="594" y="125" font-size="13" fill="#475569">Hybrid · LLM + Rule</text>
+<rect x="770" y="112" width="16" height="16" rx="4" fill="#7c3aed"/>
+<text x="794" y="125" font-size="13" fill="#475569">LLM (GPT)</text>
+<rect x="490" y="168" width="360" height="76" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5" filter="url(#sh)"/>
+<text x="670" y="199" text-anchor="middle" font-size="17" font-weight="700" fill="#1e3a8a">INPUT &#8212; Annual-report PDF(s)</text>
+<text x="670" y="222" text-anchor="middle" font-size="12.5" fill="#1d4ed8">native-text or scanned  ·  one or many reports / years</text>
+<line x1="670" y1="244" x2="670" y2="312" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="624" y="265" width="93" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="283" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">PDF pages</text>
+<rect x="190" y="312" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="312" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="352" r="19" fill="#0d9488"/>
+<text x="232" y="359" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">1</text>
+<text x="264" y="349" font-size="20" font-weight="700" fill="#0f172a">Ingestion / OCR</text>
+<text x="264" y="374" font-size="13.5" fill="#475569">Read every page; OCR the scanned ones.</text>
+<rect x="1032" y="334" width="98" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1081" y="351" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based</text>
+<line x1="214" y1="390" x2="1128" y2="390" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="406" x2="452" y2="508" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="406" x2="886" y2="508" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="416" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="426" width="58" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="442" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">PDF(s)</text>
+<text x="470" y="416" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="436" r="2.4" fill="#0d9488"/>
+<text x="484" y="440" font-size="12.7" fill="#0f172a">PyMuPDF extracts native text per page</text>
+<circle cx="473" cy="458" r="2.4" fill="#0d9488"/>
+<text x="484" y="462" font-size="12.7" fill="#0f172a">Image-only pages → Tesseract OCR</text>
+<circle cx="473" cy="480" r="2.4" fill="#0d9488"/>
+<text x="484" y="484" font-size="12.7" fill="#0f172a">Parallel page+doc pool (serial when packaged)</text>
+<text x="902" y="416" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="426" width="91" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="442" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">IngestedDoc</text>
+<line x1="670" y1="524" x2="670" y2="610" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="617" y="554" width="107" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="572" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">IngestedDoc</text>
+<rect x="190" y="610" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="610" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="650" r="19" fill="#0d9488"/>
+<text x="232" y="657" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">2</text>
+<text x="264" y="647" font-size="20" font-weight="700" fill="#0f172a">Table &amp; Section Detection</text>
+<text x="264" y="672" font-size="13.5" fill="#475569">Locate tables, classify statement type, find narrative.</text>
+<rect x="939" y="632" width="191" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1034" y="649" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based + Embeddings</text>
+<line x1="214" y1="688" x2="1128" y2="688" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="704" x2="452" y2="806" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="704" x2="886" y2="806" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="714" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="724" width="91" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="740" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">IngestedDoc</text>
+<text x="470" y="714" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="734" r="2.4" fill="#0d9488"/>
+<text x="484" y="738" font-size="12.7" fill="#0f172a">Word-grid clustering → table regions</text>
+<circle cx="473" cy="756" r="2.4" fill="#0d9488"/>
+<text x="484" y="760" font-size="12.7" fill="#0f172a">Statement-type classifier (fuzzy + local embeddings)</text>
+<circle cx="473" cy="778" r="2.4" fill="#0d9488"/>
+<text x="484" y="782" font-size="12.7" fill="#0f172a">Narrative sections (CEO review, MD&amp;A, outlook)</text>
+<text x="902" y="714" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="724" width="145" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="740" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">TableSet + sections</text>
+<line x1="670" y1="822" x2="670" y2="908" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="589" y="852" width="163" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="870" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">TableSet + sections</text>
+<rect x="190" y="908" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="908" width="9" height="212" rx="4" fill="#d97706"/>
+<circle cx="232" cy="948" r="19" fill="#d97706"/>
+<text x="232" y="955" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">3</text>
+<text x="264" y="945" font-size="20" font-weight="700" fill="#0f172a">Interpretation</text>
+<text x="264" y="970" font-size="13.5" fill="#475569">Turn pages into structured financial tables + insights.</text>
+<rect x="989" y="930" width="141" height="26" rx="13" fill="#fef3c7"/>
+<text x="1059" y="947" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">LLM + Rule-Based</text>
+<line x1="214" y1="986" x2="1128" y2="986" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1002" x2="452" y2="1104" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1002" x2="886" y2="1104" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1012" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1022" width="165" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1038" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">IngestedDoc + TableSet</text>
+<text x="470" y="1012" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1032" r="2.4" fill="#d97706"/>
+<text x="484" y="1036" font-size="12.7" fill="#0f172a">GPT → strict JSON tables (values, roles, components)</text>
+<circle cx="473" cy="1054" r="2.4" fill="#d97706"/>
+<text x="484" y="1058" font-size="12.7" fill="#0f172a">Vision option: page image + text  ·  gpt-5.4-mini</text>
+<circle cx="473" cy="1076" r="2.4" fill="#d97706"/>
+<text x="484" y="1080" font-size="12.7" fill="#0f172a">Rule cell-normalize  +  GPT narrative insights</text>
+<text x="902" y="1012" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1022" width="111" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1038" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">DocumentResult</text>
+<line x1="670" y1="1120" x2="670" y2="1206" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="596" y="1150" width="149" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="1168" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">DocumentResult ×N</text>
+<rect x="190" y="1206" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="1206" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="1246" r="19" fill="#0d9488"/>
+<text x="232" y="1253" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">4</text>
+<text x="264" y="1243" font-size="20" font-weight="700" fill="#0f172a">Multi-Year Resolution</text>
+<text x="264" y="1268" font-size="13.5" fill="#475569">Merge all reports into one multi-year view.</text>
+<rect x="1032" y="1228" width="98" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1081" y="1245" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based</text>
+<line x1="214" y1="1284" x2="1128" y2="1284" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1300" x2="452" y2="1402" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1300" x2="886" y2="1402" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1310" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1320" width="131" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1336" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">DocumentResult ×N</text>
+<text x="470" y="1310" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1330" r="2.4" fill="#0d9488"/>
+<text x="484" y="1334" font-size="12.7" fill="#0f172a">Merge same statements across years &amp; reports</text>
+<circle cx="473" cy="1352" r="2.4" fill="#0d9488"/>
+<text x="484" y="1356" font-size="12.7" fill="#0f172a">Consolidate split leaves · dedup · restatements</text>
+<circle cx="473" cy="1374" r="2.4" fill="#0d9488"/>
+<text x="484" y="1378" font-size="12.7" fill="#0f172a">Keep file/page provenance on every value</text>
+<text x="902" y="1310" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1320" width="105" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1336" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">CompanyResult</text>
+<line x1="670" y1="1418" x2="670" y2="1504" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="610" y="1448" width="121" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="1466" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">CompanyResult</text>
+<rect x="190" y="1504" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="1504" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="1544" r="19" fill="#0d9488"/>
+<text x="232" y="1551" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">5</text>
+<text x="264" y="1541" font-size="20" font-weight="700" fill="#0f172a">Face Truth &amp; Template Mapping</text>
+<text x="264" y="1566" font-size="13.5" fill="#475569">Pick the audited truth; map values into the template.</text>
+<rect x="939" y="1526" width="191" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1034" y="1543" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based + Embeddings</text>
+<line x1="214" y1="1582" x2="1128" y2="1582" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1598" x2="452" y2="1700" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1598" x2="886" y2="1700" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1608" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1618" width="222" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1634" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">CompanyResult (+ Template.xlsx)</text>
+<text x="470" y="1608" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1628" r="2.4" fill="#0d9488"/>
+<text x="484" y="1632" font-size="12.7" fill="#0f172a">Face truth per (metric, year) + accounting-identity checks</text>
+<circle cx="473" cy="1650" r="2.4" fill="#0d9488"/>
+<text x="484" y="1654" font-size="12.7" fill="#0f172a">Template: label-match (fuzzy + embeddings + family gate)</text>
+<circle cx="473" cy="1672" r="2.4" fill="#0d9488"/>
+<text x="484" y="1676" font-size="12.7" fill="#0f172a">No template → one styled sheet per table</text>
+<text x="902" y="1608" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1618" width="118" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1634" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Workbook + Plan</text>
+<line x1="670" y1="1716" x2="670" y2="1802" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="561" y="1746" width="219" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="1764" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">Workbook + Plan + FaceTruth</text>
+<rect x="190" y="1802" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="1802" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="1842" r="19" fill="#0d9488"/>
+<text x="232" y="1849" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">6</text>
+<text x="264" y="1839" font-size="20" font-weight="700" fill="#0f172a">Assembly, Validation &amp; Export</text>
+<text x="264" y="1864" font-size="13.5" fill="#475569">Repair, reconcile, validate, and write the workbook.</text>
+<rect x="1032" y="1824" width="98" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1081" y="1841" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based</text>
+<line x1="214" y1="1880" x2="1128" y2="1880" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1896" x2="452" y2="1998" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1896" x2="886" y2="1998" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1906" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1916" width="118" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1932" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Workbook + Plan</text>
+<text x="470" y="1906" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1926" r="2.4" fill="#0d9488"/>
+<text x="484" y="1930" font-size="12.7" fill="#0f172a">Formula repair + headline override to audited truth</text>
+<circle cx="473" cy="1948" r="2.4" fill="#0d9488"/>
+<text x="484" y="1952" font-size="12.7" fill="#0f172a">Materiality-gated reconciliation + validation/source ledgers</text>
+<circle cx="473" cy="1970" r="2.4" fill="#0d9488"/>
+<text x="484" y="1974" font-size="12.7" fill="#0f172a">Recalc + embed sheet→PDF-page map (provenance)</text>
+<text x="902" y="1906" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1916" width="125" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1932" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">.xlsx + manifest</text>
+<line x1="670" y1="2014" x2="670" y2="2100" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="575" y="2044" width="191" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="2062" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">.xlsx  +  manifest.json</text>
+<rect x="460" y="2100" width="420" height="92" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5" filter="url(#sh)"/>
+<text x="670" y="2130" text-anchor="middle" font-size="17" font-weight="700" fill="#14532d">OUTPUT &#8212; Excel workbook (.xlsx)</text>
+<text x="670" y="2152" text-anchor="middle" font-size="12.5" fill="#15803d">filled template or sheet-per-table  +  Insights / Ledgers / Scope</text>
+<text x="670" y="2172" text-anchor="middle" font-size="12" fill="#166534">sidecar manifest.json: production-ready flags · sheet→page map · validation</text>
+<text x="670" y="2228" text-anchor="middle" font-size="12.5" fill="#94a3b8">Cross-cutting&#160;&#160;·&#160;&#160;live progress events&#160;&#160;·&#160;&#160;job cancellation&#160;&#160;·&#160;&#160;debug dumps&#160;&#160;·&#160;&#160;per-cell source provenance</text>
+</svg>

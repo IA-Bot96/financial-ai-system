@@ -42,6 +42,8 @@ function fmtDefault(v: unknown): string {
 export function SettingsModal() {
   const closeSettings = useApp((s) => s.closeSettings)
   const toast = useApp((s) => s.toast)
+  const validationEnabled = useApp((s) => s.validationEnabled)
+  const setValidationEnabled = useApp((s) => s.setValidationEnabled)
 
   const [fields, setFields] = useState<SettingsField[]>([])
   const [draft, setDraft] = useState<Record<string, unknown>>({})
@@ -52,6 +54,10 @@ export function SettingsModal() {
   const [resetting, setResetting] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  // staged value for the frontend "Validation review" toggle — committed on Save (so the bar's
+  // visibility changes only when the user saves), discarded on Cancel.
+  const [reviewDraft, setReviewDraft] = useState(validationEnabled)
+  const reviewChanged = reviewDraft !== validationEnabled
 
   // ── load ──
   const load = useCallback(async () => {
@@ -112,10 +118,18 @@ export function SettingsModal() {
   }, [fields, draft])
 
   const changedCount = Object.keys(changed).length
+  const totalChanges = changedCount + (reviewChanged ? 1 : 0)
 
   // ── save / reset ──
   async function save() {
-    if (!changedCount || saving) return
+    if (!totalChanges || saving) return
+    // commit the frontend review preference (changes the bar's visibility on Save)
+    if (reviewChanged) setValidationEnabled(reviewDraft)
+    // review-only change → nothing to POST to the engine
+    if (changedCount === 0) {
+      toast('success', 'Settings saved.')
+      return
+    }
     setSaving(true)
     const r = await api.updateSettings(changed)
     setSaving(false)
@@ -145,6 +159,7 @@ export function SettingsModal() {
       setFields(r.body.fields)
       setDraft({})
       setErrors({})
+      setReviewDraft(true) // "Validation review" default is on (staged; applied on Save)
       toast('success', 'Settings reset to defaults — applied to the next extraction run.')
     } else {
       toast('error', 'Could not reset settings.')
@@ -183,6 +198,47 @@ export function SettingsModal() {
 
           {/* body */}
           <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
+            {/* Review (frontend preference — applies immediately, persisted locally; not part of
+                the engine settings Save/Reset below) */}
+            <div className="mb-5">
+              <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-1 mt-1">
+                Review
+              </div>
+              <div className="rounded-xl border border-line bg-panel2/40 px-4 py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">Validation review</span>
+                      <span className="rounded bg-amber-500/15 text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 tracking-wide">
+                        BETA
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted mt-1 leading-snug">
+                      Highlights figures in the workbook that may need a second look. These are
+                      automated suggestions — always confirm them against the actual annual reports
+                      before relying on them.
+                    </p>
+                  </div>
+                  <button
+                    role="switch"
+                    aria-checked={reviewDraft}
+                    onClick={() => setReviewDraft((v) => !v)}
+                    className={cn(
+                      'relative h-6 w-11 rounded-full transition-colors shrink-0 mt-0.5',
+                      reviewDraft ? 'bg-accent' : 'bg-line'
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 rounded-full bg-white transition-transform',
+                        reviewDraft && 'translate-x-5'
+                      )}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {loading ? (
               <div className="py-16 text-center">
                 <div className="mx-auto mb-3 h-6 w-6 rounded-full border-2 border-muted border-t-transparent animate-spin" />
@@ -253,15 +309,15 @@ export function SettingsModal() {
               {resetting ? 'Resetting…' : 'Reset to defaults'}
             </Button>
             <div className="flex items-center gap-3">
-              {changedCount > 0 && (
+              {totalChanges > 0 && (
                 <span className="text-xs text-muted">
-                  {changedCount} change{changedCount === 1 ? '' : 's'}
+                  {totalChanges} change{totalChanges === 1 ? '' : 's'}
                 </span>
               )}
               <Button variant="ghost" onClick={() => closeSettings()}>
                 Cancel
               </Button>
-              <Button disabled={!changedCount || saving || loading} onClick={save}>
+              <Button disabled={!totalChanges || saving || loading} onClick={save}>
                 {saving ? 'Saving…' : 'Save changes'}
               </Button>
             </div>

@@ -3,6 +3,14 @@ import type { ParsedSheet } from '@/lib/sheetjs'
 import { api, type Citation, type FieResponse } from '@/api'
 import { parseWorkbook, readSheetSources } from '@/lib/sheetjs'
 import { buildEditedXlsx } from '@/lib/save'
+import {
+  buildValidationData,
+  colorOf,
+  VALIDATION_BG,
+  type ValidationData,
+  type ValidationIssue
+} from '@/lib/validation'
+import { writeCell, setCellBackground } from '@/lib/sheetApi'
 
 // Insights worksheet column order (excel_writer.INSIGHT_COLUMNS), 0-based:
 // 0 Year | 1 Source Report Year | 2 Area | 3 Takeaway | 4 Source Section | 5 Page | 6 Confidence
@@ -248,6 +256,15 @@ interface AppState {
   attachPdfsOpen: boolean // "Attach PDFs" modal (view PDFs alongside a workbook with no source)
   settingsOpen: boolean   // Settings page (engine config) overlay
   confirmDiscard: boolean // "Discard Changes?" prompt before navigating to upload (New)
+  // read-only validation overlay derived from the workbook's "Validation Ledger" sheet
+  validationLedger: ValidationData | null // null = no ledger present (feature inactive)
+  validationEnabled: boolean               // master on/off for the review feature (Settings, persisted)
+  showValidation: boolean                  // bar toggle: highlight cells on/off (within the feature)
+  validationPanelOpen: boolean             // the issues side panel is open
+  workbookNotesDismissed: boolean          // user dismissed the "whole workbook" notes group (session)
+  // session "Manually Verified" cell writes (ledger "sheet!A1" → "TRUE"|""), replayed after a
+  // highlight-toggle remount so the unsaved edits survive; cleared on a successful save.
+  verifyWrites: Record<string, string>
   toasts: Toast[]
 
   // actions
@@ -267,6 +284,12 @@ interface AppState {
   ask: (query: string) => Promise<void>
   setPdfPaths: (paths: string[]) => void
   setValidation: (v: ValidationSummary | null) => void
+  setValidationEnabled: (v: boolean) => void
+  setShowValidation: (v: boolean) => void
+  setValidationPanel: (open: boolean) => void
+  setWorkbookNotesDismissed: (v: boolean) => void
+  setManualVerified: (issue: ValidationIssue, checked: boolean) => void
+  selectCell: (sheet: string, cell: string) => void
   setSheetSources: (s: SheetSources) => void
   applySheetSources: (buf: ArrayBuffer, sheets: ParsedSheet[]) => Promise<void>
   setActiveSheet: (name: string) => void
@@ -294,6 +317,18 @@ interface AppState {
 
 let _tid = 0
 
+// Whether the (beta) validation-review feature is enabled at all — a persisted user PREFERENCE
+// set from Settings. Defaults to on. When off, the review bar and all highlighting are hidden.
+const VALIDATION_ENABLED_KEY = 'fie.validationEnabled'
+const loadValidationEnabled = (): boolean => {
+  try {
+    const v = localStorage.getItem(VALIDATION_ENABLED_KEY)
+    return v === null ? true : v === '1'
+  } catch {
+    return true
+  }
+}
+
 export const useApp = create<AppState>((set) => ({
   backend: { status: 'starting', logPath: '' },
   session: null,
@@ -318,6 +353,12 @@ export const useApp = create<AppState>((set) => ({
   attachPdfsOpen: false,
   settingsOpen: false,
   confirmDiscard: false,
+  validationLedger: null,
+  validationEnabled: loadValidationEnabled(),
+  showValidation: true,
+  validationPanelOpen: false,
+  workbookNotesDismissed: false,
+  verifyWrites: {},
   toasts: [],
 
   setBackend: (status, logPath) =>
@@ -333,6 +374,11 @@ export const useApp = create<AppState>((set) => ({
       // don't leak into this one; review()/extraction (or the attach modal) sets them after.
       pdfPaths: [],
       validation: null,
+      // build the read-only validation overlay once per load (null if no ledger sheet)
+      validationLedger: buildValidationData(sheets),
+      validationPanelOpen: false,
+      workbookNotesDismissed: false,
+      verifyWrites: {},
       sheetSources: {},
       activeSheet: null,
       activePdf: null,
@@ -471,6 +517,47 @@ export const useApp = create<AppState>((set) => ({
   // here also makes sheet-sync prefer the latest doc (pickSourceEntry favours activePdf).
   setPdfPaths: (paths) => set({ pdfPaths: paths, activePdf: latestPdfFile(paths) }),
   setValidation: (validation) => set({ validation }),
+  setValidationEnabled: (validationEnabled) => {
+    set({ validationEnabled })
+    try {
+      localStorage.setItem(VALIDATION_ENABLED_KEY, validationEnabled ? '1' : '0')
+    } catch {
+      /* localStorage unavailable — preference just won't persist */
+    }
+  },
+  setShowValidation: (showValidation) => set({ showValidation }),
+  setValidationPanel: (validationPanelOpen) => set({ validationPanelOpen }),
+  setWorkbookNotesDismissed: (workbookNotesDismissed) => set({ workbookNotesDismissed }),
+  // Toggle a row's "Manually Verified" flag. This is the ONLY workbook write in the feature:
+  // it edits the ledger's Manually Verified cell via the live grid so the surgical (value-diff)
+  // save persists it. We also flip the in-memory flag (so counts/tooltip/highlight update at
+  // once) and live-recolour the flagged data cell green/back. Inert if the ledger has no
+  // Manually Verified column (older workbook).
+  setManualVerified: (issue, checked) => {
+    const st = useApp.getState()
+    const data = st.validationLedger
+    if (!data) return
+    issue.verified = checked // shared ref in cellIssue/sheetIssues/workbookNotes → all reflect it
+    const mvA1 = `${data.mvCell}${issue.ledgerRow + 1}`
+    writeCell(data.ledgerSheetName, mvA1, checked ? 'TRUE' : '')
+    // live recolour the data cell (only while highlighting is shown)
+    if (st.showValidation && issue.cell) {
+      setCellBackground(issue.sheet, issue.cell, VALIDATION_BG[colorOf(issue)])
+    }
+    set({
+      validationLedger: { ...data }, // new top ref → re-render
+      verifyWrites: { ...st.verifyWrites, [`${data.ledgerSheetName}!${mvA1}`]: checked ? 'TRUE' : '' }
+    })
+  },
+  // Navigate to a worksheet cell (used by the validation panel/chips). Mirrors the citation
+  // path: switch to the sheet surface, mark the active sheet, and bump cellSeq so SheetView's
+  // nav effect activates the sheet, selects the cell, and scrolls it into view.
+  selectCell: (sheet, cell) =>
+    set((st) => ({
+      view: 'sheet',
+      activeSheet: sheet,
+      nav: { ...st.nav, cell: { sheet, cell }, cellSeq: st.nav.cellSeq + 1 }
+    })),
   setSheetSources: (sheetSources) => set({ sheetSources: sheetSources ?? {} }),
   // Source the sheet→PDF map from the workbook's embedded `SheetSources` custom property;
   // fall back to reconstructing it from the Source Ledger sheet (older extracted files).
@@ -589,7 +676,8 @@ export const useApp = create<AppState>((set) => ({
       const r = await window.api.reloadSession(s.session.session_id, path)
       set((st) => ({
         workbook: { ...st.workbook, dirty: false, filePath: path },
-        cleanToken: st.cleanToken + 1 // re-baseline the grid's undo depth to "saved"
+        cleanToken: st.cleanToken + 1, // re-baseline the grid's undo depth to "saved"
+        verifyWrites: {} // Manually Verified writes are now persisted in the file
       }))
       window.api.setDirty(false)
       window.api.setLastFile(path)

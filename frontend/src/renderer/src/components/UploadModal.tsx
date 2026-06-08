@@ -754,14 +754,16 @@ function WorkingFileRow({ icon, name, size }: { icon: string; name: string; size
     <div className="flex items-center gap-3 rounded-lg bg-panel2 border border-line px-3 py-2.5">
       <img src={icon} className="w-7 h-7 shrink-0" alt="" />
       <div className="flex-1 min-w-0">
-        <div className="truncate text-sm">{name}</div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="truncate text-sm">{name}</div>
+          {size > 0 && (
+            <span className="shrink-0 text-xs text-muted tabular-nums">{kb(size)}</span>
+          )}
+        </div>
         <div className="relative mt-1.5 h-1.5 rounded-full bg-line/60 overflow-hidden">
           <span className="indeterminate-bar bg-accent" />
         </div>
       </div>
-      {size > 0 && (
-        <span className="shrink-0 text-xs text-muted tabular-nums">{kb(size)}</span>
-      )}
     </div>
   )
 }

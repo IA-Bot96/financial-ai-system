@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createUniver, defaultTheme, LocaleType, merge } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '@univerjs/core'
@@ -7,6 +7,20 @@ import '@univerjs/preset-sheets-core/lib/index.css'
 import { useApp } from '@/store'
 import { toUniverData } from '@/lib/sheetjs'
 import { setSheetApi } from '@/lib/sheetApi'
+import { buildColorMap, type ValidationIssue } from '@/lib/validation'
+import { ValidationCard } from './ValidationTooltip'
+
+/** 0-based row/col → A1 (e.g. 0,2 → "C1"). */
+function rcToA1(row: number, col: number): string {
+  let s = ''
+  let n = col + 1
+  while (n > 0) {
+    const m = (n - 1) % 26
+    s = String.fromCharCode(65 + m) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return `${s}${row + 1}`
+}
 
 // locale module may expose the bundle as default or as the namespace itself
 const sheetsEnUS = (enUSns as { default?: unknown }).default ?? enUSns
@@ -40,23 +54,41 @@ export function SheetView() {
   const setDirty = useApp((s) => s.setDirty)
   const nav = useApp((s) => s.nav)
   const toast = useApp((s) => s.toast)
+  const validationLedger = useApp((s) => s.validationLedger)
+  const validationEnabled = useApp((s) => s.validationEnabled)
+  const showValidation = useApp((s) => s.showValidation)
+  const setManualVerified = useApp((s) => s.setManualVerified)
   const hostRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
   const apiRef = useRef<unknown>(null)
+  const mouse = useRef({ x: 0, y: 0 })
+  // one card surface: `pinned` (click) is interactive; otherwise it follows the cursor (hover)
+  const [tip, setTip] = useState<{ issue: ValidationIssue; x: number; y: number; pinned: boolean } | null>(
+    null
+  )
   // undo-stack depth that corresponds to the last saved/loaded state, and the live depth.
   const baselineUndos = useRef(0)
   const liveUndos = useRef(0)
 
   // include loadSeq so an explicit reload (e.g. Discard) remounts the grid even when the
-  // sheet names are unchanged — otherwise discarded edits would linger in the view.
-  const visibleKey = `${loadSeq}:${sheets.map((s) => s.name).join('|')}`
+  // sheet names are unchanged — otherwise discarded edits would linger in the view. Include
+  // showValidation so toggling the overlay rebuilds the grid with/without the tinted cells.
+  const visibleKey =
+    `${loadSeq}:${validationEnabled ? 1 : 0}${showValidation ? 1 : 0}:${sheets.map((s) => s.name).join('|')}`
 
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
     const visible = sheets // load the whole workbook (all sheets)
+    // render-only validation tints (sheet → A1 → colour); undefined when toggled off / absent.
+    // verified rows resolve to green here (buildColorMap applies the override).
+    const valStyles =
+      validationEnabled && showValidation && validationLedger
+        ? buildColorMap(validationLedger)
+        : undefined
     // empty workbook on first load (no session) so an empty grid shows behind the modal
     const data = visible.length
-      ? toUniverData(visible)
+      ? toUniverData(visible, valStyles)
       : {
           id: 'fie-empty',
           name: 'workbook',
@@ -80,6 +112,27 @@ export function SheetView() {
     univerAPI.createWorkbook(data as never)
     apiRef.current = univerAPI
     setSheetApi(univerAPI)
+
+    // Ensure the Validation Ledger has a "Manually Verified" column so the checkbox can persist.
+    // Written here (before the undo baseline is captured) so merely opening a file isn't marked
+    // dirty; the value-diff save still emits it because the parsed baseline lacks the column.
+    if (validationEnabled && validationLedger?.mvNeedsHeader) {
+      try {
+        ;(
+          univerAPI as unknown as {
+            getActiveWorkbook?: () => {
+              getSheetByName?: (n: string) => { getRange?: (a1: string) => { setValue?: (v: unknown) => void } | null } | null
+            }
+          }
+        )
+          .getActiveWorkbook?.()
+          ?.getSheetByName?.(validationLedger.ledgerSheetName)
+          ?.getRange?.(`${validationLedger.mvCell}1`)
+          ?.setValue?.('Manually Verified')
+      } catch (e) {
+        console.error('[sheet] Manually Verified header write failed', e)
+      }
+    }
 
     // Hard-disable topology-changing commands (see BLOCKED_STRUCTURAL_CMD). Throwing in a
     // before-command listener vetoes the command from EVERY entry point. A throttled toast
@@ -133,13 +186,69 @@ export function SheetView() {
       activeSub = evt.addEvent(evt.Event.ActiveSheetChanged, (params) => {
         const name = params?.activeSheet?.getSheetName?.()
         if (name) useApp.getState().setActiveSheet(name)
+        setTip(null) // a pinned/hover validation card belongs to the old sheet — close it
       })
     } catch (e) {
       // sheet-sync is non-essential; never block the grid from rendering
       console.error('[sheet] active-sheet tracking unavailable', e)
     }
-    // seed the initial active sheet (the event may not fire for the first sheet on mount)
-    if (visible.length) useApp.getState().setActiveSheet(visible[0].name)
+    // seed the initial active sheet (the event may not fire for the first sheet on mount).
+    // Preserve the sheet the user was on across a validation-toggle remount.
+    if (visible.length) {
+      const want = useApp.getState().activeSheet
+      const target = want && visible.some((s) => s.name === want) ? want : visible[0].name
+      if (target !== visible[0].name) {
+        try {
+          ;(
+            univerAPI as unknown as {
+              getActiveWorkbook?: () => { getSheetByName?: (n: string) => { activate?: () => void } | null }
+            }
+          ).getActiveWorkbook?.()?.getSheetByName?.(target)?.activate?.()
+        } catch {
+          /* non-fatal */
+        }
+      }
+      useApp.getState().setActiveSheet(target)
+    }
+
+    // Validation card: HOVER a flagged cell → read-only card following the cursor; CLICK →
+    // pin it (the Manually Verified checkbox becomes live). Guarded so missing events never
+    // block the grid. Position comes from the wrapper's mousemove (no canvas geometry needed).
+    const issueAt = (p: { row?: number; column?: number; worksheet?: { getSheetName?: () => string } }) => {
+      const st = useApp.getState()
+      if (!st.validationLedger || p?.row == null || p?.column == null) return null
+      const sheetName = p.worksheet?.getSheetName?.() ?? st.activeSheet ?? ''
+      return st.validationLedger.cellIssue[sheetName]?.[rcToA1(p.row, p.column)] ?? null
+    }
+    let hoverSub: { dispose: () => void } | null = null
+    let clickSub: { dispose: () => void } | null = null
+    try {
+      const evt = univerAPI as unknown as {
+        Event?: { CellHover?: string; CellClicked?: string }
+        addEvent?: (e: string, cb: (p: never) => void) => { dispose: () => void }
+      }
+      if (evt.Event?.CellHover && evt.addEvent) {
+        hoverSub = evt.addEvent(evt.Event.CellHover, ((p: { row?: number; column?: number; worksheet?: { getSheetName?: () => string } }) => {
+          const st = useApp.getState()
+          if (!st.validationEnabled || !st.showValidation) return
+          setTip((cur) => {
+            if (cur?.pinned) return cur // don't override a pinned (interactive) card
+            const issue = issueAt(p)
+            return issue ? { issue, x: mouse.current.x, y: mouse.current.y, pinned: false } : null
+          })
+        }) as (p: never) => void)
+      }
+      if (evt.Event?.CellClicked && evt.addEvent) {
+        clickSub = evt.addEvent(evt.Event.CellClicked, ((p: { row?: number; column?: number; worksheet?: { getSheetName?: () => string } }) => {
+          const st = useApp.getState()
+          if (!st.validationEnabled || !st.showValidation) return
+          const issue = issueAt(p)
+          setTip(issue ? { issue, x: mouse.current.x, y: mouse.current.y, pinned: true } : null)
+        }) as (p: never) => void)
+      }
+    } catch (e) {
+      console.error('[sheet] cell-hover/click tracking unavailable', e)
+    }
 
     // Selecting a cell highlights its value on the open PDF page (only while the PDF panel
     // is open; debounced so arrow-key roaming doesn't thrash). Citations also flow through
@@ -210,6 +319,26 @@ export function SheetView() {
       console.error('[sheet] undo/redo dirty tracking unavailable', e)
     }
 
+    // Replay any unsaved "Manually Verified" writes so they survive a highlight-toggle remount.
+    // Done AFTER the undo baseline is captured so the replayed edits correctly read as dirty.
+    const pending = useApp.getState().verifyWrites
+    if (Object.keys(pending).length) {
+      try {
+        const wb = (univerAPI as unknown as {
+          getActiveWorkbook?: () => {
+            getSheetByName?: (n: string) => { getRange?: (a1: string) => { setValue?: (v: unknown) => void } | null } | null
+          }
+        }).getActiveWorkbook?.()
+        for (const [key, val] of Object.entries(pending)) {
+          const bang = key.indexOf('!')
+          if (bang < 0) continue
+          wb?.getSheetByName?.(key.slice(0, bang))?.getRange?.(key.slice(bang + 1))?.setValue?.(val)
+        }
+      } catch (e) {
+        console.error('[sheet] verify replay failed', e)
+      }
+    }
+
     return () => {
       apiRef.current = null
       setSheetApi(null)
@@ -231,6 +360,12 @@ export function SheetView() {
       try {
         if (selTimer) clearTimeout(selTimer)
         selSub?.dispose()
+      } catch {
+        /* noop */
+      }
+      try {
+        hoverSub?.dispose()
+        clickSub?.dispose()
       } catch {
         /* noop */
       }
@@ -294,5 +429,51 @@ export function SheetView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nav.cell?.sheet, nav.cell?.cell, nav.cellSeq])
 
-  return <div ref={hostRef} className="h-full w-full" />
+  // close a pinned validation card on Escape or a click outside the grid (grid clicks are
+  // handled by CellClicked, which re-pins on a flagged cell or clears otherwise)
+  useEffect(() => {
+    if (!tip?.pinned) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setTip(null)
+    }
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setTip(null)
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onDown)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onDown)
+    }
+  }, [tip?.pinned])
+
+  // Univer manages its own DOM inside `hostRef`; the validation card is a React sibling under
+  // the relative wrapper (React never touches hostRef's children, so no unmount race).
+  const b = wrapRef.current?.getBoundingClientRect()
+  const cx = tip ? Math.max(4, Math.min(tip.x + 14, (b?.width ?? 4000) - 340)) : 0
+  const cy = tip ? Math.max(4, Math.min(tip.y + 14, (b?.height ?? 4000) - 180)) : 0
+  return (
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full"
+      onMouseMove={(e) => {
+        const r = wrapRef.current?.getBoundingClientRect()
+        mouse.current = { x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) }
+        setTip((cur) => (cur && !cur.pinned ? { ...cur, x: mouse.current.x, y: mouse.current.y } : cur))
+      }}
+      onMouseLeave={() => setTip((cur) => (cur && !cur.pinned ? null : cur))}
+    >
+      <div ref={hostRef} className="h-full w-full" />
+      {tip && (
+        <ValidationCard
+          issue={tip.issue}
+          x={cx}
+          y={cy}
+          interactive={tip.pinned}
+          mvAvailable={!!validationLedger?.mvCell}
+          onVerify={(checked) => setManualVerified(tip.issue, checked)}
+        />
+      )}
+    </div>
+  )
 }

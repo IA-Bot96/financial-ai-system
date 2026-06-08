@@ -12,6 +12,7 @@ import { SettingsModal } from '@/components/SettingsModal'
 import { ConfirmDiscardModal } from '@/components/ConfirmDiscardModal'
 import { SaveBar } from '@/components/SaveBar'
 import { SheetToolbar } from '@/components/SheetToolbar'
+import { ValidationBar } from '@/components/ValidationBar'
 import { SheetView } from '@/components/SheetView'
 import { AskAI } from '@/components/AskAI'
 import { PdfPanel } from '@/components/PdfPanel'
@@ -85,6 +86,8 @@ export default function App() {
 
       {/* full-width top bar — spans above the rails so they start beneath it */}
       {session && view === 'sheet' && <SheetToolbar />}
+      {/* read-only validation overlay controls (only when the workbook carries a ledger) */}
+      {session && view === 'sheet' && <ValidationBar />}
 
       <div className="flex-1 flex min-h-0">
         <LeftRail />

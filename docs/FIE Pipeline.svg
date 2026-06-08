@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="2884" viewBox="0 0 1340 2884" font-family="Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+<defs><filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="3" stdDeviation="5" flood-color="#0f172a" flood-opacity="0.10"/></filter><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/></marker></defs>
+<rect width="1340" height="2884" fill="#f1f5f9"/>
+<text x="670" y="56" text-anchor="middle" font-size="30" font-weight="700" fill="#0f172a">Financial Intelligence Engine (FIE) &#8212; Question to Answer</text>
+<text x="670" y="86" text-anchor="middle" font-size="15" fill="#475569">How a loaded workbook and a natural-language question become a cited, confidence-rated answer</text>
+<rect x="370" y="108" width="16" height="16" rx="4" fill="#0d9488"/>
+<text x="394" y="121" font-size="13" fill="#475569">Rule-Based</text>
+<rect x="570" y="108" width="16" height="16" rx="4" fill="#d97706"/>
+<text x="594" y="121" font-size="13" fill="#475569">Hybrid · LLM + Rule</text>
+<rect x="810" y="108" width="16" height="16" rx="4" fill="#7c3aed"/>
+<text x="834" y="121" font-size="13" fill="#475569">LLM (GPT)</text>
+<rect x="400" y="164" width="540" height="80" rx="14" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5" filter="url(#sh)"/>
+<text x="670" y="195" text-anchor="middle" font-size="17" font-weight="700" fill="#1e3a8a">INPUT &#8212; Workbook session (.xlsx)  +  a question</text>
+<text x="670" y="219" text-anchor="middle" font-size="12.5" fill="#1d4ed8">workbook loads once (Layer 1); each question runs Layers 2&#8211;8</text>
+<line x1="670" y1="244" x2="670" y2="330" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="606" y="274" width="128" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="292" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">.xlsx workbook</text>
+<rect x="190" y="330" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="330" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="370" r="19" fill="#0d9488"/>
+<text x="232" y="377" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">1</text>
+<text x="264" y="367" font-size="20" font-weight="700" fill="#0f172a">Session Ingest</text>
+<text x="264" y="392" font-size="13.5" fill="#475569">Parse the uploaded workbook once into a queryable fact store.</text>
+<rect x="1032" y="352" width="98" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1081" y="369" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based</text>
+<line x1="214" y1="408" x2="1128" y2="408" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="424" x2="452" y2="526" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="424" x2="886" y2="526" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="434" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="444" width="111" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="460" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">.xlsx workbook</text>
+<text x="470" y="434" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="454" r="2.4" fill="#0d9488"/>
+<text x="484" y="458" font-size="12.7" fill="#0f172a">Excel → long-format facts (statement, year, value, cell)</text>
+<circle cx="473" cy="476" r="2.4" fill="#0d9488"/>
+<text x="484" y="480" font-size="12.7" fill="#0f172a">Classify each sheet (statement / detail / ledger / insights)</text>
+<circle cx="473" cy="498" r="2.4" fill="#0d9488"/>
+<text x="484" y="502" font-size="12.7" fill="#0f172a">Read source &amp; validation ledgers → per-fact provenance</text>
+<text x="902" y="434" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="444" width="145" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="460" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">FactStore + metrics</text>
+<line x1="670" y1="542" x2="670" y2="628" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="589" y="572" width="163" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="590" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">FactStore + metrics</text>
+<rect x="190" y="628" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="628" width="9" height="212" rx="4" fill="#d97706"/>
+<circle cx="232" cy="668" r="19" fill="#d97706"/>
+<text x="232" y="675" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">2</text>
+<text x="264" y="665" font-size="20" font-weight="700" fill="#0f172a">Query Understanding</text>
+<text x="264" y="690" font-size="13.5" fill="#475569">Turn the natural-language question into a structured intent.</text>
+<rect x="1025" y="650" width="105" height="26" rx="13" fill="#fef3c7"/>
+<text x="1077" y="667" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">Rules + LLM</text>
+<line x1="214" y1="706" x2="1128" y2="706" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="722" x2="452" y2="824" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="722" x2="886" y2="824" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="732" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="742" width="138" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="758" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Question + history</text>
+<text x="470" y="732" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="752" r="2.4" fill="#d97706"/>
+<text x="484" y="756" font-size="12.7" fill="#0f172a">Rules extract intent, metric(s), year, formula, company</text>
+<circle cx="473" cy="774" r="2.4" fill="#d97706"/>
+<text x="484" y="778" font-size="12.7" fill="#0f172a">Ontology maps query terms → canonical metrics (aliases)</text>
+<circle cx="473" cy="796" r="2.4" fill="#d97706"/>
+<text x="484" y="800" font-size="12.7" fill="#0f172a">LLM resolves follow-ups ("and 2024?") from chat history</text>
+<text x="902" y="732" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="742" width="85" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="758" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">QueryFrame</text>
+<line x1="670" y1="840" x2="670" y2="926" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="620" y="870" width="100" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="888" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">QueryFrame</text>
+<rect x="190" y="926" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="926" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="966" r="19" fill="#0d9488"/>
+<text x="232" y="973" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">3</text>
+<text x="264" y="963" font-size="20" font-weight="700" fill="#0f172a">Planning &amp; Source Routing</text>
+<text x="264" y="988" font-size="13.5" fill="#475569">Decide which sources to consult for this intent.</text>
+<rect x="1032" y="948" width="98" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1081" y="965" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based</text>
+<line x1="214" y1="1004" x2="1128" y2="1004" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1020" x2="452" y2="1122" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1020" x2="886" y2="1122" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1030" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1040" width="85" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1056" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">QueryFrame</text>
+<text x="470" y="1030" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1050" r="2.4" fill="#0d9488"/>
+<text x="484" y="1054" font-size="12.7" fill="#0f172a">Route to workbook (internal) and/or external APIs</text>
+<circle cx="473" cy="1072" r="2.4" fill="#0d9488"/>
+<text x="484" y="1076" font-size="12.7" fill="#0f172a">Pick sources by intent (news, PSX, dividends, forecasts…)</text>
+<circle cx="473" cy="1094" r="2.4" fill="#0d9488"/>
+<text x="484" y="1098" font-size="12.7" fill="#0f172a">Shortlist relevant APIs from the registry; budget-capped</text>
+<text x="902" y="1030" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1040" width="85" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1056" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">SourcePlan</text>
+<line x1="670" y1="1138" x2="670" y2="1224" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="620" y="1168" width="100" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="1186" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">SourcePlan</text>
+<rect x="190" y="1224" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="1224" width="9" height="212" rx="4" fill="#d97706"/>
+<circle cx="232" cy="1264" r="19" fill="#d97706"/>
+<text x="232" y="1271" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">4</text>
+<text x="264" y="1261" font-size="20" font-weight="700" fill="#0f172a">Retrieval — Internal + External</text>
+<text x="264" y="1286" font-size="13.5" fill="#475569">Gather cited evidence from the workbook and the web.</text>
+<rect x="996" y="1246" width="134" height="26" rx="13" fill="#fef3c7"/>
+<text x="1063" y="1263" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">Workbook + APIs</text>
+<line x1="214" y1="1302" x2="1128" y2="1302" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1318" x2="452" y2="1420" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1318" x2="886" y2="1420" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1328" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1338" width="85" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1354" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">SourcePlan</text>
+<text x="470" y="1328" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1348" r="2.4" fill="#d97706"/>
+<text x="484" y="1352" font-size="12.7" fill="#0f172a">Workbook lookup → facts with citations (cell / page)</text>
+<circle cx="473" cy="1370" r="2.4" fill="#d97706"/>
+<text x="484" y="1374" font-size="12.7" fill="#0f172a">External APIs: news, PSX prices, dividends, forecasts</text>
+<circle cx="473" cy="1392" r="2.4" fill="#d97706"/>
+<text x="484" y="1396" font-size="12.7" fill="#0f172a">Resilient HTTP: retry · circuit-breaker · cache · SSRF guard</text>
+<text x="902" y="1328" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1338" width="111" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1354" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">EvidenceItem[]</text>
+<line x1="670" y1="1436" x2="670" y2="1522" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="606" y="1466" width="128" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="1484" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">EvidenceItem[]</text>
+<rect x="190" y="1522" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="1522" width="9" height="212" rx="4" fill="#d97706"/>
+<circle cx="232" cy="1562" r="19" fill="#d97706"/>
+<text x="232" y="1569" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">5</text>
+<text x="264" y="1559" font-size="20" font-weight="700" fill="#0f172a">Calculation &amp; Intent Handlers</text>
+<text x="264" y="1584" font-size="13.5" fill="#475569">Compute ratios and run the intent-specific handler.</text>
+<rect x="989" y="1544" width="141" height="26" rx="13" fill="#fef3c7"/>
+<text x="1059" y="1561" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">Rule + LLM agent</text>
+<line x1="214" y1="1600" x2="1128" y2="1600" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1616" x2="452" y2="1718" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1616" x2="886" y2="1718" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1626" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1636" width="125" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1652" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Frame + Evidence</text>
+<text x="470" y="1626" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1646" r="2.4" fill="#d97706"/>
+<text x="484" y="1650" font-size="12.7" fill="#0f172a">Formula engine: ratios, margins, growth, EBITDA, FCF…</text>
+<circle cx="473" cy="1668" r="2.4" fill="#d97706"/>
+<text x="484" y="1672" font-size="12.7" fill="#0f172a">13 intent handlers (lookup, ratio, trend, overview, risk…)</text>
+<circle cx="473" cy="1690" r="2.4" fill="#d97706"/>
+<text x="484" y="1694" font-size="12.7" fill="#0f172a">LLM agent tool-composer when intent unknown / no facts</text>
+<text x="902" y="1626" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1636" width="91" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1652" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Calcs + ctx</text>
+<line x1="670" y1="1734" x2="670" y2="1820" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="617" y="1764" width="107" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="1782" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">Calcs + ctx</text>
+<rect x="190" y="1820" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="1820" width="9" height="212" rx="4" fill="#d97706"/>
+<circle cx="232" cy="1860" r="19" fill="#d97706"/>
+<text x="232" y="1867" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">6</text>
+<text x="264" y="1857" font-size="20" font-weight="700" fill="#0f172a">Evidence Trust &amp; Conflicts</text>
+<text x="264" y="1882" font-size="13.5" fill="#475569">Rank, role-tag, and reconcile the evidence.</text>
+<rect x="982" y="1842" width="148" height="26" rx="13" fill="#fef3c7"/>
+<text x="1056" y="1859" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">Rule + Embeddings</text>
+<line x1="214" y1="1898" x2="1128" y2="1898" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="1914" x2="452" y2="2016" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="1914" x2="886" y2="2016" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="1924" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="1934" width="91" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="1950" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Calcs + ctx</text>
+<text x="470" y="1924" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="1944" r="2.4" fill="#d97706"/>
+<text x="484" y="1948" font-size="12.7" fill="#0f172a">News: chunk → embed (BGE) → rank vs query → dedup</text>
+<circle cx="473" cy="1966" r="2.4" fill="#d97706"/>
+<text x="484" y="1970" font-size="12.7" fill="#0f172a">Admission: tag each item baseline / supporting / forecast…</text>
+<circle cx="473" cy="1988" r="2.4" fill="#d97706"/>
+<text x="484" y="1992" font-size="12.7" fill="#0f172a">Conflict detection + authority matrix (internal &gt; external)</text>
+<text x="902" y="1924" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="1934" width="192" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="1950" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Roled evidence + Conflicts</text>
+<line x1="670" y1="2032" x2="670" y2="2118" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="564" y="2062" width="212" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="2080" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">Roled evidence + Conflicts</text>
+<rect x="190" y="2118" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="2118" width="9" height="212" rx="4" fill="#d97706"/>
+<circle cx="232" cy="2158" r="19" fill="#d97706"/>
+<text x="232" y="2165" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">7</text>
+<text x="264" y="2155" font-size="20" font-weight="700" fill="#0f172a">Confidence &amp; Response</text>
+<text x="264" y="2180" font-size="13.5" fill="#475569">Score the answer, then render it with citations.</text>
+<rect x="1004" y="2140" width="126" height="26" rx="13" fill="#fef3c7"/>
+<text x="1067" y="2157" text-anchor="middle" font-size="12.5" font-weight="600" fill="#b45309">Template + LLM</text>
+<line x1="214" y1="2196" x2="1128" y2="2196" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="2212" x2="452" y2="2314" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="2212" x2="886" y2="2314" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="2222" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="2232" width="192" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="2248" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Roled evidence + Conflicts</text>
+<text x="470" y="2222" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="2242" r="2.4" fill="#d97706"/>
+<text x="484" y="2246" font-size="12.7" fill="#0f172a">Confidence: weakest-link score → High / Medium / Low</text>
+<circle cx="473" cy="2264" r="2.4" fill="#d97706"/>
+<text x="484" y="2268" font-size="12.7" fill="#0f172a">7-section answer; every finding must carry a citation [Cn]</text>
+<circle cx="473" cy="2286" r="2.4" fill="#d97706"/>
+<text x="484" y="2290" font-size="12.7" fill="#0f172a">LLM narration over the reasoning graph (numeric-guarded)</text>
+<text x="902" y="2222" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="2232" width="71" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="2248" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Response</text>
+<line x1="670" y1="2330" x2="670" y2="2416" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="627" y="2360" width="86" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="2378" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">Response</text>
+<rect x="190" y="2416" width="960" height="212" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5" filter="url(#sh)"/>
+<rect x="190" y="2416" width="9" height="212" rx="4" fill="#0d9488"/>
+<circle cx="232" cy="2456" r="19" fill="#0d9488"/>
+<text x="232" y="2463" text-anchor="middle" font-size="19" font-weight="700" fill="#ffffff">8</text>
+<text x="264" y="2453" font-size="20" font-weight="700" fill="#0f172a">Trace &amp; Answer</text>
+<text x="264" y="2478" font-size="13.5" fill="#475569">Persist the reasoning trail and return the answer.</text>
+<rect x="1032" y="2438" width="98" height="26" rx="13" fill="#ccfbf1"/>
+<text x="1081" y="2455" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f766e">Rule-Based</text>
+<line x1="214" y1="2494" x2="1128" y2="2494" stroke="#e2e8f0" stroke-width="1.2"/>
+<line x1="452" y1="2510" x2="452" y2="2612" stroke="#e2e8f0" stroke-width="1"/>
+<line x1="886" y1="2510" x2="886" y2="2612" stroke="#e2e8f0" stroke-width="1"/>
+<text x="220" y="2520" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INPUT</text>
+<rect x="220" y="2530" width="152" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="229" y="2546" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Response + artifacts</text>
+<text x="470" y="2520" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">INTERNAL</text>
+<circle cx="473" cy="2540" r="2.4" fill="#0d9488"/>
+<text x="484" y="2544" font-size="12.7" fill="#0f172a">Persist TraceRecord (frame, plan, evidence, response)</text>
+<circle cx="473" cy="2562" r="2.4" fill="#0d9488"/>
+<text x="484" y="2566" font-size="12.7" fill="#0f172a">Return: direct answer · findings · analysis · confidence</text>
+<circle cx="473" cy="2584" r="2.4" fill="#0d9488"/>
+<text x="484" y="2588" font-size="12.7" fill="#0f172a">Echo the frame so the next follow-up has context</text>
+<text x="902" y="2520" font-size="10.5" font-weight="700" letter-spacing="1.2" fill="#94a3b8">OUTPUT</text>
+<rect x="902" y="2530" width="145" height="24" rx="6" fill="#f1f5f9" stroke="#e2e8f0" stroke-width="1"/>
+<text x="911" y="2546" font-size="12.3" font-family="Consolas, 'Courier New', monospace" fill="#0f172a">Answer + trace.json</text>
+<line x1="670" y1="2628" x2="670" y2="2714" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+<rect x="582" y="2658" width="177" height="26" rx="13" fill="#1e293b"/>
+<text x="670" y="2676" text-anchor="middle" font-size="12.5" font-family="Consolas, 'Courier New', monospace" fill="#e2e8f0">Answer  +  trace.json</text>
+<rect x="390" y="2714" width="560" height="104" rx="14" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5" filter="url(#sh)"/>
+<text x="670" y="2744" text-anchor="middle" font-size="17" font-weight="700" fill="#14532d">OUTPUT &#8212; Cited answer</text>
+<text x="670" y="2768" text-anchor="middle" font-size="12.5" fill="#15803d">direct answer · key findings [with citations] · supporting analysis · calculations</text>
+<text x="670" y="2788" text-anchor="middle" font-size="12.5" fill="#15803d">confidence band (High / Med / Low) · exposed conflicts · coverage</text>
+<text x="670" y="2807" text-anchor="middle" font-size="12" fill="#166534">sidecar trace.json: full reasoning trail (frame · plan · evidence · response)</text>
+<text x="670" y="2854" text-anchor="middle" font-size="12.5" fill="#94a3b8">Cross-cutting&#160;&#160;·&#160;&#160;conversation memory (follow-ups)&#160;&#160;·&#160;&#160;citation enforcement&#160;&#160;·&#160;&#160;contract checks (bootcheck)&#160;&#160;·&#160;&#160;degradation handling&#160;&#160;·&#160;&#160;reasoning trace</text>
+</svg>

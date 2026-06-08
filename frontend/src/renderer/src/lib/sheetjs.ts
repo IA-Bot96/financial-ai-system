@@ -323,12 +323,24 @@ export async function parseWorkbook(buf: ArrayBuffer, meta: SheetMeta[]): Promis
   }
 }
 
-/** Build a Univer IWorkbookData object (deduped styles registry + merges + col widths). */
-export function toUniverData(sheets: ParsedSheet[]): Record<string, unknown> {
+/**
+ * Build a Univer IWorkbookData object (deduped styles registry + merges + col widths).
+ *
+ * `validationCellSeverity` (optional) is a render-only overlay: sheet name → A1 coord →
+ * severity. Matching cells get a background tint merged into their style. This is purely
+ * decorative — the surgical save is value-only (see saveDiff.ts), so these styles are never
+ * written back. Toggling the overlay rebuilds this data; nothing mutates the workbook.
+ */
+export function toUniverData(
+  sheets: ParsedSheet[],
+  validationColors?: Record<string, Record<string, 'error' | 'warning' | 'minor' | 'verified'>>
+): Record<string, unknown> {
   const sheetOrder: string[] = []
   const sheetMap: Record<string, unknown> = {}
   const styles: Record<string, unknown> = {}
   const styleIds = new Map<string, string>()
+  // soft tints (kept in sync with validation.ts VALIDATION_BG)
+  const VBG = { error: '#FEE2E2', warning: '#FEF3C7', minor: '#F1F5F9', verified: '#DCFCE7' } as const
 
   const styleId = (st: Record<string, unknown>): string => {
     const key = JSON.stringify(st)
@@ -344,6 +356,15 @@ export function toUniverData(sheets: ParsedSheet[]): Record<string, unknown> {
   sheets.forEach((s, i) => {
     const id = `sheet-${i}`
     sheetOrder.push(id)
+    // pre-index this sheet's validation coords as "row,col" → colour key
+    const sevByRC = new Map<string, 'error' | 'warning' | 'minor' | 'verified'>()
+    const sevMap = validationColors?.[s.name]
+    if (sevMap) {
+      for (const a1 in sevMap) {
+        const m = A1.exec(a1.toUpperCase())
+        if (m) sevByRC.set(`${Number(m[2]) - 1},${colToIdx(m[1])}`, sevMap[a1])
+      }
+    }
     const cellData: Record<number, Record<number, { v?: CellVal; f?: string; s?: string }>> = {}
     for (const r in s.cellData) {
       for (const c in s.cellData[r]) {
@@ -351,9 +372,17 @@ export function toUniverData(sheets: ParsedSheet[]): Record<string, unknown> {
         const conv: { v?: CellVal; f?: string; s?: string } = {}
         if (cell.v !== undefined) conv.v = cell.v
         if (cell.f) conv.f = cell.f // Univer's formula engine recalculates this on load
-        if (cell.st) conv.s = styleId(cell.st)
+        const sev = sevByRC.get(`${r},${c}`)
+        const st = sev ? { ...(cell.st ?? {}), bg: { rgb: VBG[sev] } } : cell.st
+        if (st) conv.s = styleId(st)
         ;(cellData[Number(r)] ||= {})[Number(c)] = conv
       }
+    }
+    // validation coords that point at an empty (uncreated) cell still get a tinted cell
+    for (const [rc, sev] of sevByRC) {
+      const [rr, cc] = rc.split(',').map(Number)
+      if (cellData[rr]?.[cc]) continue
+      ;(cellData[rr] ||= {})[cc] = { s: styleId({ bg: { rgb: VBG[sev] } }) }
     }
     const columnData: Record<number, { w: number }> = {}
     for (const c in s.colWidth) columnData[Number(c)] = { w: s.colWidth[c] }
