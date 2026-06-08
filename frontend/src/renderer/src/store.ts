@@ -183,6 +183,21 @@ function sourcePagesFor(
   return [...pages].sort((a, b) => a - b)
 }
 
+/** Highest 4-digit year (19xx/20xx) in a path's filename, or -Infinity if none. */
+function pdfYear(path: string): number {
+  const name = path.replace(/\\/g, '/').split('/').pop() ?? ''
+  const years = name.match(/(?:19|20)\d{2}/g)
+  return years ? Math.max(...years.map(Number)) : -Infinity
+}
+
+/** Filename of the latest-year PDF among the given paths (falls back to the first). */
+function latestPdfFile(paths: string[]): string | null {
+  if (!paths.length) return null
+  let best = paths[0]
+  for (const p of paths) if (pdfYear(p) > pdfYear(best)) best = p
+  return best.replace(/\\/g, '/').split('/').pop() ?? null
+}
+
 /** Read a cell's value (as a string) from a parsed sheet by A1 reference, e.g. "C30". */
 function cellValueAt(sheets: ParsedSheet[], sheetName: string, a1: string): string | null {
   const m = /^([A-Za-z]+)(\d+)$/.exec(a1.trim())
@@ -452,7 +467,9 @@ export const useApp = create<AppState>((set) => ({
       }
     }))
   },
-  setPdfPaths: (paths) => set({ pdfPaths: paths }),
+  // Default the viewer to the LATEST-year PDF (not the first uploaded). Seeding activePdf
+  // here also makes sheet-sync prefer the latest doc (pickSourceEntry favours activePdf).
+  setPdfPaths: (paths) => set({ pdfPaths: paths, activePdf: latestPdfFile(paths) }),
   setValidation: (validation) => set({ validation }),
   setSheetSources: (sheetSources) => set({ sheetSources: sheetSources ?? {} }),
   // Source the sheet→PDF map from the workbook's embedded `SheetSources` custom property;

@@ -14,6 +14,19 @@ const basename = (p: string) => p.replace(/\\/g, '/').split('/').pop() || p
 // render pages this far (px) outside the viewport so they're ready before scrolled to
 const MOUNT_MARGIN = '1200px 0px'
 
+/** Index of the latest-year PDF (19xx/20xx in the filename) — default to showing newest. */
+function latestPdfIndex(paths: string[]): number {
+  const year = (p: string) => {
+    const ys = basename(p).match(/(?:19|20)\d{2}/g)
+    return ys ? Math.max(...ys.map(Number)) : -Infinity
+  }
+  let best = 0
+  paths.forEach((p, i) => {
+    if (year(p) > year(paths[best])) best = i
+  })
+  return best
+}
+
 const escapeHtml = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -27,7 +40,7 @@ type PdfDoc = {
 
 export function PdfPanel() {
   const { pdfPaths, nav, toast } = useApp()
-  const [active, setActive] = useState(0)
+  const [active, setActive] = useState(() => latestPdfIndex(pdfPaths))
   const [data, setData] = useState<Uint8Array | null>(null)
   const [numPages, setNumPages] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
@@ -97,6 +110,16 @@ export function PdfPanel() {
       cancelled = true
     }
   }, [pdfPaths, active])
+
+  // when the set of PDFs changes (new workbook / attached files), default to the latest year
+  const pathsKey = pdfPaths.join('|')
+  const prevPathsKey = useRef(pathsKey)
+  useEffect(() => {
+    if (prevPathsKey.current === pathsKey) return
+    prevPathsKey.current = pathsKey
+    setActive(latestPdfIndex(pdfPaths))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathsKey])
 
   // report the open PDF up to the store so sheet-sync can prefer it (keeps the user in
   // the document they're reading when switching sheets, and re-aligns when they switch PDFs)
