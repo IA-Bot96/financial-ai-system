@@ -198,61 +198,91 @@ _ADHOC_METRIC_RE = re.compile(
 _PCT_OF_RE = re.compile(
     r"\b(percent(age)?|share|fraction|proportion)\s+of\b|%\s*of\b|\bas a (?:%|percent\w*|share)\b", re.I)
 
-# A follow-up that is JUST a number/percentage ("1000%?", "25%", "and 5%") — an ASSUMPTION
-# swap on the immediately-preceding forecast/projection question.
+# A follow-up that is JUST a number/percentage/year ("1000%?", "25%", "2025?", "23?") — a
+# YEAR or ASSUMPTION swap on the immediately-preceding forecast/projection/calc question.
 _FOLLOWUP_NUM_RE = re.compile(
-    r"^(?:what about|how about|and|or|try|with|using)?\s*[-+]?\d[\d,]*(?:\.\d+)?\s*%?\s*\??$", re.I)
+    r"^(?:what about|how about|and|or|try|with|using|in|for)?\s*[-+]?\d[\d,]*(?:\.\d+)?\s*%?\s*\??$", re.I)
 
 
-def _last_forecast_context(history):
-    """If the MOST RECENT prior question was a forecast/projection, return (its resolved frame
-    dict, the user text that produced it); else (None, None). A bare-number follow-up only
-    applies to an immediately-preceding forecast/projection — not an older one."""
+def _last_followup_context(history):
+    """If the MOST RECENT prior question was a forecast/projection/ad-hoc calc, return its
+    RESOLVED frame dict (carries the expanded raw_query, so chained follow-ups keep context);
+    else None. A bare follow-up only applies to the immediately-preceding such question."""
     for i in range(len(history) - 1, -1, -1):
         turn = history[i] or {}
         if turn.get("role") == "assistant" and isinstance(turn.get("frame"), dict):
             fr = turn["frame"]
-            if fr.get("intent") in ("forecast_validation", "agent"):
-                prev = history[i - 1] if i > 0 else {}
-                return fr, ((prev or {}).get("text") or "" if (prev or {}).get("role") == "user" else "")
-            return None, None   # most recent question wasn't a forecast/projection
-    return None, None
+            return fr if fr.get("intent") in ("forecast_validation", "agent") else None
+    return None
 
 
-def _swap_assumption(prior_user: str, followup: str) -> str:
+def _swap_assumption(basis: str, followup: str) -> str:
     """Rebuild the prior question with its percentage replaced by the follow-up's number."""
     nm = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", followup or "")
     if not nm:
-        return prior_user or followup
+        return basis or followup
     new_pct = nm.group(0).replace(",", "") + "%"
-    if not prior_user:
+    if not basis:
         return f"assume {new_pct} growth"
-    swapped, n = re.subn(r"[-+]?\d[\d,]*(?:\.\d+)?\s*%", new_pct, prior_user, count=1)
-    return swapped if n else f"{prior_user} (assume {new_pct})"
+    swapped, n = re.subn(r"[-+]?\d[\d,]*(?:\.\d+)?\s*%", new_pct, basis, count=1)
+    return swapped if n else f"{basis} (assume {new_pct})"
 
 
-def _resolve_followup_assumption(result, query, history):
-    """Resolve a bare number/percentage follow-up ('1000%?') that follows a forecast/projection:
-    carry that question's intent + metric(s) and rewrite the query with the new assumption, so it
-    re-runs instead of collapsing to a clarification."""
+def _swap_year(basis: str, yr: int) -> str:
+    """Rebuild the prior question with its (first) 4-digit year replaced by yr."""
+    if not basis:
+        return f"for {yr}"
+    swapped, n = re.subn(r"\b(?:19|20)\d{2}\b", str(yr), basis, count=1)
+    return swapped if n else f"{basis} for {yr}"
+
+
+def _resolve_followup(result, query, history, available_years=None):
+    """Resolve a bare follow-up that is just a YEAR ('2025?', '23?') or an ASSUMPTION ('1000%?',
+    '25%') after a forecast/projection/calc: re-run THAT question with the year or assumption
+    swapped (against its resolved query, so chains keep context) instead of losing it. Works even
+    when the LLM left it unresolved."""
     q = (query or "").strip()
     if not (history and _FOLLOWUP_NUM_RE.match(q)):
         return result
-    prior, prior_user = _last_forecast_context(history)
+    prior = _last_followup_context(history)
     if not prior:
         return result
+    basis = prior.get("raw_query") or ""   # the RESOLVED prior question (carries context)
+    nm = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", q)
+    if not nm:
+        return result
     try:
-        return result.model_copy(update={
-            "raw_query": _swap_assumption(prior_user, q),
-            "intent": (result.intent if result.intent in ("forecast_validation", "agent")
-                       else prior.get("intent")),
+        v = float(nm.group(0).replace(",", ""))
+    except ValueError:
+        return result
+    is_pct = "%" in q
+    prior_has_pct = "%" in basis
+    years = set(available_years or [])
+    # YEAR follow-up: an explicit 4-digit year, OR a 2-digit available year when the prior
+    # question carried NO percentage (a calc like ROIC — a bare number means "for that year").
+    yr = None
+    if not is_pct:
+        if v.is_integer() and 1900 <= v <= 2100:
+            yr = int(v)
+        elif v.is_integer() and 0 <= v <= 99 and not prior_has_pct:
+            cand = 2000 + int(v)
+            if not years or cand in years:
+                yr = cand
+    try:
+        carried_intent = (result.intent if result.intent in ("forecast_validation", "agent")
+                          else prior.get("intent"))
+        common = {
+            "intent": carried_intent,
             "metrics": result.metrics or prior.get("metrics") or [],
-            "year": result.year or prior.get("year"),
             "formula": result.formula or prior.get("formula"),
             "source": "llm",
-        })
+        }
+        if yr is not None:
+            return result.model_copy(update={**common, "raw_query": _swap_year(basis, yr), "year": yr})
+        return result.model_copy(update={**common, "raw_query": _swap_assumption(basis, q),
+                                         "year": result.year or prior.get("year")})
     except Exception as exc:  # noqa: BLE001
-        _log.warning("fie follow-up assumption resolve failed: %s", exc, extra={"component": "Understand"})
+        _log.warning("fie follow-up resolve failed: %s", exc, extra={"component": "Understand"})
         return result
 
 
@@ -855,10 +885,10 @@ def understand(
                    extra={"component": "Understand"})
         result = frame
 
-    # Deterministic backstop: a bare number/percentage follow-up ('1000%?') after a
-    # forecast/projection re-runs that question with the new assumption (works even if the
-    # LLM left it unresolved).
-    result = _resolve_followup_assumption(result, query, history)
+    # Deterministic backstop: a bare follow-up that is just a year ('2025?') or an assumption
+    # ('1000%?') after a forecast/projection/calc re-runs that question with the year/assumption
+    # swapped (works even if the LLM left it unresolved).
+    result = _resolve_followup(result, query, history, available_years)
     _log.info(
         "fie understand final: intent=%r year=%s metrics=%s formula=%r source=%r",
         result.intent, result.year, result.metrics, result.formula, result.source,
