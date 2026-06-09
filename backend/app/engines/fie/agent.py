@@ -64,9 +64,10 @@ _AGENT_SYS = (
     "undervalued'), call market_data — prefer its REPORTED P/E; combine its price with workbook "
     "fundamentals (EPS, equity, dividends) via compute_expr for yield / EV / P/B. "
     "(4c) For FORWARD PROJECTION questions ('project/estimate revenue for 2026', 'what will X be "
-    "next year'), call project. ALWAYS present the result as a SCENARIO under the stated growth "
-    "assumption and give the low/base/high range — NEVER state a projection as a fact or "
-    "certainty. "
+    "next year'), call project(metric, to_year, growth) — pass the user's rate as `growth` "
+    "(e.g. growth=0.1 or growth=10 for 10%); omit it to use the historical trend. ALWAYS present "
+    "the result as a SCENARIO under the stated growth assumption and give the low/base/high range "
+    "— NEVER state a projection as a fact or certainty. "
     "(5) Keep going until you can answer, then return action='final'. Respond ONLY as JSON "
     "matching the schema: to call a tool use {action:'call', tool, args, thought}; to finish "
     "use {action:'final', answer, findings} where findings is a short list of the key "
@@ -446,11 +447,16 @@ def _t_project(engine, frame, ctx, args):
     cagr = (vN / v0) ** (1 / n) - 1 if (v0 > 0 and vN > 0 and n > 0) else None
     yoys = [series[i][1] / series[i - 1][1] - 1 for i in range(1, len(series)) if series[i - 1][1]]
     avg_yoy = sum(yoys) / len(yoys) if yoys else None
-    user_g = args.get("growth")
+    # Accept the user's growth rate under any of the names a model might choose (it is NOT
+    # always "growth") — otherwise the explicit assumption is silently dropped and the tool
+    # falls back to the historical CAGR (e.g. a "10% growth" request projected at 4.35%).
+    user_g = next((args[k] for k in ("growth", "growth_assumption", "growth_rate", "growth_pct",
+                                     "growth_percent", "rate", "pct", "assumed_growth")
+                   if args.get(k) is not None), None)
     if user_g is not None:
         try:
-            base_g = float(user_g)
-            if abs(base_g) > 1:           # accept "10" as 10%
+            base_g = float(str(user_g).strip().rstrip("%").strip())   # tolerate "10", "10%", 0.1
+            if abs(base_g) > 1:           # accept "10" / "10%" as 10%
                 base_g /= 100.0
         except (TypeError, ValueError):
             base_g = None

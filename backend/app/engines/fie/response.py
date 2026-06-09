@@ -203,50 +203,69 @@ def render(
         anomalies = ano.get("anomalies") or []
         n_checks = bal.get("checks_run", 0)
         # Audit findings are derived from the cited workbook facts the tools added — tag each
-        # with the relevant fact's citation handle so it survives citation-enforcement.
-        ref_by: dict[str, str] = {}
+        # with the citation of the SPECIFIC (metric, year) fact it concerns (keyed off the
+        # fact_refs, NOT the claim text), so multi-year breaks don't all collapse onto one handle.
+        ref_by: dict[tuple, str] = {}
         any_ref = None
         for e in evidence:
             if not e.citations:
                 continue
             h = _cite_of(e)
             any_ref = any_ref or h
-            for tok in (e.claim or "").lower().replace("=", " ").split():
-                ref_by.setdefault(tok, h)
+            for fr in e.fact_refs:
+                if fr.metric and fr.year is not None:
+                    ref_by.setdefault((fr.metric, int(fr.year)), h)
 
-        def _vref(*keys):
-            for k in keys:
-                if k and k.lower() in ref_by:
-                    return ref_by[k.lower()]
+        def _vref(year, *metrics):
+            for m in metrics:
+                if m is not None and (m, year) in ref_by:
+                    return ref_by[(m, year)]
             return any_ref
 
         def _tag(text: str, ref):
             return f"{text} [{ref}]" if ref else text
 
         for b in breaks:
+            yr = b["year"]
             if "summed" in b:
                 total = b["check"].split()[0]  # e.g. "gross_profit components foot..." -> gross_profit
                 findings.append(_tag(
-                    f"{b['check']} ({b['year']}): components sum to {_fmt(b['summed'], 'currency')} "
+                    f"{b['check']} ({yr}): components sum to {_fmt(b['summed'], 'currency')} "
                     f"vs stated {_fmt(b['stated'], 'currency')} — off by {_fmt(b['variance'], 'currency')}.",
-                    _vref(total)))
+                    _vref(yr, total)))
             else:
                 findings.append(_tag(
-                    f"{b['check']} ({b['year']}): {_fmt(b['lhs'], 'currency')} vs "
+                    f"{b['check']} ({yr}): {_fmt(b['lhs'], 'currency')} vs "
                     f"{_fmt(b['rhs'], 'currency')} — off by {_fmt(b['variance'], 'currency')}.",
-                    _vref("total_assets", "total_equity_and_liabilities")))
+                    _vref(yr, "total_assets", "total_equity_and_liabilities")))
         for a in anomalies:
             findings.append(_tag(
                 f"{a['metric'].replace('_', ' ')} {a['year']} = {_fmt(a['value'], 'currency')} looks "
                 f"anomalous (~{a['ratio']}x its neighbours) — possible extraction error, worth verifying.",
-                _vref(a["metric"])))
-        if not breaks and not anomalies:
-            direct = (f"Audited {n_checks} consistency check(s): the statements foot and balance, "
-                      "and no figures look anomalous." if n_checks
-                      else "Not enough balance-sheet detail in this workbook to run the audit checks.")
+                _vref(a["year"], a["metric"])))
+        # word the summary to the SCOPE actually run (don't claim "no anomalies" if not scanned)
+        scope = bal.get("scope") or {"ident": True, "foot": True, "anom": True}
+        if breaks or anomalies:
+            parts = []
+            if (scope["ident"] or scope["foot"]):
+                parts.append(f"{len(breaks)} reconciliation break(s)")
+            if scope["anom"]:
+                parts.append(f"{len(anomalies)} anomaly(ies)")
+            across = f" across {n_checks} check(s)" if n_checks else ""
+            direct = "Audit found " + " and ".join(parts) + across + " — see findings."
         else:
-            direct = (f"Audit found {len(breaks)} reconciliation break(s) and {len(anomalies)} "
-                      f"anomaly(ies) across {n_checks} check(s) — see findings.")
+            oks = []
+            if (scope["ident"] or scope["foot"]) and n_checks:
+                oks.append("the statements foot and balance")
+            if scope["anom"]:
+                oks.append("no figures look anomalous")
+            if oks:
+                direct = ((f"Audited {n_checks} check(s): " if n_checks else "")
+                          + ", and ".join(oks) + ".")
+                if not n_checks:  # anomaly-only, nothing flagged
+                    direct = "No figures look anomalous."
+            else:
+                direct = "Not enough balance-sheet detail in this workbook to run the audit checks."
 
     elif frame.intent == "risk_assessment":
         themes = extra.get("themes") or []

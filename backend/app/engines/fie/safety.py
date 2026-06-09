@@ -114,6 +114,13 @@ def build_allowed(
                 if 1e-4 <= abs(r) <= 1e4:          # a plausible ratio/margin, not noise
                     values.add(round(r, 6))
                     values.add(round(abs(r), 6))
+                    # period/YoY growth of one cited value vs another is r-1 (e.g. revenue
+                    # "YoY -16.1%" = this_year/last_year - 1). Whitelist it so narrated growth
+                    # rates are backed, not just the raw ratio.
+                    g = r - 1.0
+                    if abs(g) <= 1e4:
+                        values.add(round(g, 6))
+                        values.add(round(abs(g), 6))
 
     if frame.year:
         ints.add(int(frame.year))

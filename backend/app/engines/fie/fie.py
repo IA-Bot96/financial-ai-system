@@ -756,21 +756,57 @@ class FinancialIntelligenceEngine:
 
     def _h_validation(self, frame, ctx, plan) -> None:
         """Deterministic statement audit: accounting identities + component footing + anomaly
-        scan, every year. Reuses the agent's validation tools (one source of truth); the
-        response layer renders the breaks and the LLM only narrates them — so the audit fires
-        reliably regardless of the model, and never affects non-audit queries."""
-        balance = agent._t_check_balance(self, frame, ctx, {})
-        anomalies = agent._t_scan_anomalies(self, frame, ctx, {})
-        breaks = balance.get("breaks") or []
-        anoms = anomalies.get("anomalies") or []
-        _log.info("fie validation: checks=%d breaks=%d anomalies=%d all_ok=%s",
-                  balance.get("checks_run", 0), len(breaks), len(anoms),
-                  balance.get("all_ok"), extra={"component": "Validation"})
-        if breaks or anoms:   # the specifics — what to fix
-            _log.debug("fie validation: breaks=%s anomalies=%s", breaks, anoms,
+        scan. SCOPED to what the question asks — "do equity+liabilities equal total assets" runs
+        only the identity checks, "do the components foot" only footing, "find anomalies" only the
+        scan — while a generic "audit the statements / are the numbers consistent" runs all three.
+        Reuses the agent's tools (one source of truth); the response layer renders the breaks and
+        the LLM only narrates them. Never affects non-audit queries."""
+        ql = (frame.raw_query or "").lower()
+        want_anom = bool(re.search(
+            r"anomal|outlier|unusual|mis-?extract|deviat|suspicious|extraction error|"
+            r"look\w*\s+(wrong|off)", ql))
+        want_foot = bool(re.search(
+            r"\bfoot|\bcomponents?\b|sums?\s+to|summed\s+to|add(s|ed)?\s+up\s+to|subtotal|line items?", ql))
+        want_ident = bool(re.search(
+            r"\bbalanced?\b|\bbalances\b|\bequal\b|reconcile|add up\b|"
+            r"(equity|liabilit\w*)\s+(and|plus|\+)\s+(liabilit\w*|equity)|assets?\s+(=|equal)", ql))
+        # generic audit -> run everything (explicit "audit/validate/consistent", or no specific cue)
+        if (re.search(r"\baudit\b|\bvalidate\b|internally consistent|data quality|sanity|"
+                      r"are the (numbers|figures|statements)\b", ql)
+                or not (want_anom or want_foot or want_ident)):
+            want_anom = want_foot = want_ident = True
+
+        scoped_totals = [t for t in agent._STATEMENT_DECOMP if t.replace("_", " ") in ql]
+        breaks: list = []
+        n_checks = 0
+        if want_ident or want_foot:
+            # limit footing to the named total(s); suppress footing entirely (bogus total) when
+            # only the identity was asked, so check_balance adds only the identity facts.
+            args: dict = {}
+            if want_foot:
+                if scoped_totals:
+                    args["totals"] = scoped_totals
+            else:
+                args["totals"] = ["__nofooting__"]
+            balance = agent._t_check_balance(self, frame, ctx, args)
+            n_checks = balance.get("checks_run", 0)
+            for b in (balance.get("breaks") or []):
+                foot = "components foot to total" in b.get("check", "")
+                if (foot and want_foot) or (not foot and want_ident):
+                    breaks.append(b)
+        anomalies: list = []
+        if want_anom:
+            anomalies = (agent._t_scan_anomalies(self, frame, ctx, {}).get("anomalies") or [])
+
+        scope = {"ident": want_ident, "foot": want_foot, "anom": want_anom}
+        _log.info("fie validation: scope=%s checks=%d breaks=%d anomalies=%d",
+                  scope, n_checks, len(breaks), len(anomalies), extra={"component": "Validation"})
+        if breaks or anomalies:
+            _log.debug("fie validation: breaks=%s anomalies=%s", breaks, anomalies,
                        extra={"component": "Validation"})
-        ctx.extra = {**(ctx.extra or {}),
-                     "validation_report": {"balance": balance, "anomalies": anomalies}}
+        ctx.extra = {**(ctx.extra or {}), "validation_report": {
+            "balance": {"breaks": breaks, "checks_run": n_checks, "all_ok": not breaks, "scope": scope},
+            "anomalies": {"anomalies": anomalies}}}
 
     def _h_edit_history(self, frame, ctx, plan) -> None:
         """Answer questions about the user's own edits, from the workbook's History log

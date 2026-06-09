@@ -182,6 +182,79 @@ _EDIT_HISTORY_RE = re.compile(
     r"|\b(workbook|file|session|excel|spreadsheet)\b[^.?]{0,30}\b(open(ed)?|load(ed)?|uploaded)\b",
     re.I)
 
+# Ad-hoc / unregistered computations -> the agent (compute_expr), which evaluates the expression
+# over metric ids and registers the result. Triggered by an explicit arithmetic expression after
+# "calculate/compute" (so "calculate net margin" / "calculate EBITDA" stay on their ratio paths),
+# or by a named ratio the formula registry doesn't carry (ROIC, ROCE, cash conversion cycle, …).
+_ADHOC_CALC_RE = re.compile(
+    r"\b(calculate|compute|work out)\b[^?]*\b(divided by|multiplied by)\b"
+    r"|\b(calculate|compute|work out)\b[^?]*[=/]",
+    re.I)
+_ADHOC_METRIC_RE = re.compile(
+    r"\b(roic|roce|nopat|cash conversion cycle|free cash flow|fcf)\b", re.I)
+
+# "X as a percentage / share / fraction of Y" — a single value PLUS its ratio (metric_lookup +
+# the percentage path), NOT a two-series comparison.
+_PCT_OF_RE = re.compile(
+    r"\b(percent(age)?|share|fraction|proportion)\s+of\b|%\s*of\b|\bas a (?:%|percent\w*|share)\b", re.I)
+
+# A follow-up that is JUST a number/percentage ("1000%?", "25%", "and 5%") — an ASSUMPTION
+# swap on the immediately-preceding forecast/projection question.
+_FOLLOWUP_NUM_RE = re.compile(
+    r"^(?:what about|how about|and|or|try|with|using)?\s*[-+]?\d[\d,]*(?:\.\d+)?\s*%?\s*\??$", re.I)
+
+
+def _last_forecast_context(history):
+    """If the MOST RECENT prior question was a forecast/projection, return (its resolved frame
+    dict, the user text that produced it); else (None, None). A bare-number follow-up only
+    applies to an immediately-preceding forecast/projection — not an older one."""
+    for i in range(len(history) - 1, -1, -1):
+        turn = history[i] or {}
+        if turn.get("role") == "assistant" and isinstance(turn.get("frame"), dict):
+            fr = turn["frame"]
+            if fr.get("intent") in ("forecast_validation", "agent"):
+                prev = history[i - 1] if i > 0 else {}
+                return fr, ((prev or {}).get("text") or "" if (prev or {}).get("role") == "user" else "")
+            return None, None   # most recent question wasn't a forecast/projection
+    return None, None
+
+
+def _swap_assumption(prior_user: str, followup: str) -> str:
+    """Rebuild the prior question with its percentage replaced by the follow-up's number."""
+    nm = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?", followup or "")
+    if not nm:
+        return prior_user or followup
+    new_pct = nm.group(0).replace(",", "") + "%"
+    if not prior_user:
+        return f"assume {new_pct} growth"
+    swapped, n = re.subn(r"[-+]?\d[\d,]*(?:\.\d+)?\s*%", new_pct, prior_user, count=1)
+    return swapped if n else f"{prior_user} (assume {new_pct})"
+
+
+def _resolve_followup_assumption(result, query, history):
+    """Resolve a bare number/percentage follow-up ('1000%?') that follows a forecast/projection:
+    carry that question's intent + metric(s) and rewrite the query with the new assumption, so it
+    re-runs instead of collapsing to a clarification."""
+    q = (query or "").strip()
+    if not (history and _FOLLOWUP_NUM_RE.match(q)):
+        return result
+    prior, prior_user = _last_forecast_context(history)
+    if not prior:
+        return result
+    try:
+        return result.model_copy(update={
+            "raw_query": _swap_assumption(prior_user, q),
+            "intent": (result.intent if result.intent in ("forecast_validation", "agent")
+                       else prior.get("intent")),
+            "metrics": result.metrics or prior.get("metrics") or [],
+            "year": result.year or prior.get("year"),
+            "formula": result.formula or prior.get("formula"),
+            "source": "llm",
+        })
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("fie follow-up assumption resolve failed: %s", exc, extra={"component": "Understand"})
+        return result
+
 
 def _extract_company(q: str) -> Optional[str]:
     found = _extract_companies(q)
@@ -325,6 +398,24 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
     # financial data). High precedence so "what did I change" isn't mis-read as a lookup.
     if _EDIT_HISTORY_RE.search(query):
         return QueryFrame(raw_query=query, intent="edit_history", company=company, year=year)
+
+    # ad-hoc formula / unregistered ratio -> agent (compute_expr). Keeps "calculate ROIC = a/(b-c)"
+    # off the metric_lookup path, where the composed value would be numeric-guard rejected.
+    if _ADHOC_CALC_RE.search(query) or _ADHOC_METRIC_RE.search(query):
+        m = _matched_metric(query, metric_matcher)
+        return QueryFrame(raw_query=query, intent="agent", company=company, year=year,
+                          metrics=([m] if m else []))
+
+    # "<metric> ... as a percentage/share of <other>" -> metric_lookup + ratio (NOT a
+    # metric_comparison of two series). Resolve the SUBJECT (the metric before "% of") as
+    # primary; the handler computes its share of revenue/total. Skip when it's clearly a
+    # comparison or trend ("compare X% of Y over the years").
+    _pct = _PCT_OF_RE.search(query)
+    if _pct and not _PEER_RE.search(query) and not _TREND_RE.search(query):
+        subj = _matched_metric(query[: _pct.start()], metric_matcher)
+        if subj:
+            return QueryFrame(raw_query=query, intent="metric_lookup", company=company,
+                              year=year, metrics=[subj])
 
     # peer comparison: two companies, or an explicit compare/vs cue
     if len(companies) >= 2 or (_PEER_RE.search(query) and companies):
@@ -476,6 +567,11 @@ _VALIDATE_SYS = (
     "asking for the SAME metric(s) as the most recent resolved query in the conversation "
     "history. You MUST copy those metrics into the response — never return an empty "
     "metrics list for a year-only query if the history shows a prior resolved metric. "
+    "ASSUMPTION follow-up rule: when the current query is ONLY a number or percentage "
+    "(e.g. '1000%?', '25%', 'and 5%') and the most recent prior question was a forecast or "
+    "projection, it is the SAME question with the growth/target assumption replaced by this "
+    "number — keep the prior intent (forecast_validation or agent) and the prior metric(s) and "
+    "year; never return 'unknown'. "
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
     "metric_lookup, overview, metric_comparison, driver_analysis, edit_history, agent, unknown. "
@@ -505,7 +601,11 @@ _VALIDATE_SYS = (
     "(e.g. 'summarize the top 5 KPIs', 'financial overview') — NOT a single-metric lookup. "
     "metric_comparison is for comparing TWO of the company's own metrics/series — e.g. "
     "'operating profit growth vs revenue growth', 'current ratio vs quick ratio' — when no "
-    "second company is named (two companies = peer_comparison). "
+    "second company is named (two companies = peer_comparison). A question asking for one metric "
+    "AS A PERCENTAGE / SHARE / FRACTION of another (e.g. 'what was gross profit in 2021, and what "
+    "% of revenue was it', 'cost of sales as a share of revenue in 2024') is metric_lookup (a "
+    "single value plus its ratio) — NOT metric_comparison; put the SUBJECT metric first in "
+    "metrics (e.g. ['gross_profit','revenue']). "
     "driver_analysis is for 'what/which line item drove the largest change in <total>' — "
     "decomposing a total (assets, equity+liabilities, revenue) into the component that moved most. "
     "validation is the DATA-AUDIT intent — 'does the balance sheet balance', 'do the components "
@@ -746,18 +846,22 @@ def understand(
         validated = validate_frame_llm(
             query, frame, llm, available_metrics, available_years, history
         )
-        if validated is not None:
-            _log.info(
-                "fie understand final: intent=%r year=%s metrics=%s formula=%r source=%r",
-                validated.intent, validated.year, validated.metrics,
-                validated.formula, validated.source,
-                extra={"component": "Understand"},
-            )
-            return validated
-        _log.info("fie LLM validation returned None — using rules frame (intent=%r)",
-                  frame.intent, extra={"component": "Understand"})
+        result = validated if validated is not None else frame
+        if validated is None:
+            _log.info("fie LLM validation returned None — using rules frame (intent=%r)",
+                      frame.intent, extra={"component": "Understand"})
     else:
         _log.debug("fie understand: no LLM configured, using rules frame only",
                    extra={"component": "Understand"})
+        result = frame
 
-    return frame
+    # Deterministic backstop: a bare number/percentage follow-up ('1000%?') after a
+    # forecast/projection re-runs that question with the new assumption (works even if the
+    # LLM left it unresolved).
+    result = _resolve_followup_assumption(result, query, history)
+    _log.info(
+        "fie understand final: intent=%r year=%s metrics=%s formula=%r source=%r",
+        result.intent, result.year, result.metrics, result.formula, result.source,
+        extra={"component": "Understand"},
+    )
+    return result
