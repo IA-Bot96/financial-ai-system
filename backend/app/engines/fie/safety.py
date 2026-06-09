@@ -74,14 +74,36 @@ def build_allowed(
     calcs = list(calcs)
     citations = list(citations)
 
+    base_vals: list[float] = []  # raw cited figures, for the arithmetic-closure pass below
     for cr in calcs:
         _add_value(cr.value)
+        if cr.value is not None:
+            base_vals.append(float(cr.value))
         for f in cr.inputs:
             _add_value(f.value)
+            if f.value is not None:
+                base_vals.append(float(f.value))
     for e in evidence:
         _add_value(e.value)
+        if e.value is not None:
+            base_vals.append(float(e.value))
         for f in e.fact_refs:
             _add_value(f.value)
+            if f.value is not None:
+                base_vals.append(float(f.value))
+
+    # Arithmetic closure: a figure the model DERIVES from two cited values — a change (A − B)
+    # or a subtotal (A + B) — is itself grounded in the workbook, so allow it. This covers the
+    # common "X rose by <delta>" / premise-correction case even when the agent answered with
+    # plain lookups (no decompose tool to pre-register the delta). Bounded to stay O(n²)-safe;
+    # ratios/percentages are intentionally NOT closed over (too permissive — those must come
+    # from a calc/growth tool that registers them).
+    uniq = list({round(v, 6) for v in base_vals})
+    if 1 < len(uniq) <= 64:
+        for i in range(len(uniq)):
+            for j in range(i + 1, len(uniq)):
+                _add_value(uniq[i] - uniq[j])
+                _add_value(uniq[i] + uniq[j])
 
     if frame.year:
         ints.add(int(frame.year))

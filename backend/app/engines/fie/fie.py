@@ -79,6 +79,7 @@ class FinancialIntelligenceEngine:
         "overview": "_h_overview",
         "metric_comparison": "_h_metric_comparison",
         "driver_analysis": "_h_driver_analysis",
+        "validation": "_h_validation",
         "risk_assessment": "_h_risk_assessment",
         "peer_comparison": "_h_peer_comparison",
         "valuation": "_h_valuation",
@@ -147,7 +148,7 @@ class FinancialIntelligenceEngine:
         handler = self._INTENT_HANDLERS.get(frame.intent)
         if handler is not None:
             getattr(self, handler)(frame, ctx, plan)
-        elif frame.intent != "unknown":
+        elif frame.intent not in ("unknown", "agent"):
             _layer("Route", "no handler registered for intent=%r; degrading to empty answer",
                    frame.intent)
 
@@ -158,7 +159,7 @@ class FinancialIntelligenceEngine:
         # No real LLM (or the agent gathered nothing) -> deterministic external fallback.
         internal_empty = not ctx.evidence and not ctx.calcs and not ctx.selected_insights
         clarifying = bool((ctx.extra or {}).get("clarify"))
-        if not clarifying and (frame.intent == "unknown" or internal_empty):
+        if not clarifying and (frame.intent in ("unknown", "agent") or internal_empty):
             self._run_agent(frame, ctx)
             if not ctx.evidence and not (ctx.extra or {}).get("agent_answer"):
                 self._external_fallback(frame, ctx)  # no-LLM / agent found nothing
@@ -609,6 +610,16 @@ class FinancialIntelligenceEngine:
 
     def _h_news(self, frame, ctx, plan) -> None:
         self._fetch_external(frame, ctx, plan)
+
+    def _h_validation(self, frame, ctx, plan) -> None:
+        """Deterministic statement audit: accounting identities + component footing + anomaly
+        scan, every year. Reuses the agent's validation tools (one source of truth); the
+        response layer renders the breaks and the LLM only narrates them — so the audit fires
+        reliably regardless of the model, and never affects non-audit queries."""
+        balance = agent._t_check_balance(self, frame, ctx, {})
+        anomalies = agent._t_scan_anomalies(self, frame, ctx, {})
+        ctx.extra = {**(ctx.extra or {}),
+                     "validation_report": {"balance": balance, "anomalies": anomalies}}
 
     # ------------------------------------------------------------ handlers
     def _store_for(self, company: str | None):
@@ -1121,8 +1132,12 @@ class FinancialIntelligenceEngine:
                     extra={"component": "News"},
                 )
                 before = len(ctx.evidence)
+                # entity gate: drop provider results that don't mention the company/ticker at
+                # all (off-topic noise). Skipped automatically when no distinctive terms exist.
+                entity_terms = news_retrieval.entity_terms_for(company, ticker)
                 ctx.evidence += news_retrieval.retrieve(
-                    res.items, query_text, anchor_date=self.external.as_of)
+                    res.items, query_text, anchor_date=self.external.as_of,
+                    entity_terms=entity_terms)
                 _log.debug(
                     "fie _news: news_retrieval added %d chunks to evidence (total evidence now=%d)",
                     len(ctx.evidence) - before, len(ctx.evidence),

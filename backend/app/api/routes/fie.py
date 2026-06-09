@@ -20,7 +20,7 @@ from pydantic import BaseModel, field_validator
 from app.core.config import STORAGE_ROOT, get_settings
 from app.core.metrics import METRICS
 from app.engines.fie import ExternalSources, FinancialFactStore, FinancialIntelligenceEngine
-from app.engines.fie.apis import ApiClient, HttpTransport, News, Symbols
+from app.engines.fie.apis import ApiClient, CompanyOverview, HttpTransport, News, Symbols
 from app.engines.fie.llm import NullLLM, OpenAILLM
 from app.engines.fie.trace import TraceStore
 
@@ -93,6 +93,9 @@ def _llm():
         api_key=s.openai_api_key,
         max_input_chars=s.llm_max_input_chars,
         max_output_tokens=s.llm_max_output_tokens,
+        json_temperature=s.llm_json_temperature,
+        text_temperature=s.llm_text_temperature,
+        seed=s.llm_seed,
     )
 
 
@@ -109,7 +112,9 @@ def _engine(company: str) -> FinancialIntelligenceEngine:
     # News failover search + symbol resolution (reads provider keys from .env;
     # with no keys configured the engine simply degrades — no news evidence).
     client = _external_client()
-    external = ExternalSources(peers=peers, news=News(client), symbols=Symbols(client))
+    _symbols = Symbols(client)
+    external = ExternalSources(peers=peers, news=News(client), symbols=_symbols,
+                               company_overview=CompanyOverview(client, symbols=_symbols))
     return FinancialIntelligenceEngine(primary, llm=_llm(), external=external)
 
 

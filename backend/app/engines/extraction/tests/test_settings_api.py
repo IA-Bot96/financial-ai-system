@@ -35,6 +35,34 @@ def test_get_exposes_values_defaults_and_hides_secret_value(client):
     assert key["kind"] == "secret" and "value" not in key and "configured" in key
 
 
+def test_taxonomy_groups_order_and_placement(client):
+    body = client.get("/api/settings").json()
+    # ordered groups list, Advanced collapsed
+    assert [g["name"] for g in body["groups"]] == [
+        "Connection", "Extraction", "Insights", "Validation & Trust", "Performance", "Advanced"]
+    assert next(g for g in body["groups"] if g["name"] == "Advanced")["collapsed"] is True
+    # key re-placements from the UX review
+    assert _field(body, "openai_model")["group"] == "Connection"        # not Credentials
+    assert _field(body, "ocr_dpi")["group"] == "Extraction"             # not Performance
+    assert _field(body, "ocr_lang")["group"] == "Extraction"            # not Matching
+    assert _field(body, "openai_timeout")["group"] == "Advanced"        # not Matching
+    assert _field(body, "insights_workers")["group"] == "Performance"   # not Insights
+    assert _field(body, "llm_json_temperature")["group"] == "Advanced"  # not Model
+    # Vision is a sub-group of Extraction
+    v = _field(body, "vision_detail")
+    assert v["group"] == "Extraction" and v["subgroup"] == "Vision"
+    # Validation review: its own group, BETA badge, default on
+    vr = _field(body, "validation_review_enabled")
+    assert vr["group"] == "Validation & Trust" and vr["badge"] == "BETA" and vr["value"] is True
+
+
+def test_validation_review_toggle_persists(client):
+    r = client.post("/api/settings", json={"values": {"validation_review_enabled": False}})
+    assert r.status_code == 200
+    assert _field(r.json(), "validation_review_enabled")["value"] is False
+    assert cfg.get_settings().validation_review_enabled is False
+
+
 def test_update_persists_and_marks_overridden(client):
     r = client.post("/api/settings", json={"values": {"ocr_dpi": 300, "ocr_max_workers": 4}})
     assert r.status_code == 200

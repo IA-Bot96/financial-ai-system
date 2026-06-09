@@ -72,7 +72,10 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 200 * 1024 * 1024  # generic upload cap (fallback)
     max_excel_upload_bytes: int = 200 * 1024 * 1024  # Excel workbook upload cap (200 MB)
     max_pdf_upload_bytes: int = 50 * 1024 * 1024     # per-PDF upload cap (50 MB)
-    request_timeout_seconds: int = 60          # per-request wall-clock cap (504 on exceed)
+    # per-request wall-clock cap (504 on exceed). Generous because the agentic answer path
+    # makes several sequential LLM calls (validate → 2–5 agent tool-steps → verify → narrate);
+    # on a slow/verbose model (e.g. gpt-5-mini) that legitimately runs ~60–90s end to end.
+    request_timeout_seconds: int = 150
     max_external_calls_per_request: int = 12   # hard cap on adapter fan-out per query
     # rate limiting (token bucket: burst `capacity`, refill 1 per `refill_seconds`)
     # default sustained rate = 1 req/sec per IP, with a small burst of 3.
@@ -83,12 +86,27 @@ class Settings(BaseSettings):
     redis_url: str = ""
     # LLM cost guard
     llm_max_input_chars: int = 24_000          # truncate prompt input above this
-    llm_max_output_tokens: int = 800           # cap completion length
+    # cap completion length. Must be generous enough for the agent's tool-calling JSON (and
+    # verbose / reasoning models like gpt-5-mini), or its final-answer JSON gets truncated →
+    # unparseable → the agent stops without an answer and the response degrades to a data dump.
+    llm_max_output_tokens: int = 2000
+    # LLM sampling temperature (0 = most deterministic). json = structured reasoning/decisions
+    # (intent, agent tool-steps, verification); text = phrasing the written answer. Some models
+    # (e.g. gpt-5-mini) only accept their default and ignore these.
+    llm_json_temperature: float = 0.0
+    llm_text_temperature: float = 0.2
+    # fixed sampling seed → reproducible answers run-to-run (the determinism lever for models
+    # forced to temperature=1, e.g. gpt-5-mini). Stripped automatically if a model rejects it.
+    llm_seed: int = 7
     # per-provider news daily call ceiling (0 = unlimited)
     news_daily_call_cap_per_provider: int = 200
     # persist a per-query reasoning TraceRecord (audit trail) on the live FIE route
     fie_trace_enabled: bool = True
     fie_trace_dir: str = str(BACKEND_ROOT / "logs" / "traces")
+    # Validation review (BETA): surface the per-figure review/highlighting experience in the
+    # UI. The Validation Ledger is ALWAYS computed regardless — this only toggles whether the
+    # review/highlighting is surfaced to the user.
+    validation_review_enabled: bool = True
 
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

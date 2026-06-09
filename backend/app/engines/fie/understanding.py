@@ -224,6 +224,18 @@ _VALUATION_RE = re.compile(
     r"\bp/?e\b|pe ratio|price[- ]to[- ]earnings|price[- ]to[- ]book|\bp/?b\b|"
     r"ev/?ebitda|enterprise value|valuation|how cheap|expensive", re.I)
 _FORECAST_RE = re.compile(r"forecast|guidance|on track|remain(ed)? valid|projection", re.I)
+# data-validation / balance-sheet audit. High-precision so normal queries ("show the balance
+# sheet", "cash balance", "current assets") are NOT caught — needs an explicit audit verb, the
+# specific 'balance sheet balances' phrasing, an anomaly ask, or a 'components add up' phrasing.
+_VALIDATION_RE = re.compile(
+    r"\b(audit|validat\w+|reconcil\w+|anomal\w+|mis-?extract\w*)\b"
+    r"|\bsanity[- ]?check\w*\b"
+    r"|\bdoes?\s+(the\s+)?balance\s+sheet\s+balance\b"
+    r"|\bbalance\s+sheet[^?.]{0,40}\b(balance|add up|foot|tie out|reconcil\w+|consistent)\b"
+    r"|\b(numbers?|figures?|components?|line items?|totals?|assets?)[^?.]{0,40}\b(add up|sum (up )?to|tie out|foot)\b"
+    r"|\bsum\b[^?.]{0,30}\b(assets|liabilities|components?|line items?)\b",
+    re.I,
+)
 _OVERVIEW_RE = re.compile(
     r"\bsummar(?:y|i[sz]e)\b|\boverview\b|\bsnapshot\b|at a glance|financial highlights"
     r"|key (?:financial )?(?:metrics|figures|kpis?|highlights|indicators)"
@@ -280,6 +292,12 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
     company = _extract_company(query)
     companies = _extract_companies(query)
     year = _extract_year(query)
+
+    # data-validation / balance-sheet audit (deterministic) — high precedence so an audit ask
+    # isn't mis-parsed as a lookup/overview. The handler runs identity + footing + anomaly
+    # checks in code; the LLM only narrates the findings.
+    if _VALIDATION_RE.search(query):
+        return QueryFrame(raw_query=query, intent="validation", company=company, year=year)
 
     # peer comparison: two companies, or an explicit compare/vs cue
     if len(companies) >= 2 or (_PEER_RE.search(query) and companies):
@@ -396,7 +414,7 @@ _ALL_INTENTS = {
     "peer_comparison", "valuation", "forecast_validation", "earnings_review",
     "news_impact", "dividend_analysis", "trend_analysis", "ratio_analysis",
     "risk_assessment", "metric_lookup", "overview", "metric_comparison",
-    "driver_analysis", "agent", "unknown",
+    "driver_analysis", "validation", "agent", "unknown",
 }
 
 _LLM_SYS = (
@@ -433,7 +451,18 @@ _VALIDATE_SYS = (
     "metrics list for a year-only query if the history shows a prior resolved metric. "
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
-    "metric_lookup, overview, metric_comparison, unknown. "
+    "metric_lookup, overview, metric_comparison, driver_analysis, agent, unknown. "
+    "agent is the GENERAL reasoner for open-ended, causal, premise-bearing, or multi-step "
+    "questions that don't fit one clean shape. Prefer agent (NOT trend_analysis / "
+    "metric_comparison) whenever the question asks WHY a metric changed, why it is "
+    "higher/lower/less/more than another value or year, what CAUSED/DROVE/EXPLAINS a change, "
+    "or requires combining several steps — e.g. 'why was gross profit lower in 2022 than "
+    "2021', 'what explains the margin decline', 'why did ROE fall'. Still set the metric(s) "
+    "and year(s) you can infer. The agent will verify the premise against the data and "
+    "decompose the change. ALSO route to agent for DATA-VALIDATION / AUDIT questions — 'does the "
+    "balance sheet balance', 'do the components sum to the total', 'find anomalies', 'audit the "
+    "statements', 'are the numbers consistent' — and for ad-hoc computations the standard ratios "
+    "don't cover (e.g. ROIC, cash conversion cycle, per-share math). "
     "overview is for requests to SUMMARIZE the company's key financials / KPIs / highlights "
     "(e.g. 'summarize the top 5 KPIs', 'financial overview') — NOT a single-metric lookup. "
     "metric_comparison is for comparing TWO of the company's own metrics/series — e.g. "
@@ -441,6 +470,12 @@ _VALIDATE_SYS = (
     "second company is named (two companies = peer_comparison). "
     "driver_analysis is for 'what/which line item drove the largest change in <total>' — "
     "decomposing a total (assets, equity+liabilities, revenue) into the component that moved most. "
+    "validation is the DATA-AUDIT intent — 'does the balance sheet balance', 'do the components "
+    "sum to the total', 'audit/validate the statements', 'find anomalies', 'are the numbers "
+    "consistent'. It runs deterministic identity/footing/anomaly checks. "
+    "Use agent for FORWARD PROJECTIONS — 'project/estimate revenue for 2026', 'what will X be next "
+    "year' (the agent projects a scenario range). Reserve forecast_validation for judging a STATED "
+    "target ('is a 10% growth forecast reasonable', 'is guidance on track'). "
     "INTENT GUIDANCE: risk_assessment is the QUALITATIVE-INSIGHTS handler — route ANY "
     "narrative/qualitative question that can be answered from the company's management "
     "commentary or report insights here, NOT just questions containing the word 'risk'. "

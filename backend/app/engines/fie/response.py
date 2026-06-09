@@ -188,6 +188,59 @@ def render(
         else:
             direct = "I couldn't find data to answer that — try a specific metric or rephrasing."
 
+    elif frame.intent == "validation":
+        rep = (extra or {}).get("validation_report") or {}
+        bal = rep.get("balance") or {}
+        ano = rep.get("anomalies") or {}
+        breaks = bal.get("breaks") or []
+        anomalies = ano.get("anomalies") or []
+        n_checks = bal.get("checks_run", 0)
+        # Audit findings are derived from the cited workbook facts the tools added — tag each
+        # with the relevant fact's citation handle so it survives citation-enforcement.
+        ref_by: dict[str, str] = {}
+        any_ref = None
+        for e in evidence:
+            if not e.citations:
+                continue
+            h = _cite_of(e)
+            any_ref = any_ref or h
+            for tok in (e.claim or "").lower().replace("=", " ").split():
+                ref_by.setdefault(tok, h)
+
+        def _vref(*keys):
+            for k in keys:
+                if k and k.lower() in ref_by:
+                    return ref_by[k.lower()]
+            return any_ref
+
+        def _tag(text: str, ref):
+            return f"{text} [{ref}]" if ref else text
+
+        for b in breaks:
+            if "summed" in b:
+                total = b["check"].split()[0]  # e.g. "gross_profit components foot..." -> gross_profit
+                findings.append(_tag(
+                    f"{b['check']} ({b['year']}): components sum to {_fmt(b['summed'], 'currency')} "
+                    f"vs stated {_fmt(b['stated'], 'currency')} — off by {_fmt(b['variance'], 'currency')}.",
+                    _vref(total)))
+            else:
+                findings.append(_tag(
+                    f"{b['check']} ({b['year']}): {_fmt(b['lhs'], 'currency')} vs "
+                    f"{_fmt(b['rhs'], 'currency')} — off by {_fmt(b['variance'], 'currency')}.",
+                    _vref("total_assets", "total_equity_and_liabilities")))
+        for a in anomalies:
+            findings.append(_tag(
+                f"{a['metric'].replace('_', ' ')} {a['year']} = {_fmt(a['value'], 'currency')} looks "
+                f"anomalous (~{a['ratio']}x its neighbours) — possible extraction error, worth verifying.",
+                _vref(a["metric"])))
+        if not breaks and not anomalies:
+            direct = (f"Audited {n_checks} consistency check(s): the statements foot and balance, "
+                      "and no figures look anomalous." if n_checks
+                      else "Not enough balance-sheet detail in this workbook to run the audit checks.")
+        else:
+            direct = (f"Audit found {len(breaks)} reconciliation break(s) and {len(anomalies)} "
+                      f"anomaly(ies) across {n_checks} check(s) — see findings.")
+
     elif frame.intent == "risk_assessment":
         themes = extra.get("themes") or []
         qcov = extra.get("qual_coverage") or {}
@@ -380,7 +433,7 @@ def render(
             # the LLM IS the answer — promote it to direct_answer and demote the
             # deterministic text to supporting_analysis so users see the real answer first.
             _promote_intents = {"forecast_validation", "risk_assessment", "news_impact",
-                                "earnings_review", "agent"}
+                                "earnings_review", "agent", "validation"}
             if frame.intent in _promote_intents:
                 analysis = direct   # deterministic context summary moves to supporting
                 direct = llm_text   # LLM assessment becomes the primary answer

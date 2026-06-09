@@ -42,73 +42,125 @@ class FieldSpec:
     maximum: float | None = None
     step: float | None = None
     options: tuple | None = None     # for kind == "enum"
+    subgroup: str | None = None      # nested block within a group (e.g. "Vision" under Extraction)
+    badge: str | None = None         # small tag shown by the UI (e.g. "BETA")
 
 
-# The allowlist. Order is display order; `group`/`advanced` drive UI sectioning.
+# Section render order; groups not listed fall to the end. "Advanced" is collapsed by default.
+_GROUP_ORDER = ("Connection", "Extraction", "Insights", "Validation & Trust",
+                "Performance", "Advanced")
+_COLLAPSED_GROUPS = {"Advanced"}
+
+
+# The allowlist. Grouped by USER CONCERN (not subsystem). Declaration order = display order
+# within a group; `_GROUP_ORDER` sets section order. `subgroup` nests a block; `advanced`
+# fields all live in the (collapsed) "Advanced" group.
 _FIELDS: tuple[FieldSpec, ...] = (
-    # --- Performance / memory ---
+    # ── Connection (set up the AI provider) ───────────────────────────────
+    FieldSpec("openai_api_key", "Connection", "OpenAI API key",
+              "Your OpenAI key. Stored locally; never displayed back.", "secret"),
+    FieldSpec("openai_model", "Connection", "OpenAI model",
+              "Model id used for extraction and insights (must be vision-capable for vision mode).",
+              "str"),
+    # ── Extraction (how accurately the document is read) ──────────────────
+    FieldSpec("use_gpt_table_extraction", "Extraction", "GPT table extraction",
+              "Use GPT to structure financial tables (recommended). Off = rule-based only.", "bool"),
+    FieldSpec("ocr_dpi", "Extraction", "OCR resolution (DPI)",
+              "Higher = better OCR accuracy but slower and more memory. 200 is a safe default; "
+              "vision mode compensates for lower DPI.", "enum", options=(150, 200, 300)),
+    FieldSpec("ocr_lang", "Extraction", "OCR language",
+              "Tesseract language code(s), e.g. 'eng' or 'eng+fra'.", "str"),
+    #   Vision (sub-group of Extraction; sub-knobs reveal when vision is on)
+    FieldSpec("use_vision_extraction", "Extraction", "Vision extraction",
+              "Send the page image to GPT alongside the text to resolve OCR ambiguity. More "
+              "accurate on scanned/complex pages, but uses more tokens.", "bool", subgroup="Vision"),
+    FieldSpec("vision_dpi", "Extraction", "Vision render DPI",
+              "Resolution of the page image sent to GPT in vision mode.", "int",
+              subgroup="Vision", minimum=120, maximum=300, step=10),
+    FieldSpec("vision_detail", "Extraction", "Vision detail",
+              "OpenAI image detail level.", "enum", subgroup="Vision",
+              options=("high", "low", "auto")),
+    FieldSpec("vision_max_pages", "Extraction", "Vision max pages",
+              "Cap rendered page images per report (0 = all candidate pages).", "int",
+              subgroup="Vision", minimum=0, maximum=200, step=1),
+    # ── Insights (narrative-generation quality gates) ─────────────────────
+    FieldSpec("insight_review_threshold", "Insights", "Review threshold",
+              "Insights below this confidence go to the 'Insights Review' sheet.", "float",
+              minimum=0.0, maximum=1.0, step=0.05),
+    FieldSpec("insight_reject_threshold", "Insights", "Reject threshold",
+              "Insights below this confidence are dropped entirely.", "float",
+              minimum=0.0, maximum=1.0, step=0.05),
+    # ── Validation & Trust (auditability) ─────────────────────────────────
+    FieldSpec("validation_review_enabled", "Validation & Trust", "Validation review",
+              "Highlights figures worth double-checking. These are suggestions — always confirm "
+              "against the actual annual report.", "bool", badge="BETA"),
+    # ── Performance (speed / memory / API throughput) ─────────────────────
     FieldSpec("ocr_max_workers", "Performance", "OCR workers",
               "Parallel OCR processes. Higher = faster but more memory; too high can crash "
               "ingest on large scanned PDFs.", "int", minimum=1, maximum=_CPU, step=1),
-    FieldSpec("ocr_dpi", "Performance", "OCR resolution (DPI)",
-              "Higher = better OCR accuracy but slower and more memory. 200 is a safe default; "
-              "vision mode compensates for lower DPI.", "enum", options=(150, 200, 300)),
     FieldSpec("gpt_table_workers", "Performance", "GPT extraction workers",
               "Concurrent GPT calls during table extraction. Raise if your API plan has rate "
               "headroom; lower if you see 429s.", "int", minimum=1, maximum=24, step=1),
-    # --- Quality ---
-    FieldSpec("use_vision_extraction", "Quality", "Vision extraction",
-              "Send the page image to GPT alongside the text to resolve OCR ambiguity. More "
-              "accurate on scanned/complex pages, but uses more tokens.", "bool"),
-    FieldSpec("use_gpt_table_extraction", "Quality", "GPT table extraction",
-              "Use GPT to structure financial tables (recommended). Off = rule-based only.", "bool"),
-    # --- Credentials ---
-    FieldSpec("openai_api_key", "Credentials", "OpenAI API key",
-              "Your OpenAI key. Stored locally; never displayed back.", "secret"),
-    FieldSpec("openai_model", "Credentials", "OpenAI model",
-              "Model id used for extraction and insights (must be vision-capable for vision mode).",
-              "str"),
-    # --- Vision (advanced) ---
-    FieldSpec("vision_dpi", "Vision", "Vision render DPI",
-              "Resolution of the page image sent to GPT in vision mode.", "int",
-              advanced=True, minimum=120, maximum=300, step=10),
-    FieldSpec("vision_detail", "Vision", "Vision detail",
-              "OpenAI image detail level.", "enum", advanced=True,
-              options=("high", "low", "auto")),
-    FieldSpec("vision_max_pages", "Vision", "Vision max pages",
-              "Cap rendered page images per report (0 = all candidate pages).", "int",
-              advanced=True, minimum=0, maximum=200, step=1),
-    # --- Insights (advanced) ---
-    FieldSpec("insights_workers", "Insights", "Insight workers",
+    FieldSpec("insights_workers", "Performance", "Insight workers",
               "Concurrent GPT calls for narrative insight extraction.", "int",
-              advanced=True, minimum=1, maximum=16, step=1),
-    FieldSpec("insight_review_threshold", "Insights", "Review threshold",
-              "Insights below this confidence go to the 'Insights Review' sheet.", "float",
-              advanced=True, minimum=0.0, maximum=1.0, step=0.05),
-    FieldSpec("insight_reject_threshold", "Insights", "Reject threshold",
-              "Insights below this confidence are dropped entirely.", "float",
-              advanced=True, minimum=0.0, maximum=1.0, step=0.05),
-    # --- Matching (advanced) ---
-    FieldSpec("template_match_threshold", "Matching", "Template match strictness",
+              minimum=1, maximum=16, step=1),
+    # ── Advanced (rarely touched; can degrade output if mis-set) ──────────
+    FieldSpec("llm_max_output_tokens", "Advanced", "Max response length (tokens)",
+              "Upper bound on the model's reply length. Keep this generous (≥1500): the "
+              "agent's step-by-step tool calls need room, and too low truncates its answer so "
+              "you get a raw data dump instead of an explanation.", "int",
+              advanced=True, minimum=256, maximum=4000, step=100),
+    FieldSpec("llm_json_temperature", "Advanced", "Reasoning temperature",
+              "Creativity for the model's structured decisions (intent, agent steps, "
+              "verification). 0 = most deterministic and consistent. Note: some models "
+              "(e.g. gpt-5-mini) ignore this and use their default.", "float",
+              advanced=True, minimum=0.0, maximum=2.0, step=0.1),
+    FieldSpec("llm_text_temperature", "Advanced", "Wording temperature",
+              "Creativity for phrasing the written answer. Higher = more varied wording; the "
+              "facts and numbers are unaffected (guarded). 0 = most consistent.", "float",
+              advanced=True, minimum=0.0, maximum=2.0, step=0.1),
+    FieldSpec("template_match_threshold", "Advanced", "Template match strictness",
               "Label-similarity needed to map an extracted line to a template row.", "float",
               advanced=True, minimum=0.0, maximum=1.0, step=0.01),
-    FieldSpec("metric_fuzzy_threshold", "Matching", "Metric match strictness",
+    FieldSpec("metric_fuzzy_threshold", "Advanced", "Metric match strictness",
               "Similarity needed to resolve a line label to a canonical metric.", "float",
               advanced=True, minimum=0.0, maximum=1.0, step=0.01),
-    FieldSpec("ocr_lang", "Matching", "OCR language",
-              "Tesseract language code(s), e.g. 'eng' or 'eng+fra'.", "str", advanced=True),
-    FieldSpec("openai_timeout", "Matching", "OpenAI timeout (s)",
+    FieldSpec("openai_timeout", "Advanced", "OpenAI timeout (s)",
               "Per-request timeout for GPT calls.", "int", advanced=True,
               minimum=10, maximum=600, step=5),
-    FieldSpec("openai_max_retries", "Matching", "OpenAI max retries",
+    FieldSpec("openai_max_retries", "Advanced", "OpenAI max retries",
               "How many times the SDK retries transient errors (429/5xx/timeout).", "int",
               advanced=True, minimum=0, maximum=10, step=1),
+    FieldSpec("gpt_table_max_pages", "Advanced", "Max pages sent to GPT",
+              "Cap on financial pages sent to GPT per report. Lower = cheaper but may drop "
+              "pages on long filings; raise for very long reports.", "int",
+              advanced=True, minimum=10, maximum=300, step=10),
+    FieldSpec("llm_max_input_chars", "Advanced", "Max prompt input (chars)",
+              "Truncate prompt text above this many characters (a cost guard).", "int",
+              advanced=True, minimum=4000, maximum=64000, step=1000),
+    FieldSpec("metric_use_embeddings", "Advanced", "Semantic metric matching",
+              "Use embeddings as a fallback when mapping a label to a canonical metric "
+              "(better synonym matching, a little slower).", "bool", advanced=True),
+    FieldSpec("tesseract_cmd", "Advanced", "Tesseract path",
+              "Path to the Tesseract OCR binary if it isn't on the system PATH. Blank = "
+              "auto-detect.", "str", advanced=True),
 )
 
 _BY_KEY = {f.key: f for f in _FIELDS}
 _SECRET_LOGICAL = {  # spec.key -> logical name used by secrets_status()
     "openai_api_key": "openai",
 }
+
+
+def _invalidate_runtime_caches() -> None:
+    """Drop the cached FIE LLM singleton so model/key/temperature changes take effect on the
+    NEXT query (the engine is rebuilt per query, only the LLM is cached). Best-effort and
+    lazily imported to avoid a route import cycle."""
+    try:
+        from app.api.routes import fie as _fie
+        _fie._llm.cache_clear()
+    except Exception:  # noqa: BLE001 — never let cache cleanup break a settings write
+        pass
 
 
 class SettingsUpdate(BaseModel):
@@ -154,8 +206,8 @@ def _snapshot() -> dict:
     fields = []
     for f in _FIELDS:
         item = {
-            "key": f.key, "group": f.group, "label": f.label, "help": f.help,
-            "kind": f.kind, "advanced": f.advanced,
+            "key": f.key, "group": f.group, "subgroup": f.subgroup, "badge": f.badge,
+            "label": f.label, "help": f.help, "kind": f.kind, "advanced": f.advanced,
             "minimum": f.minimum, "maximum": f.maximum, "step": f.step,
             "options": list(f.options) if f.options else None,
             "overridden": f.key in overridden,
@@ -167,7 +219,14 @@ def _snapshot() -> dict:
             item["value"] = getattr(s, f.key)
             item["default"] = Settings.model_fields[f.key].default
         fields.append(item)
-    return {"fields": fields}
+    # Ordered section list so the UI renders groups deterministically (Advanced collapsed).
+    present = [f.group for f in _FIELDS]
+    ordered = [g for g in _GROUP_ORDER if g in present] + \
+              [g for g in present if g not in _GROUP_ORDER]
+    seen: set = set()
+    groups = [{"name": g, "collapsed": g in _COLLAPSED_GROUPS}
+              for g in ordered if not (g in seen or seen.add(g))]
+    return {"fields": fields, "groups": groups}
 
 
 @router.get("")
@@ -201,6 +260,7 @@ async def update_settings(update: SettingsUpdate):
         raise HTTPException(400, detail=f"Invalid settings: {e.errors()}")
 
     write_overrides(overrides)     # persists + clears the settings cache
+    _invalidate_runtime_caches()   # so model/temperature changes apply on the next query
     return _snapshot()
 
 
@@ -208,4 +268,5 @@ async def update_settings(update: SettingsUpdate):
 async def reset_settings():
     """Reset ALL settings to their defaults in one click (clears the override file)."""
     reset_overrides()
+    _invalidate_runtime_caches()
     return _snapshot()

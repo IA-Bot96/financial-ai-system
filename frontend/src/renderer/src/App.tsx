@@ -39,6 +39,11 @@ export default function App() {
       const r = await api.health().catch(() => ({ status: 0, body: null }))
       if (r.status === 200) {
         setBackend('ready')
+        // reflect the persisted "Validation review" backend setting in the review-bar gate
+        api.getSettings().then((res) => {
+          const f = res.status === 200 ? res.body?.fields?.find((x) => x.key === 'validation_review_enabled') : null
+          if (f && typeof f.value === 'boolean') useApp.getState().setValidationEnabled(f.value)
+        }).catch(() => {})
         return
       }
       await new Promise((res) => setTimeout(res, POLL_MS))

@@ -17,6 +17,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
+from app.core.config import get_settings
 from app.core.debug import DebugDumper
 from app.core.logging import get_logger
 from app.engines.extraction.models.company import CompanyResult
@@ -83,6 +84,12 @@ def process_documents(
             pass
 
     dumper = dumper or DebugDumper(None)
+    # Validation review (BETA) toggle: when off, the review ARTIFACTS are suppressed — the
+    # 'Validation Ledger' sheet isn't written and suspicious cells aren't annotated, so the
+    # frontend's review highlighting (which reads that sheet) goes inactive. The validation
+    # is STILL computed (manifest counts, production gate) and corrections (formula plugs,
+    # headline overrides) STILL apply — only the user-facing review surface is hidden.
+    review = get_settings().validation_review_enabled
     _emit("merging")
     company_result = resolve_multiyear(results, company=company)
     output_path = str(output_path)
@@ -152,7 +159,7 @@ def process_documents(
         _emit("validating")
         output_set = set(plan.formula_sheets)
         computed_rows, computed_fail, computed_unevaluable = computed_output_ledger(
-            output_path, company_result, _tieout, output_sheets=output_set)
+            output_path, company_result, _tieout, output_sheets=output_set, annotate=review)
         # Coverage gate: an emitted headline metric with NO face truth is unvalidated
         # (e.g. a mis-classified balance sheet yields no primary table) — block, don't
         # silently pass it just because there's nothing to compare against.
@@ -166,7 +173,7 @@ def process_documents(
         # captured from computed_rows (above) so that metric stays the genuine
         # 'leaves actually sum' number; this only makes the workbook subtotals correct.
         reconcile_rows, breakdown_reconciled = reconcile_breakdown_subtotals(
-            output_path, company_result, _tieout, output_set)
+            output_path, company_result, _tieout, output_set, annotate=review)
         # Materiality-gated honesty: minor gaps (<=5%) are plugged (DETAIL_PLUG); material
         # ones are NOT (DETAIL_INCOMPLETE) — disclosed, not faked. Surface both + which
         # sheets carry material unmapped detail, so the workbook can't overclaim.
@@ -174,7 +181,8 @@ def process_documents(
         detail_incomplete_sheets = sorted({r.sheet for r in reconcile_rows
                                            if r.status == "DETAIL_INCOMPLETE"})
         ledger_rows = template_ledger(plan) + computed_rows + coverage_rows + identity_rows + reconcile_rows
-        append_ledger_sheet(output_path, ledger_rows)
+        if review:                                           # review off -> no ledger sheet
+            append_ledger_sheet(output_path, ledger_rows)
         write_source_ledger(output_path, plan, overrides)    # traceability (#9) incl. output overrides
         if dumper.enabled:                                   # validation layer as JSON (greppable)
             from dataclasses import asdict, is_dataclass
@@ -219,7 +227,8 @@ def process_documents(
         )
         ledger_rows, production_fail = no_template_ledger(company_result, _tieout)
         identity_rows, identity_failures = identity_ledger(company_result)
-        append_ledger_sheet(output_path, ledger_rows + identity_rows)
+        if review:                                           # review off -> no ledger sheet
+            append_ledger_sheet(output_path, ledger_rows + identity_rows)
         unevaluable = 0
         detail_incomplete = 0
         detail_checked = detail_ok = 0
@@ -310,6 +319,10 @@ def process_documents(
         # cached values aren't populated for headless readers (no LibreOffice available).
         "cash_flow_in_scope": cash_flow_in_scope,
         "formula_cache_materialized": formula_cache_materialized,
+        # Validation review (BETA): whether the review surface (Validation Ledger sheet +
+        # in-cell suggestion annotations) was emitted. False => the workbook has no review
+        # sheet, so the frontend's review highlighting stays inactive.
+        "validation_review_enabled": review,
         # Per-sheet source provenance: {sheet -> [{report_file, pages, table_ids, weight}]},
         # ranked by contribution. Lets a side-by-side PDF viewer jump to the source page
         # when the user switches worksheets. Empty entries mean no page lineage survived.

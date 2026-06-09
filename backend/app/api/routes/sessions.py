@@ -22,6 +22,7 @@ import logging
 import os
 import time
 import uuid
+from collections import OrderedDict
 
 import openpyxl
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -33,7 +34,7 @@ from app.core.metrics import METRICS
 from app.core.security import UploadRejected, assert_safe_upload
 from app.engines.fie import (ExternalSources, FinancialFactStore,
                              FinancialIntelligenceEngine)
-from app.engines.fie.apis import News, RegistryFetcher, Symbols
+from app.engines.fie.apis import CompanyOverview, News, RegistryFetcher, Symbols
 from app.engines.fie.ingest.classify import classify_sheet
 from app.engines.fie.trace import TraceStore
 
@@ -47,6 +48,23 @@ _SESSIONS_DIR = os.path.join(str(STORAGE_ROOT), "sessions")
 # session_id -> {engine, store, meta, path}. The store is held RESIDENT in memory; the
 # query path looks it up and never re-parses the workbook.
 _SESSIONS: dict[str, dict] = {}
+
+# Cross-session PEER POOL: every workbook opened this run is kept (company -> store, newest
+# last, bounded) so a session can compare its company against ones opened earlier. Peers are
+# consumed ONLY by peer_comparison (via _store_for); every other query uses the active store,
+# so this never changes non-peer answers. Empty/one-workbook → peer_comparison degrades as before.
+_PEER_POOL_MAX = 8
+_PEER_STORES: "OrderedDict[str, object]" = OrderedDict()
+
+
+def _register_peer(store) -> None:
+    company = getattr(store, "company", None)
+    if not company:
+        return
+    _PEER_STORES.pop(company, None)        # refresh position / pick up a reloaded version
+    _PEER_STORES[company] = store
+    while len(_PEER_STORES) > _PEER_POOL_MAX:
+        _PEER_STORES.popitem(last=False)   # evict the oldest
 
 
 class HistoryTurn(BaseModel):
@@ -108,13 +126,21 @@ def _build(session_id: str, data: bytes) -> dict:
     with open(path, "wb") as fh:
         fh.write(data)
     store = FinancialFactStore.from_workbook(path)          # the only parse (create/reload)
+    # register this workbook in the cross-session peer pool, then expose the OTHER opened
+    # companies as peers so peer_comparison works once ≥2 workbooks have been opened.
+    _register_peer(store)
+    peers = {c: s for c, s in _PEER_STORES.items() if c != store.company}
     client = _external_client()
     symbols = Symbols(client)
     # RegistryFetcher makes the full 17-API PSX catalog callable generically; the planner's
     # query-driven shortlist (plan.registry_apis) decides which subset actually fires.
     external = ExternalSources(
+        peers=peers,
         news=News(client), symbols=symbols,
         registry_fetcher=RegistryFetcher(client),
+        # live price / P-E / market cap / shares → unblocks the valuation path (P/E, P/B,
+        # EV/EBITDA, yield). Best-effort: if the fetch fails, _valuation degrades gracefully.
+        company_overview=CompanyOverview(client, symbols=symbols),
     )
     engine = FinancialIntelligenceEngine(store, llm=_llm(), external=external)
     meta = {"session_id": session_id, "company": store.company, "years": store.years,

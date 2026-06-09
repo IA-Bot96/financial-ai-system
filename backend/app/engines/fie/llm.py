@@ -79,13 +79,18 @@ class OpenAILLM:
 
     def __init__(self, model: str = "gpt-4o-mini", api_key: str | None = None,
                  *, max_input_chars: int = 24_000, max_output_tokens: int = 800,
-                 cache_max: int = 256) -> None:
+                 json_temperature: float = 0.0, text_temperature: float = 0.2,
+                 seed: int | None = 7, cache_max: int = 256) -> None:
         self.model = model
         self._api_key = api_key or os.getenv("OPENAI_API_KEY")
         self._client = None
         # cost guards: truncate oversized prompts, cap completion length
         self.max_input_chars = max_input_chars
         self.max_output_tokens = max_output_tokens
+        # sampling temperature (config-driven, not hardcoded): json = structured decisions,
+        # text = answer phrasing. Models that reject custom temperature fall back to default.
+        self.json_temperature = json_temperature
+        self.text_temperature = text_temperature
         # bounded in-process response cache: identical prompts (json is temperature=0,
         # i.e. deterministic) reuse the prior completion instead of re-billing the API.
         self.cache_max = cache_max
@@ -93,6 +98,12 @@ class OpenAILLM:
         # last caught error — readable by the debug recorder so the dump shows the actual
         # error message instead of bare null when complete_json/complete_text fail.
         self.last_error: str | None = None
+        # A fixed seed makes outputs reproducible run-to-run (the main determinism lever for a
+        # model forced to temperature=1, e.g. gpt-5-mini). Sent alongside temperature; both are
+        # param-tolerant — a model that rejects either gets it stripped + a one-time retry.
+        self.seed = seed
+        self._omit_temperature = False
+        self._omit_seed = False
         _log.info(
             "OpenAILLM ready: model=%s key_set=%s max_input_chars=%d max_output_tokens=%d",
             self.model, bool(self._api_key), self.max_input_chars, self.max_output_tokens,
@@ -120,6 +131,43 @@ class OpenAILLM:
             self._client = OpenAI(api_key=self._api_key)
         return self._client
 
+    def _create(self, *, messages, temperature, response_format=None):
+        """chat.completions.create with PARAM tolerance: send temperature (determinism) and a
+        fixed seed (reproducibility), but if the model 400s rejecting either, strip the offending
+        one and retry. Sticky flags mean we strip it for the rest of the run — so the same code
+        works on gpt-4o*, gpt-5.4-mini, gpt-5-mini, … without ever failing on an unsupported param."""
+        client = self._ensure()
+
+        def _kwargs():
+            kw = {"model": self.model, "messages": messages,
+                  "max_completion_tokens": self.max_output_tokens}
+            if response_format is not None:
+                kw["response_format"] = response_format
+            if temperature is not None and not self._omit_temperature:
+                kw["temperature"] = temperature
+            if self.seed is not None and not self._omit_seed:
+                kw["seed"] = self.seed
+            return kw
+
+        for _ in range(3):  # at most: strip temperature, strip seed, then succeed
+            try:
+                return client.chat.completions.create(**_kwargs())
+            except Exception as exc:  # noqa: BLE001
+                msg = str(exc).lower()
+                if "temperature" in msg and not self._omit_temperature:
+                    self._omit_temperature = True
+                    _log.info("OpenAI: model %s rejects a custom temperature — using the default",
+                              self.model, extra={"component": "LLM"})
+                    continue
+                if "seed" in msg and not self._omit_seed:
+                    self._omit_seed = True
+                    _log.info("OpenAI: model %s rejects a seed — dropping it (less reproducible)",
+                              self.model, extra={"component": "LLM"})
+                    continue
+                raise
+        # all tolerable params stripped — final attempt (let any real error propagate)
+        return client.chat.completions.create(**_kwargs())
+
     def complete_json(self, system: str, user: str, schema: dict) -> Optional[dict]:
         key = ("json", system, user, repr(sorted((schema or {}).items())))
         hit = self._cache_get(key)
@@ -127,14 +175,11 @@ class OpenAILLM:
             _log.debug("OpenAI complete_json: cache hit", extra={"component": "LLM"})
             return hit
         try:
-            client = self._ensure()
-            resp = client.chat.completions.create(
-                model=self.model,
+            resp = self._create(
                 messages=[{"role": "system", "content": self._clip(system)},
                           {"role": "user", "content": self._clip(user)}],
                 response_format={"type": "json_object"},
-                temperature=0,
-                max_completion_tokens=self.max_output_tokens,
+                temperature=self.json_temperature,
             )
             out = _loads_lenient(resp.choices[0].message.content)
             usage = resp.usage
@@ -163,13 +208,10 @@ class OpenAILLM:
             _log.debug("OpenAI complete_text: cache hit", extra={"component": "LLM"})
             return hit
         try:
-            client = self._ensure()
-            resp = client.chat.completions.create(
-                model=self.model,
+            resp = self._create(
                 messages=[{"role": "system", "content": self._clip(system)},
                           {"role": "user", "content": self._clip(user)}],
-                temperature=0.2,
-                max_completion_tokens=self.max_output_tokens,
+                temperature=self.text_temperature,
             )
             out = resp.choices[0].message.content
             usage = resp.usage

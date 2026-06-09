@@ -52,6 +52,46 @@ def test_no_template_writes_styled_workbook(tmp_path):
     wb.close()
 
 
+def test_validation_review_toggle_gates_ledger_sheet(tmp_path, monkeypatch):
+    results = [_doc(2025, StatementType.income_statement,
+                    [LineItem(label="Revenue", values=[LineItemValue(year=2024, value=100.0),
+                                                        LineItemValue(year=2025, value=120.0)])])]
+    # Default ON -> review surface present.
+    res_on = process_documents(results, tmp_path / "on.xlsx")
+    wb = openpyxl.load_workbook(tmp_path / "on.xlsx")
+    assert "Validation Ledger" in wb.sheetnames
+    wb.close()
+    assert json.loads(Path(res_on.manifest_path).read_text("utf-8"))["validation_review_enabled"] is True
+
+    # Toggle OFF -> no review sheet, but the workbook + validation verdict still produced.
+    monkeypatch.setenv("VALIDATION_REVIEW_ENABLED", "false")
+    get_settings.cache_clear()
+    res_off = process_documents(results, tmp_path / "off.xlsx")
+    wb2 = openpyxl.load_workbook(tmp_path / "off.xlsx")
+    assert "Validation Ledger" not in wb2.sheetnames     # review surface suppressed
+    assert "Income Statement" in wb2.sheetnames           # workbook still produced
+    wb2.close()
+    man_off = json.loads(Path(res_off.manifest_path).read_text("utf-8"))
+    assert man_off["validation_review_enabled"] is False
+    assert isinstance(res_off.production_ready, bool)      # validation still computed
+
+
+def test_review_off_keeps_corrections_and_provenance(tmp_path, monkeypatch):
+    # Review OFF must NOT disable corrections (filled values) or provenance (Source Ledger).
+    monkeypatch.setenv("VALIDATION_REVIEW_ENABLED", "false")
+    get_settings.cache_clear()
+    tpl = tmp_path / "tpl.xlsx"
+    _make_template(tpl)
+    results = [_doc(2025, StatementType.revenue, _rev_lines(2024, 2025, (50.0, 60.0), (30.0, 40.0)))]
+    res = process_documents(results, tmp_path / "filled.xlsx", template_path=tpl)
+    wb = openpyxl.load_workbook(tmp_path / "filled.xlsx")
+    assert "Validation Ledger" not in wb.sheetnames      # review surface off
+    assert "Source Ledger" in wb.sheetnames               # provenance kept (not a review artifact)
+    assert wb["PL1 - Revenue"]["B5"].value == 50.0        # values still filled (correctness intact)
+    wb.close()
+    assert res.manifest_path and Path(res.manifest_path).exists()
+
+
 def _make_template(path):
     wb = openpyxl.Workbook()
     pl = wb.active

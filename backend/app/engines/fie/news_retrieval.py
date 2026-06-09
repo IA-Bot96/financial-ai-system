@@ -20,10 +20,26 @@ citation locator; the source/author/link set by the news adapter is preserved.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Callable, Optional
 
 from .models import EvidenceItem
+
+# Generic corporate-suffix / filler tokens that aren't distinctive enough to gate on.
+_NAME_STOP = {"limited", "ltd", "company", "co", "plc", "inc", "incorporated", "corporation",
+              "corp", "the", "and", "group", "holdings", "holding"}
+
+
+def entity_terms_for(company: Optional[str], ticker: Optional[str]) -> list[str]:
+    """Distinctive subject tokens for the entity-relevance gate: meaningful company-name words
+    (>=4 chars, non-stopword) plus the ticker. Empty when nothing distinctive can be derived —
+    in which case the gate is skipped (no behaviour change)."""
+    toks = [t for t in re.split(r"[^a-z0-9]+", (company or "").lower())
+            if len(t) >= 4 and t not in _NAME_STOP]
+    if ticker and ticker.strip():
+        toks.append(ticker.strip().lower())
+    return list(dict.fromkeys(toks))  # de-dupe, preserve order
 
 _log = logging.getLogger("app.engines.fie")
 
@@ -91,8 +107,8 @@ def _emit(ev: EvidenceItem, chunk_text: str, idx: int, score: float) -> Evidence
 
 
 def retrieve(articles: list[EvidenceItem], query_text: str, *, settings=None,
-             embedder: Optional[Callable] = None, anchor_date: Optional[str] = None
-             ) -> list[EvidenceItem]:
+             embedder: Optional[Callable] = None, anchor_date: Optional[str] = None,
+             entity_terms: Optional[list[str]] = None) -> list[EvidenceItem]:
     """Rank/dedupe article chunks against the query. Returns surviving chunk
     EvidenceItems (best first). `embedder` is any object with
     ``.encode(list[str], normalize_embeddings=True) -> ndarray``; defaults to the
@@ -110,6 +126,27 @@ def retrieve(articles: list[EvidenceItem], query_text: str, *, settings=None,
     if not articles:
         _log.debug("fie news_retrieval.retrieve: no articles -> returning empty", extra={"component": "News"})
         return []
+
+    # Entity-relevance gate (precision): when the caller passes the subject's distinctive name
+    # tokens / ticker, drop articles that don't mention the company AT ALL — kills off-topic
+    # results a thin-coverage name pulls in (e.g. an unrelated 'Mechel' article for 'Millat').
+    # The cosine floor alone can't: those articles are financially similar enough to clear it.
+    # Only applied when entity_terms are supplied, so no other path's behaviour changes; if it
+    # filters everything out we return [] (honest "no relevant news" beats confident garbage).
+    if entity_terms:
+        pats = [re.compile(r"\b" + re.escape(t.lower())) for t in entity_terms if t]
+        kept = []
+        for ev in articles:
+            loc = ev.citations[0].locator if ev.citations else {}
+            text = " ".join(str(x) for x in (ev.claim, loc.get("title"), loc.get("snippet"),
+                                             loc.get("content"), loc.get("chunk_text")) if x).lower()
+            if text and any(p.search(text) for p in pats):
+                kept.append(ev)
+        _log.debug("fie news_retrieval.retrieve: entity gate kept %d/%d articles (terms=%s)",
+                   len(kept), len(articles), entity_terms, extra={"component": "News"})
+        articles = kept
+        if not articles:
+            return []
 
     # Log each article headline coming in
     for i, ev in enumerate(articles[:5]):

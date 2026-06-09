@@ -59,14 +59,21 @@ export interface SettingsField {
   step: number | null
   options: (string | number)[] | null
   overridden: boolean
+  subgroup?: string | null   // nested block within a group (e.g. "Vision" under Extraction)
+  badge?: string | null      // small chip next to the label (e.g. "BETA")
   // non-secret fields only:
   value?: unknown
   default?: unknown
   // secret fields only:
   configured?: boolean
 }
+export interface SettingsGroup {
+  name: string
+  collapsed: boolean
+}
 export interface SettingsSnapshot {
   fields: SettingsField[]
+  groups: SettingsGroup[]
 }
 
 export const api = {

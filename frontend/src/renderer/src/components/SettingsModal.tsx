@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api, type SettingsField } from '@/api'
+import { api, type SettingsField, type SettingsGroup } from '@/api'
 import { useApp } from '@/store'
 import { cn } from '@/lib/util'
 import { Button } from './ui/Button'
 import { Settings as Gear, ChevronDown } from './ui/icons'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-/** Ordered, de-duplicated list of group names as they first appear in `fields`. */
-function groupOrder(fields: SettingsField[]): string[] {
-  const seen: string[] = []
-  for (const f of fields) if (!seen.includes(f.group)) seen.push(f.group)
-  return seen
-}
 
 /** Non-blocking memory/perf warning for the knobs that cause OOM ingest crashes. */
 function usageWarning(f: SettingsField, value: unknown): string | null {
@@ -42,22 +35,26 @@ function fmtDefault(v: unknown): string {
 export function SettingsModal() {
   const closeSettings = useApp((s) => s.closeSettings)
   const toast = useApp((s) => s.toast)
-  const validationEnabled = useApp((s) => s.validationEnabled)
   const setValidationEnabled = useApp((s) => s.setValidationEnabled)
 
   const [fields, setFields] = useState<SettingsField[]>([])
+  const [groups, setGroups] = useState<SettingsGroup[]>([])
   const [draft, setDraft] = useState<Record<string, unknown>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
-  // staged value for the frontend "Validation review" toggle — committed on Save (so the bar's
-  // visibility changes only when the user saves), discarded on Cancel.
-  const [reviewDraft, setReviewDraft] = useState(validationEnabled)
-  const reviewChanged = reviewDraft !== validationEnabled
+
+  // Keep the live review-bar gate in sync with the persisted backend setting.
+  const syncReview = useCallback(
+    (flds: SettingsField[]) => {
+      const f = flds.find((x) => x.key === 'validation_review_enabled')
+      if (f && typeof f.value === 'boolean') setValidationEnabled(f.value)
+    },
+    [setValidationEnabled]
+  )
 
   // ── load ──
   const load = useCallback(async () => {
@@ -66,13 +63,15 @@ export function SettingsModal() {
     const r = await api.getSettings().catch(() => ({ status: 0, body: null }))
     if (r.status === 200 && r.body?.fields) {
       setFields(r.body.fields)
+      setGroups(r.body.groups ?? [])
       setDraft({})
       setErrors({})
+      syncReview(r.body.fields)
     } else {
       setLoadError('Could not load settings from the engine.')
     }
     setLoading(false)
-  }, [])
+  }, [syncReview])
 
   useEffect(() => {
     load()
@@ -118,26 +117,20 @@ export function SettingsModal() {
   }, [fields, draft])
 
   const changedCount = Object.keys(changed).length
-  const totalChanges = changedCount + (reviewChanged ? 1 : 0)
 
   // ── save / reset ──
   async function save() {
-    if (!totalChanges || saving) return
-    // commit the frontend review preference (changes the bar's visibility on Save)
-    if (reviewChanged) setValidationEnabled(reviewDraft)
-    // review-only change → nothing to POST to the engine
-    if (changedCount === 0) {
-      toast('success', 'Settings saved.')
-      return
-    }
+    if (!changedCount || saving) return
     setSaving(true)
     const r = await api.updateSettings(changed)
     setSaving(false)
     if (r.status === 200 && r.body?.fields) {
       setFields(r.body.fields)
+      setGroups(r.body.groups ?? groups)
       setDraft({})
       setErrors({})
-      toast('success', 'Settings saved — applied to the next extraction run.')
+      syncReview(r.body.fields)
+      toast('success', 'Saved — applies to the next extraction run.')
       return
     }
     // 400 → map "key: message" to the offending field; otherwise a general toast.
@@ -157,18 +150,15 @@ export function SettingsModal() {
     setResetting(false)
     if (r.status === 200 && r.body?.fields) {
       setFields(r.body.fields)
+      setGroups(r.body.groups ?? groups)
       setDraft({})
       setErrors({})
-      setReviewDraft(true) // "Validation review" default is on (staged; applied on Save)
-      toast('success', 'Settings reset to defaults — applied to the next extraction run.')
+      syncReview(r.body.fields)
+      toast('success', 'Settings reset to defaults.')
     } else {
       toast('error', 'Could not reset settings.')
     }
   }
-
-  // ── derived sections ──
-  const basic = fields.filter((f) => !f.advanced)
-  const advanced = fields.filter((f) => f.advanced)
 
   // ── render ──
   return (
@@ -196,49 +186,8 @@ export function SettingsModal() {
             </button>
           </div>
 
-          {/* body */}
+          {/* body — sections rendered in backend `groups` order; Advanced collapsed */}
           <div className="flex-1 min-h-0 overflow-auto px-6 py-4">
-            {/* Review (frontend preference — applies immediately, persisted locally; not part of
-                the engine settings Save/Reset below) */}
-            <div className="mb-5">
-              <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-1 mt-1">
-                Review
-              </div>
-              <div className="rounded-xl border border-line bg-panel2/40 px-4 py-3">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">Validation review</span>
-                      <span className="rounded bg-amber-500/15 text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 tracking-wide">
-                        BETA
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted mt-1 leading-snug">
-                      Highlights figures in the workbook that may need a second look. These are
-                      automated suggestions — always confirm them against the actual annual reports
-                      before relying on them.
-                    </p>
-                  </div>
-                  <button
-                    role="switch"
-                    aria-checked={reviewDraft}
-                    onClick={() => setReviewDraft((v) => !v)}
-                    className={cn(
-                      'relative h-6 w-11 rounded-full transition-colors shrink-0 mt-0.5',
-                      reviewDraft ? 'bg-accent' : 'bg-line'
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        'absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 rounded-full bg-white transition-transform',
-                        reviewDraft && 'translate-x-5'
-                      )}
-                    />
-                  </button>
-                </div>
-              </div>
-            </div>
-
             {loading ? (
               <div className="py-16 text-center">
                 <div className="mx-auto mb-3 h-6 w-6 rounded-full border-2 border-muted border-t-transparent animate-spin" />
@@ -252,49 +201,20 @@ export function SettingsModal() {
                 </Button>
               </div>
             ) : (
-              <>
-                {groupOrder(basic).map((g) => (
-                  <GroupBlock
-                    key={g}
-                    title={g}
-                    fields={basic.filter((f) => f.group === g)}
+              groups.map((g) => {
+                const groupFields = fields.filter((f) => f.group === g.name)
+                if (!groupFields.length) return null
+                return (
+                  <GroupSection
+                    key={g.name}
+                    group={g}
+                    fields={groupFields}
                     eff={eff}
                     setVal={setVal}
                     errors={errors}
                   />
-                ))}
-
-                {advanced.length > 0 && (
-                  <div className="mt-4 rounded-xl border border-line">
-                    <button
-                      onClick={() => setAdvancedOpen((v) => !v)}
-                      className="w-full flex items-center gap-2 px-4 py-3 text-sm font-medium hover:bg-panel2 rounded-xl transition-colors"
-                    >
-                      <ChevronDown
-                        className={cn('w-4 h-4 transition-transform', advancedOpen && 'rotate-180')}
-                      />
-                      Advanced
-                      <span className="text-xs text-muted font-normal">
-                        ({advanced.length} settings)
-                      </span>
-                    </button>
-                    {advancedOpen && (
-                      <div className="px-4 pb-2 border-t border-line">
-                        {groupOrder(advanced).map((g) => (
-                          <GroupBlock
-                            key={g}
-                            title={g}
-                            fields={advanced.filter((f) => f.group === g)}
-                            eff={eff}
-                            setVal={setVal}
-                            errors={errors}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
+                )
+              })
             )}
           </div>
 
@@ -309,15 +229,15 @@ export function SettingsModal() {
               {resetting ? 'Resetting…' : 'Reset to defaults'}
             </Button>
             <div className="flex items-center gap-3">
-              {totalChanges > 0 && (
+              {changedCount > 0 && (
                 <span className="text-xs text-muted">
-                  {totalChanges} change{totalChanges === 1 ? '' : 's'}
+                  {changedCount} change{changedCount === 1 ? '' : 's'}
                 </span>
               )}
               <Button variant="ghost" onClick={() => closeSettings()}>
                 Cancel
               </Button>
-              <Button disabled={!totalChanges || saving || loading} onClick={save}>
+              <Button disabled={!changedCount || saving || loading} onClick={save}>
                 {saving ? 'Saving…' : 'Save changes'}
               </Button>
             </div>
@@ -352,32 +272,94 @@ export function SettingsModal() {
   )
 }
 
-// ── group block ────────────────────────────────────────────────────────────────
+// ── group section (collapsible when group.collapsed; nests subgroups) ──────────
 
-function GroupBlock({
-  title,
+function GroupSection({
+  group,
   fields,
   eff,
   setVal,
   errors
 }: {
-  title: string
+  group: SettingsGroup
   fields: SettingsField[]
   eff: (f: SettingsField) => unknown
   setVal: (key: string, value: unknown) => void
   errors: Record<string, string>
 }) {
-  if (!fields.length) return null
+  const [open, setOpen] = useState(!group.collapsed)
+  const direct = fields.filter((f) => !f.subgroup)
+  const subgroups = [...new Set(fields.filter((f) => f.subgroup).map((f) => f.subgroup as string))]
+
+  const header = group.collapsed ? (
+    <button
+      onClick={() => setOpen((v) => !v)}
+      className="flex items-center gap-1.5 mb-1 mt-2 text-xs font-semibold text-muted uppercase tracking-wide hover:text-ink transition-colors"
+    >
+      <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', !open && '-rotate-90')} />
+      {group.name}
+      <span className="font-normal normal-case text-muted/70">({fields.length})</span>
+    </button>
+  ) : (
+    <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-1 mt-2">
+      {group.name}
+    </div>
+  )
+
   return (
     <div className="mb-5 last:mb-1">
-      <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-1 mt-2">
-        {title}
+      {header}
+      {open && (
+        <div className="rounded-xl border border-line bg-panel2/40 px-4">
+          {direct.map((f) => (
+            <FieldRow key={f.key} field={f} value={eff(f)} setVal={setVal} error={errors[f.key]} />
+          ))}
+          {subgroups.map((sn) => (
+            <SubgroupBlock
+              key={sn}
+              name={sn}
+              fields={fields.filter((f) => f.subgroup === sn)}
+              eff={eff}
+              setVal={setVal}
+              errors={errors}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A nested block (e.g. Vision under Extraction). Its leading bool field is the toggle; the
+// remaining fields are revealed only when that toggle is on.
+function SubgroupBlock({
+  name,
+  fields,
+  eff,
+  setVal,
+  errors
+}: {
+  name: string
+  fields: SettingsField[]
+  eff: (f: SettingsField) => unknown
+  setVal: (key: string, value: unknown) => void
+  errors: Record<string, string>
+}) {
+  const toggle = fields.find((f) => f.kind === 'bool')
+  const rest = fields.filter((f) => f !== toggle)
+  const on = toggle ? eff(toggle) === true : true
+  return (
+    <div className="my-2 rounded-lg border border-line/60 bg-panel/40 px-3">
+      <div className="text-[11px] font-medium text-muted/80 uppercase tracking-wide pt-2 -mb-1">
+        {name}
       </div>
-      <div className="rounded-xl border border-line bg-panel2/40 px-4">
-        {fields.map((f) => (
+      {toggle && (
+        <FieldRow field={toggle} value={eff(toggle)} setVal={setVal} error={errors[toggle.key]} />
+      )}
+      {on &&
+        rest.map((f) => (
           <FieldRow key={f.key} field={f} value={eff(f)} setVal={setVal} error={errors[f.key]} />
         ))}
-      </div>
     </div>
   )
 }
@@ -402,6 +384,11 @@ function FieldRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium">{field.label}</span>
+            {field.badge && (
+              <span className="rounded bg-amber-500/15 text-amber-400 text-[10px] font-semibold px-1.5 py-0.5 tracking-wide">
+                {field.badge}
+              </span>
+            )}
             {field.overridden && (
               <span className="inline-flex items-center rounded-full bg-accent/15 text-accent px-2 py-0.5 text-[10px] font-medium">
                 Modified
@@ -456,7 +443,7 @@ function FieldControl({
       >
         <span
           className={cn(
-            'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform',
+            'absolute top-1/2 left-0.5 h-5 w-5 -translate-y-1/2 rounded-full bg-white transition-transform',
             on && 'translate-x-5'
           )}
         />
