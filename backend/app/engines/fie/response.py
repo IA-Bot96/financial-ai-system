@@ -471,11 +471,7 @@ def render(
         yspan = f"{yrs[0]}–{yrs[-1]}" if len(yrs) > 1 else (str(yrs[0]) if yrs else "no")
         names = {"pl": "an income statement (P&L)", "bs": "a balance sheet",
                  "cf": "a cash-flow statement", "equity": "a statement of changes in equity"}
-        _stmts = [names.get(s, s) for s in av.get("statements", [])]
-        have = ", ".join(_stmts)
-        # natural "a, b and c" for the statements-list answer
-        have_and = (" and ".join(_stmts) if len(_stmts) <= 2
-                    else ", ".join(_stmts[:-1]) + " and " + _stmts[-1])
+        have = ", ".join(names.get(s, s) for s in av.get("statements", []))
         kind = av.get("kind")
         if kind == "company":
             direct = (f"This workbook contains the financial statements of {av['company']}."
@@ -491,42 +487,6 @@ def render(
                 rel = av.get("related")
                 if rel:
                     direct += f" It does carry related items: {', '.join(rel)}."
-        elif kind == "restatement":
-            ry = av.get("report_years") or []
-            rspan = f"{ry[0]}–{ry[-1]}" if len(ry) > 1 else (str(ry[0]) if ry else "")
-            files = av.get("report_files") or []
-            nrep = len(files)
-            rest = av.get("restated_years") or []
-            built = (f"built from {nrep} annual report(s)" + (f" ({rspan})" if rspan else "")) if nrep else ""
-            if av.get("ask") == "reports":
-                direct = (f"This workbook is {built}" if built
-                          else "No source reports are recorded for this workbook.")
-                if files:
-                    direct += ": " + ", ".join(files) + "."
-            else:
-                direct = ("Yes — when a prior year is restated in a newer report, the workbook keeps the "
-                          "newest report's figure (report-year preference: latest).")
-                if built:
-                    direct += f" It is {built}."
-                if rest:
-                    direct += (" Prior years that appear in more than one report (so a restatement could apply): "
-                               + ", ".join(str(y) for y in rest) + ".")
-                else:
-                    direct += " No fiscal year here is sourced from more than one report, so no restatement conflicts arise."
-        elif kind == "source_coverage":
-            wr = av.get("with_ref") or []
-            nr = av.get("without_ref") or []
-            tot = len(wr) + len(nr)
-            direct = f"{len(wr)} of {tot} metrics have a source reference; {len(nr)} do not."
-            if nr:
-                shown = ", ".join(m.replace("_", " ") for m in nr[:12])
-                more = f", and {len(nr) - 12} more" if len(nr) > 12 else ""
-                direct += f" Those without one: {shown}{more}."
-        elif kind == "statements":
-            direct = (f"This workbook contains {have_and}." if _stmts
-                      else "This workbook has no recognised financial statements.")
-        elif kind == "metric_count":
-            direct = f"This workbook has {av.get('metric_count', 0)} metric(s) available."
         elif kind == "metric":
             direct = (f"Yes — “{av['label']}” is in this workbook."
                       if av.get("present")

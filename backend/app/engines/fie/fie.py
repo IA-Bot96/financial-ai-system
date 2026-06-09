@@ -836,69 +836,27 @@ class FinancialIntelligenceEngine:
         cat = next(((fam, label) for kws, fam, label in fam_map if any(k in q for k in kws)), None)
         if understanding._COMPANY_ID_RE.search(q):
             av.update(kind="company", company=(self.store.company or None))
-        elif understanding._RESTATEMENT_RE.search(q):
-            sl = self.store.source_ledger
-            report_files: list = []
-            report_years: list = []
-            restated_years: list = []
-            if sl is not None and not sl.empty:
-                if "Report file" in sl.columns:
-                    report_files = sorted(str(f) for f in sl["Report file"].dropna().unique())
-                if "Report year" in sl.columns:
-                    report_years = sorted({int(y) for y in sl["Report year"].dropna().unique()})
-                # a fiscal Year carried by >1 Report year is a re-reported (potentially restated) period
-                if {"Year", "Report year"} <= set(sl.columns):
-                    cov = sl.dropna(subset=["Year", "Report year"]).groupby("Year")["Report year"].nunique()
-                    restated_years = sorted({int(y) for y, n in cov.items() if n > 1})
-            # "does it prefer / how are restated values handled" = policy answer;
-            # "which reports is it built from" = a provenance list.
-            ask = ("policy" if re.search(r"\brestat\w*\b|\bprefer\w*\b|\bpreference\b|\bpriorit\w*\b|\bpolicy\b", q)
-                   else "reports")
-            av.update(kind="restatement", ask=ask, preference="latest", report_files=report_files,
-                      report_years=report_years, restated_years=restated_years)
-        elif understanding._SOURCE_REF_RE.search(q):
-            sl = self.store.source_ledger
-            sl_cells: set = set()
-            if sl is not None and not sl.empty and {"Sheet", "Cell", "source_ref"} <= set(sl.columns):
-                slk = sl.dropna(subset=["source_ref"])
-                sl_cells = set(zip(slk["Sheet"], slk["Cell"]))
-            with_ref: list = []
-            without_ref: list = []
-            if df is not None and not df.empty:
-                fdv = df[df["value"].notna()]
-                for mtr in sorted(fdv["metric"].dropna().unique()):
-                    sub = fdv[fdv["metric"] == mtr]
-                    cells = set(zip(sub["sheet"], sub["cell"]))
-                    (with_ref if cells & sl_cells else without_ref).append(str(mtr))
-            av.update(kind="source_coverage", with_ref=with_ref, without_ref=without_ref)
         elif cat:
             fam, label = cat
             av.update(kind="category", label=label, present=fam in statements)
             if fam == "cf" and fam not in statements:
                 av["related"] = [m.replace("_", " ") for m in ("cash_and_bank", "dividends_paid")
                                  if m in metrics]
-        elif re.search(r"\b(which|what)\b[^?]*\b(statements?|sheets?)\b|\bhow many (statements?|sheets?)\b", q):
-            av.update(kind="statements")          # "which financial statements does it contain?"
-        elif re.search(r"\bhow many (metrics?|line items?)\b", q):
-            av.update(kind="metric_count")
         elif re.search(r"\b(what|which)\s+years?\b|\byears?\b[^?]*\b(covered|available)\b"
-                       # superlative must sit DIRECTLY on year(s) so "newest report ... prior-year" misses
-                       r"|\b(earliest|latest|first|last|oldest|newest)\s+years?\b"
-                       r"|\byears?\s+(range|of data)\b|\brange of (the )?(data|years?)\b"
+                       r"|\b(earliest|latest|first|last|oldest|newest)\b[^?]*\byear\b"
+                       r"|\byear\b[^?]*\b(range|covered|available|of data)\b"
                        r"|\bhow many years\b|\b(date|time)\s+(range|period)\b", q):
             av.update(kind="years",
-                      bounds=bool(re.search(r"\b(earliest|latest|first|last|oldest|newest)\s+years?\b", q)),
+                      bounds=bool(re.search(r"\b(earliest|latest|first|last|oldest|newest)\b", q)),
                       count=bool(re.search(r"\bhow many\b", q)))
         elif (ym := re.search(r"\b(19|20)\d{2}\b", q)):
             yr = int(ym.group(0))
             av.update(kind="year", year=yr, present=(yr in data_years))
         else:
             m = understanding._matched_metric(q, self.store.query_metric_matcher())
-            if not m:   # substring fallback: a metric whose name word appears AS A WHOLE WORD in the
-                        # query (word-boundary, so "work" in "workbook" no longer false-matches CWIP)
+            if not m:   # substring fallback: a metric whose name word(s) appear in the query
                 m = next((cand for cand in metrics
-                          if any(len(w) >= 4 and re.search(rf"\b{re.escape(w)}\b", q)
-                                 for w in cand.split("_"))), None)
+                          if any(len(w) >= 4 and w in q for w in cand.split("_"))), None)
             if m and re.search(r"\b(have|has|contain|include|got|is there|any)\b", q):
                 av.update(kind="metric", label=m.replace("_", " "), present=m in metrics)
             else:

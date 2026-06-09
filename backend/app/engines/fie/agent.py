@@ -138,20 +138,10 @@ _STATEMENT_DECOMP = {
     "operating_profit": (("gross_profit", 1), ("administrative_expenses", -1),
                          ("distribution_marketing_expenses", -1),
                          ("other_income", 1), ("other_expenses", -1)),
-    # other_income is already absorbed in operating_profit — do NOT re-add it here or PAT
-    # double-counts it. PAT = operating_profit − finance_cost − taxation.
-    "pat": (("operating_profit", 1), ("finance_cost", -1), ("taxation", -1)),
+    "pat": (("operating_profit", 1), ("finance_cost", -1),
+            ("other_income", 1), ("taxation", -1)),
     "total_assets": tuple((m, 1) for m in _DECOMP["total_assets"]),
     "total_equity_and_liabilities": tuple((m, 1) for m in _DECOMP["total_equity_and_liabilities"]),
-}
-
-# Authoritative ONE-LEVEL-DOWN subtotal children for the grand balance-sheet totals. When a
-# workbook stores these subtotals (most do), footing the grand total against them is correct;
-# summing the flattened leaf items in _DECOMP mis-fires when the workbook keeps the subtotals
-# but the leaf breakdown is sparse/zeroed (the leaf sum then undershoots and fabricates breaks).
-_SUBTOTAL_DECOMP = {
-    "total_assets": ("non_current_assets", "current_assets"),
-    "total_equity_and_liabilities": ("total_equity", "non_current_liabilities", "current_liabilities"),
 }
 
 
@@ -654,27 +644,14 @@ def _t_check_balance(engine, frame, ctx, args):
     avail = set(engine.store.available_metrics()) | set(
         engine.store.available_metrics(level="detail"))
     for total in (args.get("totals") or list(_STATEMENT_DECOMP.keys())):
-        leaf_comps = [m for (m, _s) in _STATEMENT_DECOMP.get(total, ()) if m in avail]
-        subs = [m for m in _SUBTOTAL_DECOMP.get(total, ()) if m in avail]
-        if not leaf_comps and not subs:
+        comps = [m for (m, _s) in _STATEMENT_DECOMP.get(total, ()) if m in avail]
+        if not comps:
             continue
         for y in years:
             t = engine._safe_lookup(total, y)
             if t is None:
                 continue
-            # Prefer the authoritative subtotal children when ALL are present that year; only
-            # fall back to flattened leaf items when the subtotals aren't stored.
-            sub_vals = [engine._safe_lookup(m, y) for m in subs]
-            if subs and all(v is not None for v in sub_vals):
-                present = sub_vals
-            else:
-                # A footing break can only be asserted when the decomposition is COMPLETE —
-                # a partial sum (some components missing) never equals the stated total and
-                # would fabricate a break. Skip the year if any leaf component is absent.
-                leaf_vals = [engine._safe_lookup(m, y) for m in leaf_comps]
-                if not leaf_comps or any(v is None for v in leaf_vals):
-                    continue
-                present = leaf_vals
+            present = [v for v in (engine._safe_lookup(m, y) for m in comps) if v is not None]
             if len(present) < 2:
                 continue
             s = round(sum(present), 2)

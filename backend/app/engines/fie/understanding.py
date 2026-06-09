@@ -212,9 +212,6 @@ _AVAILABILITY_RE = re.compile(
     r"\b(available|covered|present|in (this|the) (workbook|file|model)|do (we|you) have)\b"
     r"|\b(what|which)\s+years\b"
     r"|\bwhich (financial )?(statements?|sheets?)\b"
-    # "what financial statements / what sheets" (the 'financial' qualifier or 'sheets' keeps the
-    # qualitative "what statements did management make" out of this metadata branch)
-    r"|\bwhat\s+(financial\s+statements?|sheets?)\b"
     r"|\bhow many (metrics?|sheets?|statements?|line items?)\b"
     r"|\bwhat(?:'?s| is| are)? in (this|the) (workbook|file)\b"
     # specific-year membership: "is 2020 included?", "does it cover 2026?", "do you have 2023 data?".
@@ -244,27 +241,6 @@ _COMPANY_ID_RE = re.compile(
     r"|\bwho\s+is\s+this\b[^?]*\b(company|financ|statement|workbook|report)\w*"
     r"|\bwhose\b[^?]*\b(financ|statement|sheet|book|report|workbook|number)\w*\b"
     r"|\bwho\b[^?]*\b(owns|prepared)\b[^?]*\b(company|financ|statement|workbook|report)\w*\b",
-    re.I)
-
-# Restatement / data-provenance policy — "does it prefer the newest report when prior-year
-# values are restated?", "which annual reports is this built from?". Answered from the source
-# ledger's report-year coverage. NB anchored on "restat…"/"report-year preference"/"prefer…
-# newest…report"/"which…reports" so the qualitative "compare tone in the latest report" (no
-# 'which'/'prefer'/'restat') is NOT swept in.
-_RESTATEMENT_RE = re.compile(
-    r"\brestat\w*\b"
-    r"|\breport[-\s]?year\s+(preference|priorit\w*|policy)\b"
-    r"|\bprefer\w*\b[^?]*\b(newest|latest|recent|most recent)\b[^?]*\breports?\b"
-    r"|\bwhich\s+(annual\s+)?reports?\b",
-    re.I)
-
-# Source-reference / provenance COVERAGE — "which metrics have source references, and which
-# do not?". Answered from the source ledger (cell-level source_ref join). Distinct from the
-# validation "overridden/reconciled" ask (which has audit cues and stays on the validation path).
-_SOURCE_REF_RE = re.compile(
-    r"\bsource\s+ref\w*\b|\bsource[-\s]?references?\b|\bprovenance\b"
-    r"|\b(which|what)\b[^?]*\bmetrics?\b[^?]*\b(source|cited|citation|reference|provenance)\w*"
-    r"|\b(metrics?|values?|figures?)\b[^?]*\b(have|with|without|lack)\b[^?]*\b(source|citation|reference)s?\b",
     re.I)
 
 # A follow-up that is JUST a number/percentage/year ("1000%?", "25%", "2025?", "23?") — a
@@ -506,10 +482,6 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
     # store's metrics/sheets/years/company. Company check first: "what company is this?" must
     # not be swallowed by the generic "what ... in this workbook" availability rule.
     if _COMPANY_ID_RE.search(query):
-        return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
-    if _RESTATEMENT_RE.search(query):
-        return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
-    if _SOURCE_REF_RE.search(query):
         return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
     if _AVAILABILITY_RE.search(query):
         return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
