@@ -1,8 +1,127 @@
 import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useApp } from '@/store'
-import type { Citation, FieResponse } from '@/api'
+import type { Citation, EditHistory, FieResponse } from '@/api'
 import { cn } from '@/lib/util'
+import { CrossIcon } from './HistoryIcons'
+
+/** The shared "→" glyph (Icon.svg) as an inline element. */
+function ArrowGlyph() {
+  return (
+    <svg
+      width="15"
+      height="11"
+      viewBox="0 0 18 14"
+      fill="none"
+      className="mx-1 inline-block shrink-0 align-[-1px] text-muted"
+      aria-hidden="true"
+    >
+      <path
+        d="M1 7H17M11 13L17 7L11 1"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** A cell/sheet reference, formatted "Sheet/Cell". */
+function ref(sheet?: string | null, cell?: string | null): string {
+  const s = (sheet || '').trim()
+  const c = (cell || '').trim()
+  return s && c ? `${s}/${c}` : s || c
+}
+
+/** Structured edit-history answer: a natural-language lead, then (for the list mode) one row
+ *  per change — timestamp chip, sheet/cell, then old → new (or → manually verified). Workbook
+ *  open/aggregate modes are a lead line (+ per-sheet counts) with no per-change breakdown. */
+function EditHistoryBody({ eh }: { eh: EditHistory }): JSX.Element {
+  if (eh.mode === 'opened') return <div className="leading-relaxed">{eh.lead}</div>
+
+  if (eh.mode === 'open_count') {
+    return (
+      <div className="space-y-1.5">
+        <div className="leading-relaxed">{eh.lead}</div>
+        {(eh.opens || []).length > 0 && (
+          <ul className="space-y-1 pl-1 text-[13px]">
+            {(eh.opens || []).map((t, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-muted shrink-0">•</span>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
+
+  if (eh.mode === 'aggregate') {
+    const by = eh.by_sheet || {}
+    return (
+      <div className="space-y-1.5">
+        <div className="leading-relaxed">{eh.lead}</div>
+        {Object.keys(by).length > 0 && (
+          <ul className="space-y-1 pl-1 text-[13px]">
+            {Object.entries(by).map(([s, n]) => (
+              <li key={s} className="flex gap-2">
+                <span className="text-muted shrink-0">•</span>
+                <span>
+                  {s}: {n} change{n !== 1 ? 's' : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    )
+  }
+
+  // list mode
+  const items = eh.items || []
+  return (
+    <div className="space-y-2">
+      <div className="leading-relaxed">{eh.lead}</div>
+      {items.length > 0 && (
+        <ul className="space-y-1.5">
+          {items.map((it, i) => (
+            <li key={i} className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px]">
+              <span className="rounded bg-panel px-1.5 py-0.5 text-[11px] tabular-nums text-muted">
+                {it.timestamp}
+              </span>
+              <span className="text-muted">{ref(it.sheet, it.cell)}:</span>
+              {it.kind === 'verify' ? (
+                (() => {
+                  const checked = ['true', '1', 'yes'].includes(String(it.new || '').trim().toLowerCase())
+                  const vref = ref(it.verified_sheet, it.verified_cell)
+                  return (
+                    <span className="inline-flex items-center">
+                      <span>{checked ? 'unverified' : 'verified'}</span>
+                      <ArrowGlyph />
+                      <span>
+                        {checked ? 'manually verified' : 'verification cleared'}
+                        {vref ? ` (${vref})` : ''}
+                      </span>
+                    </span>
+                  )
+                })()
+              ) : (
+                <span className="inline-flex items-center">
+                  <span>{it.old || '(blank)'}</span>
+                  <ArrowGlyph />
+                  <span>{it.new || '(blank)'}</span>
+                </span>
+              )}
+              {it.saved === false && <span className="text-[10px] text-amber-300">unsaved</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 const AI_NAME = 'Ask AI'
 const USER_NAME = 'You'
@@ -101,6 +220,7 @@ function SendIcon({ className }: { className?: string }) {
 // ---- main component ----------------------------------------------------------
 export function AskAI() {
   const { chat, ask, session } = useApp()
+  const setPanel = useApp((s) => s.setPanel)
   const [input, setInput] = useState('')
   const now = useNow()
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -135,6 +255,13 @@ export function AskAI() {
         {session?.company && (
           <span className="text-xs text-muted truncate">· {session.company}</span>
         )}
+        <button
+          onClick={() => setPanel('askAI', false)}
+          className="ml-auto shrink-0 rounded p-1 text-muted hover:bg-line hover:text-ink"
+          title="Close Ask AI"
+        >
+          <CrossIcon className="h-3 w-3" />
+        </button>
       </div>
 
       {/* chat body */}
@@ -266,6 +393,7 @@ export function AskAI() {
           </svg>
           Ask about this workbook. Every answer cites its source.
         </div>
+
       </div>
     </div>
   )
@@ -278,7 +406,11 @@ function AnswerCard({ r }: { r: FieResponse }) {
   const degraded = !!(cov as { degraded?: boolean }).degraded
   return (
     <div className="rounded-xl border border-line bg-panel2 px-3.5 py-3 space-y-2.5 text-sm">
-      <div className="leading-relaxed">{r.direct_answer}</div>
+      {r.edit_history ? (
+        <EditHistoryBody eh={r.edit_history} />
+      ) : (
+        <div className="leading-relaxed whitespace-pre-line">{r.direct_answer}</div>
+      )}
 
       {r.key_findings.length > 0 && (
         <ul className="space-y-1.5 pl-1">

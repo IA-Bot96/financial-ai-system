@@ -221,6 +221,10 @@
       background: var(--danger);
     }
 
+    .category[data-category="Edit History"] .dot {
+      background: #7c3aed;
+    }
+
     .count {
       color: var(--muted);
       font-size: 13px;
@@ -352,7 +356,7 @@
     <header>
       <div>
         <h1>AskAI Test Questions</h1>
-        <p class="subtitle">A focused test set for quantitative analysis, data validation, qualitative analysis, and forecast validation.</p>
+        <p class="subtitle">A focused test set for quantitative analysis, data validation, qualitative analysis, forecast validation, and edit history — 15 prompts per query type.</p>
       </div>
       <button class="primary" id="copyVisible" type="button" title="Copy visible questions">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -392,10 +396,10 @@
     </section>
 
     <section class="stats" aria-label="Summary">
-      <div class="stat"><strong id="visibleCount">50</strong><span>Visible questions</span></div>
-      <div class="stat"><strong>4</strong><span>Test categories</span></div>
-      <div class="stat"><strong>20</strong><span>Quantitative prompts</span></div>
-      <div class="stat"><strong>10</strong><span>Forecast prompts</span></div>
+      <div class="stat"><strong id="visibleCount">75</strong><span>Visible questions</span></div>
+      <div class="stat"><strong>5</strong><span>Test categories</span></div>
+      <div class="stat"><strong>15</strong><span>Prompts per category</span></div>
+      <div class="stat"><strong>75</strong><span>Total prompts</span></div>
     </section>
 
     <div id="questionRoot"></div>
@@ -405,37 +409,37 @@
 
   <script>
     const questions = [
-      { id: 1, category: "Quantitative Analysis", text: "What was revenue growth year over year from 2022 to 2025?" },
-      { id: 2, category: "Quantitative Analysis", text: "What was gross profit margin for each year, and which year had the highest margin?" },
-      { id: 3, category: "Quantitative Analysis", text: "Calculate net profit margin for each year and explain the trend." },
-      { id: 4, category: "Quantitative Analysis", text: "Compare operating profit growth versus revenue growth across all available years." },
-      { id: 5, category: "Quantitative Analysis", text: "Which expense line had the largest increase between 2024 and 2025?" },
-      { id: 6, category: "Quantitative Analysis", text: "What is the trend in finance cost as a percentage of revenue?" },
-      { id: 7, category: "Quantitative Analysis", text: "Calculate return on assets for each year." },
-      { id: 8, category: "Quantitative Analysis", text: "Calculate return on equity for each year." },
-      { id: 9, category: "Quantitative Analysis", text: "What changed more between 2024 and 2025: revenue or profit after tax?" },
-      { id: 10, category: "Quantitative Analysis", text: "What is the company's current ratio by year?" },
-      { id: 11, category: "Quantitative Analysis", text: "What is the debt-to-equity ratio by year?" },
-      { id: 12, category: "Quantitative Analysis", text: "Has working capital improved or deteriorated over the years?" },
-      { id: 13, category: "Quantitative Analysis", text: "Which balance sheet line item drove the largest change in total assets?" },
-      { id: 14, category: "Quantitative Analysis", text: "Compare current assets and current liabilities over time." },
-      { id: 15, category: "Quantitative Analysis", text: "What is the trend in cash and bank balances?" },
-      { id: 16, category: "Quantitative Analysis", text: "Identify any years where profit growth and revenue growth moved in opposite directions." },
-      { id: 17, category: "Quantitative Analysis", text: "Calculate EBITDA if the required fields are available; if not, explain what is missing." },
-      { id: 18, category: "Quantitative Analysis", text: "Which year shows the strongest financial performance based on revenue, margin, and PAT?" },
-      { id: 19, category: "Quantitative Analysis", text: "Are there any unusual jumps or drops in the financial statements?" },
-      { id: 20, category: "Quantitative Analysis", text: "Summarize the top 5 financial KPIs for the company." },
+      { id: 1, category: "Quantitative Analysis", text: "What was revenue in 2024?" },
+      { id: 2, category: "Quantitative Analysis", text: "What was gross profit in 2021, and what percentage of revenue was it?" },
+      { id: 3, category: "Quantitative Analysis", text: "What is the company's current ratio for each year?" },
+      { id: 4, category: "Quantitative Analysis", text: "Calculate return on equity for each year." },
+      { id: 5, category: "Quantitative Analysis", text: "What was revenue growth year over year from 2022 to 2025?" },
+      { id: 6, category: "Quantitative Analysis", text: "Show the revenue trend over the years." },
+      { id: 7, category: "Quantitative Analysis", text: "Compare operating profit growth versus revenue growth across all years." },
+      { id: 8, category: "Quantitative Analysis", text: "Which balance sheet line item drove the largest change in total assets?" },
+      { id: 9, category: "Quantitative Analysis", text: "Why was gross profit lower in 2022 than 2021?" },
+      { id: 10, category: "Quantitative Analysis", text: "Calculate ROIC as operating profit divided by (total assets minus current liabilities) for 2024." },
+      { id: 11, category: "Quantitative Analysis", text: "Which year had the highest net profit margin?" },
+      { id: 12, category: "Quantitative Analysis", text: "Calculate EBITDA if the required fields are available; if not, explain what is missing." },
+      { id: 13, category: "Quantitative Analysis", text: "Project revenue for 2026 under a 10% growth assumption." },
+      { id: 14, category: "Quantitative Analysis", text: "What is the company's P/E ratio, and does it look under- or over-valued?" },
+      { id: 15, category: "Quantitative Analysis", text: "Summarize the top 5 financial KPIs for the company." },
 
-      { id: 21, category: "Data Quality / Validation", text: "Are the P&L totals consistent with the underlying line items?" },
-      { id: 22, category: "Data Quality / Validation", text: "Does the balance sheet balance for every year?" },
+      { id: 16, category: "Data Quality / Validation", text: "Does the balance sheet balance for every year?" },
+      { id: 17, category: "Data Quality / Validation", text: "Are the P&L totals consistent with the underlying line items?" },
+      { id: 18, category: "Data Quality / Validation", text: "Do the asset components sum to the stated total assets?" },
+      { id: 19, category: "Data Quality / Validation", text: "Audit the financial statements and find any anomalies or mis-extracted values." },
+      { id: 20, category: "Data Quality / Validation", text: "Flag any figure that deviates sharply from its own year-over-year trend." },
+      { id: 21, category: "Data Quality / Validation", text: "Do equity plus liabilities equal total assets in each year?" },
+      { id: 22, category: "Data Quality / Validation", text: "Are there any years where a total does not foot to its components?" },
       { id: 23, category: "Data Quality / Validation", text: "Which financial values appear to be overridden or reconciled from source reports?" },
       { id: 24, category: "Data Quality / Validation", text: "Are there any missing financial values in the workbook?" },
-      { id: 25, category: "Data Quality / Validation", text: "Which sheets have the weakest detail-level mapping?" },
-      { id: 26, category: "Data Quality / Validation", text: "Are any values inconsistent between detail sheets and output sheets?" },
-      { id: 27, category: "Data Quality / Validation", text: "Which metrics have source references, and which do not?" },
-      { id: 28, category: "Data Quality / Validation", text: "Are there any duplicated or conflicting values for the same year?" },
-      { id: 29, category: "Data Quality / Validation", text: "Does the workbook prefer the newest report when restated prior-year values exist?" },
-      { id: 30, category: "Data Quality / Validation", text: "Which values should not be trusted for detailed analysis?" },
+      { id: 25, category: "Data Quality / Validation", text: "Are any values inconsistent between detail sheets and output sheets?" },
+      { id: 26, category: "Data Quality / Validation", text: "Which metrics have source references, and which do not?" },
+      { id: 27, category: "Data Quality / Validation", text: "Are there any duplicated or conflicting values for the same year?" },
+      { id: 28, category: "Data Quality / Validation", text: "Does the workbook prefer the newest report when restated prior-year values exist?" },
+      { id: 29, category: "Data Quality / Validation", text: "Which values should not be trusted for detailed analysis?" },
+      { id: 30, category: "Data Quality / Validation", text: "Are the numbers internally consistent across the statements?" },
 
       { id: 31, category: "Qualitative Analysis", text: "What are the main business risks mentioned in the reports?" },
       { id: 32, category: "Qualitative Analysis", text: "What are the key management priorities across the years?" },
@@ -443,21 +447,47 @@
       { id: 34, category: "Qualitative Analysis", text: "What macroeconomic factors affected the company's performance?" },
       { id: 35, category: "Qualitative Analysis", text: "What operational challenges are repeatedly mentioned?" },
       { id: 36, category: "Qualitative Analysis", text: "What does management say about demand, market share, and industry conditions?" },
-      { id: 37, category: "Qualitative Analysis", text: "Are there any governance or related-party concerns?" },
-      { id: 38, category: "Qualitative Analysis", text: "What are the main liquidity or working-capital issues?" },
+      { id: 37, category: "Qualitative Analysis", text: "Are there any governance, compliance, or related-party concerns?" },
+      { id: 38, category: "Qualitative Analysis", text: "What are the main liquidity or working-capital issues discussed?" },
       { id: 39, category: "Qualitative Analysis", text: "What external factors could affect future performance?" },
       { id: 40, category: "Qualitative Analysis", text: "Compare management's tone in the latest report versus prior years." },
+      { id: 41, category: "Qualitative Analysis", text: "What is management's outlook or guidance for the coming year?" },
+      { id: 42, category: "Qualitative Analysis", text: "What strategic and cost-reduction initiatives is the company pursuing?" },
+      { id: 43, category: "Qualitative Analysis", text: "What does the chairman's review highlight?" },
+      { id: 44, category: "Qualitative Analysis", text: "Are any regulatory actions, notices, or litigation mentioned?" },
+      { id: 45, category: "Qualitative Analysis", text: "What competitive pressures or market-share dynamics are discussed?" },
 
-      { id: 41, category: "Forecast Validation", text: "Based on historical revenue and margins, is a 10% revenue growth forecast reasonable?" },
-      { id: 42, category: "Forecast Validation", text: "Is the forecasted gross margin consistent with historical performance?" },
-      { id: 43, category: "Forecast Validation", text: "If revenue grows but PAT declines, what assumptions could explain that?" },
-      { id: 44, category: "Forecast Validation", text: "Validate whether the forecasted finance cost is realistic given past finance costs." },
-      { id: 45, category: "Forecast Validation", text: "Does the forecast assume margin improvement that is unsupported by history?" },
-      { id: 46, category: "Forecast Validation", text: "What external market factors could support or weaken the forecast?" },
-      { id: 47, category: "Forecast Validation", text: "Compare the forecast to historical volatility in revenue and profit." },
-      { id: 48, category: "Forecast Validation", text: "Which forecast assumptions are most sensitive to external conditions?" },
-      { id: 49, category: "Forecast Validation", text: "What would need to happen for the company to reach the forecasted profit target?" },
-      { id: 50, category: "Forecast Validation", text: "Give a red/yellow/green confidence rating for the forecast and explain why." }
+      { id: 46, category: "Forecast Validation", text: "Based on historical revenue and margins, is a 10% revenue growth forecast reasonable?" },
+      { id: 47, category: "Forecast Validation", text: "Is the forecasted gross margin consistent with historical performance?" },
+      { id: 48, category: "Forecast Validation", text: "If revenue grows but PAT declines, what assumptions could explain that?" },
+      { id: 49, category: "Forecast Validation", text: "Validate whether the forecasted finance cost is realistic given past finance costs." },
+      { id: 50, category: "Forecast Validation", text: "Does the forecast assume margin improvement that is unsupported by history?" },
+      { id: 51, category: "Forecast Validation", text: "What external market factors could support or weaken the forecast?" },
+      { id: 52, category: "Forecast Validation", text: "Compare the forecast to historical volatility in revenue and profit." },
+      { id: 53, category: "Forecast Validation", text: "Which forecast assumptions are most sensitive to external conditions?" },
+      { id: 54, category: "Forecast Validation", text: "What would need to happen for the company to reach the forecasted profit target?" },
+      { id: 55, category: "Forecast Validation", text: "Give a red/yellow/green confidence rating for the forecast and explain why." },
+      { id: 56, category: "Forecast Validation", text: "Is the forecasted revenue growth in line with the historical CAGR?" },
+      { id: 57, category: "Forecast Validation", text: "Does the forecast imply a margin the company has never achieved?" },
+      { id: 58, category: "Forecast Validation", text: "What is the downside scenario if growth comes in at half the forecast?" },
+      { id: 59, category: "Forecast Validation", text: "How sensitive is the profit forecast to a change in finance cost?" },
+      { id: 60, category: "Forecast Validation", text: "Is the assumed tax rate consistent with the historical effective tax rate?" },
+
+      { id: 61, category: "Edit History", text: "What was my last change?" },
+      { id: 62, category: "Edit History", text: "Show my last 5 changes." },
+      { id: 63, category: "Edit History", text: "What was the first change I made?" },
+      { id: 64, category: "Edit History", text: "What are my unsaved changes?" },
+      { id: 65, category: "Edit History", text: "What changes did I make in the Balance Sheet?" },
+      { id: 66, category: "Edit History", text: "What changes did I make in this session?" },
+      { id: 67, category: "Edit History", text: "What did I change in the last 10 minutes?" },
+      { id: 68, category: "Edit History", text: "What did I change in the last 24 hours?" },
+      { id: 69, category: "Edit History", text: "Which sheet did I change the most?" },
+      { id: 70, category: "Edit History", text: "How many changes did I make?" },
+      { id: 71, category: "Edit History", text: "How many changes did I make per sheet?" },
+      { id: 72, category: "Edit History", text: "When was this workbook opened?" },
+      { id: 73, category: "Edit History", text: "How many times has this workbook been opened in this app?" },
+      { id: 74, category: "Edit History", text: "Which cells did I mark as manually verified?" },
+      { id: 75, category: "Edit History", text: "List all my changes, newest first." }
     ];
 
     const root = document.getElementById("questionRoot");

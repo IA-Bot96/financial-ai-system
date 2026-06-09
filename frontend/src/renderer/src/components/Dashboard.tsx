@@ -786,14 +786,15 @@ function Chart({ title, option }: { title: string; option: object }) {
  *    are pre-selected — which the empty=all model can't express.
  * `forecastOptions` are rendered under a "Forecast" subheading.
  */
-function FilterDropdown({
+export function FilterDropdown({
   label,
   options,
   selected,
   onChange,
   toast,
   explicit = false,
-  forecastOptions = []
+  forecastOptions = [],
+  buttonClassName = ''
 }: {
   label: string
   options: string[]
@@ -802,6 +803,7 @@ function FilterDropdown({
   toast: (kind: 'info' | 'warning' | 'error' | 'success', text: string) => void
   explicit?: boolean
   forecastOptions?: string[]
+  buttonClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -896,7 +898,7 @@ function FilterDropdown({
       {/* trigger button */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line bg-panel2 text-sm text-ink hover:border-accent/40 transition-colors min-w-[148px] justify-between"
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border border-line bg-panel2 text-sm text-ink hover:border-accent/40 transition-colors min-w-[148px] justify-between ${buttonClassName}`}
       >
         <span className="truncate max-w-[130px]">{displayLabel}</span>
         {/* chevron */}

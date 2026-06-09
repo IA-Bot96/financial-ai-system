@@ -72,6 +72,7 @@ def render(
 
     findings: list[str] = []
     analysis = ""
+    edit_history_payload: dict | None = None   # structured edit-history for the UI (set below)
     primary = calcs[0] if calcs else None
 
     if frame.intent == "ratio_analysis":
@@ -423,32 +424,27 @@ def render(
             direct = f"No recent external items available for {company}."
 
     elif frame.intent == "edit_history":
+        # The structured payload (built by the handler) drives the UI's rich rendering (timestamp
+        # chips + arrows). `direct_answer` here is a plain-text fallback (previews/accessibility).
         eh = (extra or {}).get("edit_history") or {}
-        items = eh.get("items") or []
-        filt = eh.get("filters") or []
-        fstr = (" (" + ", ".join(filt) + ")") if filt else ""
-        if not items:
-            direct = f"No matching changes found{fstr}."
-            if eh.get("total", 0) == 0:
-                direct = ("No changes have been recorded for this workbook yet."
-                          if not filt else f"No changes match{fstr}.")
-        else:
-            shown, total = eh.get("shown", len(items)), eh.get("total", len(items))
-            lead = ("Your most recent change" + fstr + ":" if shown == 1
-                    else f"{total} change(s){fstr}" + (f"; showing {shown}:" if shown < total else ":"))
-            # Render as a Markdown list (blank line after the lead, one "- " item per line). The
-            # chat renderer collapses single newlines into spaces, so a "\n"-joined blob ran
-            # together — a list renders one change per line.
-            lines = []
-            for it in items:
-                status = "saved" if it.get("saved") else "unsaved"
-                old = it.get("old") or "(blank)"
-                new = it.get("new") or "(blank)"
-                cell = f"!{it['cell']}" if it.get("cell") else ""
-                lines.append(f"- {it.get('timestamp')} — {it.get('sheet')}{cell}: "
-                             f"{old} → {new} ({status})")
-            direct = lead + "\n\n" + "\n".join(lines)
-        findings = []   # listing lives in `direct`; no per-fact citations to enforce
+        edit_history_payload = eh or None
+        direct = eh.get("lead") or "No change history available."
+        if eh.get("mode") == "list" and eh.get("items"):
+            parts = []
+            for it in eh["items"]:
+                cell = f"/{it['cell']}" if it.get("cell") else ""
+                if it.get("kind") == "verify":
+                    vref = ((it.get("verified_sheet") + "/") if it.get("verified_sheet") else "") \
+                        + (it.get("verified_cell") or "")
+                    rhs = "manually verified" + (f" ({vref})" if vref else "")
+                    parts.append(f"{it['timestamp']} {it['sheet']}{cell}: {rhs}")
+                else:
+                    parts.append(f"{it['timestamp']} {it['sheet']}{cell}: "
+                                 f"{it.get('old') or '(blank)'} → {it.get('new') or '(blank)'}")
+            direct = (direct + " " + " ; ".join(parts)).strip()
+        elif eh.get("mode") == "aggregate" and eh.get("by_sheet"):
+            direct = direct + " " + ", ".join(f"{s}: {n}" for s, n in eh["by_sheet"].items())
+        findings = []   # listing lives in the structured payload; no per-fact citations to enforce
 
     else:
         direct = f"Could not handle query: intent '{frame.intent}' not supported yet."
@@ -549,4 +545,5 @@ def render(
         confidence=conf_out,
         prose_source=prose_source,
         coverage=cov,
+        edit_history=edit_history_payload,
     )

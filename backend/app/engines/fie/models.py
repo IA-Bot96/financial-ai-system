@@ -283,6 +283,9 @@ class Response(BaseModel):
     confidence: Optional[ConfidenceReport] = None
     prose_source: Literal["deterministic", "llm"] = "deterministic"
     coverage: dict = Field(default_factory=dict)  # shape: Coverage (see TypedDicts above)
+    # structured edit-history payload (only for intent=edit_history) so the UI can render the
+    # change list with timestamp chips + arrows; None for every other intent.
+    edit_history: Optional[dict] = None
 
     @model_validator(mode="after")
     def _findings_must_cite(self) -> "Response":

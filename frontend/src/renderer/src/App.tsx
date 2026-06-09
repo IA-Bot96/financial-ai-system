@@ -15,6 +15,7 @@ import { SheetToolbar } from '@/components/SheetToolbar'
 import { ValidationBar } from '@/components/ValidationBar'
 import { SheetView } from '@/components/SheetView'
 import { AskAI } from '@/components/AskAI'
+import { HistoryPanel } from '@/components/HistoryPanel'
 import { PdfPanel } from '@/components/PdfPanel'
 import { PanelResizer } from '@/components/PanelResizer'
 import { Dashboard } from '@/components/Dashboard'
@@ -131,7 +132,17 @@ export default function App() {
           </>
         )}
 
-        {/* far-right rail: PDF / Ask AI panel toggles */}
+        {/* History dock - RIGHT, resizable. Shares the right dock slot with Ask AI. */}
+        {panels.history && session && view === 'sheet' && (
+          <>
+            <PanelResizer panel="history" />
+            <aside style={{ width: panelWidth.history }} className="shrink-0 border-l border-line">
+              <HistoryPanel />
+            </aside>
+          </>
+        )}
+
+        {/* far-right rail: PDF / Ask AI / History panel toggles */}
         <RightRail />
       </div>
 

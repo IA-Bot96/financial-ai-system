@@ -2,15 +2,17 @@ import { ComponentType } from 'react'
 import { useApp } from '@/store'
 import { cn } from '@/lib/util'
 import { File, Stars } from './ui/icons'
+import { ClockHistoryIcon } from './HistoryIcons'
 
-type PanelKey = 'pdf' | 'askAI'
+type PanelKey = 'pdf' | 'askAI' | 'history'
 const ITEMS: { key: PanelKey; label: string; Icon: ComponentType<{ className?: string }> }[] = [
   { key: 'pdf', label: 'PDF', Icon: File },
-  { key: 'askAI', label: 'Ask AI', Icon: Stars }
+  { key: 'askAI', label: 'Ask AI', Icon: Stars },
+  { key: 'history', label: 'History', Icon: ClockHistoryIcon }
 ]
 
 /**
- * Narrow right rail holding the auxiliary-panel toggles (PDF dock + Ask AI dock). Kept
+ * Narrow right rail holding the auxiliary-panel toggles (PDF, Ask AI, History). Kept
  * separate from the left navigation rail so toggle (on/off) controls don't read like
  * navigation destinations. Only shown once a workbook is open.
  */
@@ -21,7 +23,7 @@ export function RightRail() {
   const pdfPaths = useApp((s) => s.pdfPaths)
   const togglePanel = useApp((s) => s.togglePanel)
   const openAttachPdfs = useApp((s) => s.openAttachPdfs)
-  // the PDF / Ask AI docks only apply to the sheet surface — hide the rail elsewhere
+  // the auxiliary docks only apply to the sheet surface - hide the rail elsewhere
   if (!session || view !== 'sheet') return null
 
   return (

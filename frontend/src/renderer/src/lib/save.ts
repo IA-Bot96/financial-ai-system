@@ -28,6 +28,9 @@ export interface HistoryCtx {
   sessionStart: string // ISO time the workbook was opened this session (-> "(session)" marker)
   saveNow: string // fallback timestamp for edits with no recorded time
   includeMarker: boolean // write the "(session) opened" row (true only on the FIRST save)
+  // "sheet!A1" cells to omit from the LOG only (still saved to the workbook) — e.g. the
+  // app-added "Manually Verified" column header, which is schema, not a user edit.
+  excludeCells?: Set<string>
 }
 
 const baseVal = (b: ParsedSheet | undefined, r: number, c: number): string => {
@@ -56,7 +59,8 @@ export function collectChangeEntries(
   visibleNames: string[],
   baseline: ParsedSheet[],
   editTimes: Record<string, string>,
-  fallbackTs: string
+  fallbackTs: string,
+  excludeCells?: Set<string>
 ): PendingEdit[] {
   const sheets = getSnapshot()?.sheets
   if (!sheets) return []
@@ -68,6 +72,7 @@ export function collectChangeEntries(
     const base = baseByName.get(name)
     for (const e of diffSheet(base, (sheets[id].cellData as SnapCellData) || {})) {
       const a1 = colToA1(e.col) + (e.row + 1)
+      if (excludeCells?.has(`${name}!${a1}`)) continue // logged-exempt (e.g. MV column header)
       out.push({
         sheet: name,
         cell: a1,
@@ -85,11 +90,12 @@ export function pendingEditsForQuery(
   visibleNames: string[],
   baseline: ParsedSheet[],
   editTimes: Record<string, string>,
-  sessionStart: string
+  sessionStart: string,
+  excludeCells?: Set<string>
 ): PendingEdit[] {
   return [
     { timestamp: sessionStart, sheet: SESSION_SHEET, cell: '', old: '', new: 'opened' },
-    ...collectChangeEntries(visibleNames, baseline, editTimes, sessionStart)
+    ...collectChangeEntries(visibleNames, baseline, editTimes, sessionStart, excludeCells)
   ]
 }
 
@@ -165,6 +171,7 @@ export async function buildEditedXlsx(
           const base = baseByName.get(name)
           for (const e of edits) {
             const a1 = colToA1(e.col) + (e.row + 1)
+            if (history.excludeCells?.has(`${name}!${a1}`)) continue // saved, but not logged
             rows.push({
               ts: history.editTimes[`${name}!${a1}`] ?? history.saveNow,
               sheet: name,

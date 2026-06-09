@@ -234,8 +234,8 @@ interface AppState {
   activePdf: string | null         // filename of the PDF currently shown in the viewer
   activePdfPage: number | null     // 1-based page currently in view (reported by PdfPanel)
   syncPdfToSheet: boolean          // auto-jump the PDF to the active sheet's source page
-  panels: { pdf: boolean; askAI: boolean }
-  panelWidth: { pdf: number; askAI: number }
+  panels: { pdf: boolean; askAI: boolean; history: boolean }
+  panelWidth: { pdf: number; askAI: number; history: number }
   nav: {
     cell: { sheet: string; cell: string } | null
     pdfFile: string | null         // target PDF (by filename); null = keep current
@@ -282,9 +282,9 @@ interface AppState {
     origin: 'ocr' | 'excel'
   ) => void
   setView: (v: View) => void
-  togglePanel: (p: 'pdf' | 'askAI') => void
-  setPanel: (p: 'pdf' | 'askAI', open: boolean) => void
-  setPanelWidth: (p: 'pdf' | 'askAI', px: number) => void
+  togglePanel: (p: 'pdf' | 'askAI' | 'history') => void
+  setPanel: (p: 'pdf' | 'askAI' | 'history', open: boolean) => void
+  setPanelWidth: (p: 'pdf' | 'askAI' | 'history', px: number) => void
   onCitation: (cite: Citation) => void
   clearNavCell: () => void
   ask: (query: string) => Promise<void>
@@ -351,8 +351,8 @@ export const useApp = create<AppState>((set) => ({
   activePdf: null,
   activePdfPage: null,
   syncPdfToSheet: true,
-  panels: { pdf: false, askAI: false },
-  panelWidth: { pdf: 380, askAI: 400 },
+  panels: { pdf: false, askAI: false, history: false },
+  panelWidth: { pdf: 380, askAI: 400, history: 420 },
   nav: { cell: null, pdfFile: null, pdfPage: null, pdfQuery: null, pdfQueryPage: null, pdfQueryPages: [], cellSeq: 0, pdfSeq: 0, pdfQuerySeq: 0 },
   chat: { messages: [], pending: false },
   view: 'home',
@@ -405,8 +405,22 @@ export const useApp = create<AppState>((set) => ({
     window.api.setLastFile(filePath)
   },
   setView: (view) => set({ view }),
-  togglePanel: (p) => set((s) => ({ panels: { ...s.panels, [p]: !s.panels[p] } })),
-  setPanel: (p, open) => set((s) => ({ panels: { ...s.panels, [p]: open } })),
+  // Ask AI and History share the right dock - opening one closes the other.
+  togglePanel: (p) =>
+    set((s) => {
+      const open = !s.panels[p]
+      const panels = { ...s.panels, [p]: open }
+      if (open && p === 'history') panels.askAI = false
+      if (open && p === 'askAI') panels.history = false
+      return { panels }
+    }),
+  setPanel: (p, open) =>
+    set((s) => {
+      const panels = { ...s.panels, [p]: open }
+      if (open && p === 'history') panels.askAI = false
+      if (open && p === 'askAI') panels.history = false
+      return { panels }
+    }),
   setPanelWidth: (p, px) =>
     set((s) => ({ panelWidth: { ...s.panelWidth, [p]: Math.max(280, Math.min(720, px)) } })),
   onCitation: (cite) => {
@@ -510,8 +524,12 @@ export const useApp = create<AppState>((set) => ({
     }))
     // Send the current local time + unsaved edits so edit_history queries ("my unsaved
     // changes", "this session", "last 5 min") can be answered against the live grid state.
+    const mvHeader = s.validationLedger?.mvCell
+      ? `${s.validationLedger.ledgerSheetName}!${s.validationLedger.mvCell}1`
+      : null
     const pending = pendingEditsForQuery(
-      s.sheets.map((x) => x.name), s.sheets, s.editTimes, s.sessionStart ?? nowLocalIso()
+      s.sheets.map((x) => x.name), s.sheets, s.editTimes, s.sessionStart ?? nowLocalIso(),
+      mvHeader ? new Set([mvHeader]) : undefined
     )
     const res = await api.answer(s.session.session_id, query, history, {
       client_now: nowLocalIso(),
@@ -681,12 +699,19 @@ export const useApp = create<AppState>((set) => ({
     if (!s.session || !s.workbook.filePath) return
     const visible = s.sheets.map((x) => x.name)
     try {
+      // The app-added "Manually Verified" column HEADER is schema, not a user edit — exclude it
+      // from the change log (it is still saved to the Validation Ledger).
+      const mvHeader = s.validationLedger?.mvCell
+        ? `${s.validationLedger.ledgerSheetName}!${s.validationLedger.mvCell}1`
+        : null
+      const excludeCells = mvHeader ? new Set([mvHeader]) : undefined
       const original = await window.api.readFile(s.workbook.filePath)
       const { bytes, warnings, historyWritten } = await buildEditedXlsx(original, visible, s.sheets, {
         editTimes: s.editTimes,
         sessionStart: s.sessionStart ?? nowLocalIso(),
         saveNow: nowLocalIso(),
-        includeMarker: !s.historyMarkerWritten // write the "opened" row once per session
+        includeMarker: !s.historyMarkerWritten, // write the "opened" row once per session
+        excludeCells
       })
       let path = s.workbook.filePath
       if (asNew || s.workbook.origin === 'ocr') {

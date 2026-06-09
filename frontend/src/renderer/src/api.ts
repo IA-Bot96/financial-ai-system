@@ -24,6 +24,35 @@ export interface Conflict {
   resolution?: string
   values?: Record<string, unknown>[]
 }
+export interface EditHistoryItem {
+  timestamp: string
+  sheet: string
+  cell: string
+  old?: string
+  new?: string
+  saved?: boolean
+  kind: 'edit' | 'verify'
+  verified_sheet?: string | null
+  verified_cell?: string | null
+}
+export interface EditHistory {
+  mode: 'list' | 'aggregate' | 'opened' | 'open_count'
+  lead: string
+  filters?: string[]
+  total?: number
+  // list
+  items?: EditHistoryItem[]
+  shown?: number
+  // aggregate
+  by_sheet?: Record<string, number>
+  most?: [string, number] | null
+  // opened
+  opened_at?: string | null
+  // open_count
+  open_count?: number
+  opens?: string[]
+}
+
 export interface FieResponse {
   direct_answer: string
   key_findings: string[]
@@ -34,6 +63,7 @@ export interface FieResponse {
   coverage: Record<string, unknown>
   prose_source: 'deterministic' | 'llm'
   frame?: Record<string, unknown>  // resolved QueryFrame — echoed back so history can carry it
+  edit_history?: EditHistory | null  // structured change log (only for intent=edit_history)
 }
 
 async function get<T>(path: string): Promise<{ status: number; body: T }> {

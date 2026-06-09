@@ -813,8 +813,14 @@ class FinancialIntelligenceEngine:
         # "this session" boundary = the latest session-open marker from EITHER source. Taking the
         # max makes prior-session markers in a re-uploaded file harmless (the current open is newest).
         starts = [x["_dt"] for x in entries if x.get("event") == "session" and x.get("_dt")]
+        open_markers = [x for x in entries if x.get("event") == "session"]   # one per workbook open
         session_start = max(starts) if starts else None
         changes = [x for x in entries if x.get("event") != "session"]   # drop session markers
+        # Drop the app-managed "Manually Verified" COLUMN header write (Validation Ledger, new
+        # == "Manually Verified") — that's schema the app adds, not an edit the user made.
+        changes = [x for x in changes
+                   if not (x["sheet"].strip().lower() == "validation ledger"
+                           and str(x.get("new", "")).strip().lower() == "manually verified")]
 
         applied: list[str] = []
         if re.search(r"\bunsaved\b", q, re.I):
@@ -846,27 +852,121 @@ class FinancialIntelligenceEngine:
             changes = [x for x in changes if x["sheet"].lower() == sheet_q.lower()]
             applied.append(sheet_q)
 
-        changes.sort(key=lambda x: (x["_dt"] or datetime.min), reverse=True)
-        limit = 20
-        lm = _HIST_LIMIT_RE.search(q)
-        if lm:
-            limit = max(1, int(lm.group(1)))
-        elif _HIST_ONE_RE.search(q):
-            limit = 1
-        shown = changes[:limit]
+        changes.sort(key=lambda x: (x["_dt"] or datetime.min), reverse=True)   # newest first
+        fstr = (" (" + ", ".join(applied) + ")") if applied else ""
+
+        # MODE (checked in order; open_count BEFORE aggregate since "how many" matches both):
+        #   open_count : "how many times was it opened/loaded" -> count of workbook-open markers
+        #   opened     : "when was it opened/loaded"           -> the session-open time
+        #   aggregate  : "how many changes / which sheet / most" -> per-sheet change counts
+        #   list       : everything else (supports first/oldest and last/N limits)
+        open_count = bool(re.search(r"\b(how many|how often|number of|count)\b[^?]*"
+                                    r"\b(open|load|upload)\w*", q, re.I))
+        asks_opened = bool(re.search(r"\b(when|what time|at what time)\b[^?]*\b(open|load|upload)\w*",
+                                     q, re.I))
+        aggregate = bool(re.search(
+            r"\b(how many|number of|count of|how often|per sheet|by sheet|each sheet|across sheets?)\b"
+            r"|\bwhich sheets?\b|\bmost\s+(change|edit|modif|update)", q, re.I))
+
+        eh: dict = {"filters": applied, "total": len(changes),
+                    "now": now.isoformat(timespec="seconds"),
+                    "session_known": session_start is not None}
+        shown_n = 0
+        if open_count:
+            eh["mode"] = "open_count"
+            n = len(open_markers)
+            eh["open_count"] = n
+            eh["opens"] = [x["timestamp"] for x in
+                           sorted(open_markers, key=lambda x: (x["_dt"] or datetime.min), reverse=True)]
+            eh["lead"] = (f"This workbook has been opened {n} time(s) in this app."
+                          if n else "I don't have a record of this workbook being opened in this app yet.")
+        elif asks_opened:
+            eh["mode"] = "opened"
+            oa = session_start.isoformat(timespec="seconds") if session_start else None
+            eh["opened_at"] = oa
+            eh["lead"] = (f"This workbook was opened at {oa} (this session)." if oa
+                          else "I don't have a record of when this workbook was opened this session.")
+        elif aggregate:
+            eh["mode"] = "aggregate"
+            by: dict[str, int] = {}
+            for x in changes:
+                s = x.get("sheet")
+                if s:
+                    by[s] = by.get(s, 0) + 1
+            ordered = sorted(by.items(), key=lambda kv: kv[1], reverse=True)
+            eh["by_sheet"] = dict(ordered)
+            eh["most"] = list(ordered[0]) if ordered else None
+            if ordered:
+                m = ordered[0]
+                eh["lead"] = (f"You made {len(changes)} change(s) across {len(by)} sheet(s){fstr}. "
+                              f"Most changes: {m[0]} ({m[1]} change{'s' if m[1] != 1 else ''}).")
+            else:
+                eh["lead"] = f"No changes recorded{fstr}."
+        else:
+            eh["mode"] = "list"
+            # "first/earliest/oldest" -> the single OLDEST change; otherwise newest-first,
+            # honoring "last N" / "last change".
+            asks_first = bool(re.search(r"\b(first|earliest|oldest)\b", q, re.I))
+            lm = _HIST_LIMIT_RE.search(q)
+            if asks_first:
+                ordered_changes = list(reversed(changes))   # oldest first
+                limit = 1
+            else:
+                ordered_changes = changes
+                limit = max(1, int(lm.group(1))) if lm else (1 if _HIST_ONE_RE.search(q) else 20)
+            shown = ordered_changes[:limit]
+            shown_n = len(shown)
+            items = []
+            for x in shown:
+                is_verify = x["sheet"].strip().lower() == "validation ledger"
+                item = {"timestamp": x["timestamp"], "sheet": x["sheet"], "cell": x["cell"],
+                        "old": x["old"], "new": x["new"], "saved": x["saved"],
+                        "kind": "verify" if is_verify else "edit"}
+                if is_verify:   # map the ledger row to the financial cell it verifies
+                    vs, vc = self._mv_verified_ref(x["cell"])
+                    item["verified_sheet"], item["verified_cell"] = vs, vc
+                items.append(item)
+            eh["items"] = items
+            eh["shown"] = shown_n
+            if not items:
+                eh["lead"] = ("No changes have been recorded for this workbook yet."
+                              if (eh["total"] == 0 and not applied) else f"No matching changes found{fstr}.")
+            elif asks_first and shown_n == 1:
+                eh["lead"] = f"Your first change{fstr}:"
+            elif shown_n == 1:
+                eh["lead"] = f"Your most recent change{fstr}:"
+            else:
+                eh["lead"] = (f"{len(changes)} change(s){fstr}"
+                              + (f"; showing {shown_n}:" if shown_n < len(changes) else ":"))
 
         ctx.evidence = []
-        ctx.extra = {"edit_history": {
-            "items": [{"timestamp": x["timestamp"], "sheet": x["sheet"], "cell": x["cell"],
-                       "old": x["old"], "new": x["new"], "saved": x["saved"]} for x in shown],
-            "total": len(changes), "shown": len(shown), "filters": applied,
-            "now": now.isoformat(timespec="seconds"), "session_known": session_start is not None,
-        }}
-        _log.info("fie edit_history: total=%d shown=%d filters=%s saved_log=%d pending=%d "
-                  "session_start=%s now=%s", len(changes), len(shown), applied,
+        ctx.extra = {"edit_history": eh}
+        _log.info("fie edit_history: mode=%s total=%d shown=%d filters=%s saved_log=%d pending=%d "
+                  "session_start=%s now=%s", eh["mode"], len(changes), shown_n, applied,
                   len(self.store.history or []), len(ctx.pending_edits or []),
                   session_start.isoformat(timespec="seconds") if session_start else None,
                   now.isoformat(timespec="seconds"), extra={"component": "Respond"})
+
+    def _mv_verified_ref(self, cell: str):
+        """For a 'Manually Verified' checkbox write at Validation Ledger!<col><row>, resolve the
+        financial (sheet, cell) that ledger row refers to. Best-effort -> (sheet|None, cell|None)."""
+        m = re.search(r"(\d+)\s*$", cell or "")
+        df = getattr(self.store, "validation_ledger", None)
+        if not m or df is None or getattr(df, "empty", True):
+            return None, None
+        idx = int(m.group(1)) - 2   # ledger header is row 1 -> first data row (row 2) is df index 0
+        if idx < 0 or idx >= len(df):
+            return None, None
+        def _col(*names):
+            for c in df.columns:
+                if any(n in str(c).strip().lower() for n in names):
+                    return c
+            return None
+        sc, cc = _col("sheet"), _col("cell")
+        row = df.iloc[idx]
+        vs = str(row[sc]).strip() if sc is not None and row[sc] is not None else None
+        vc = str(row[cc]).strip() if cc is not None and row[cc] is not None else None
+        return vs, vc
 
     def _history_sheet_filter(self, q: str, changes: list[dict]) -> str | None:
         """Resolve a sheet mentioned in the query to an actual edited sheet name. Direct

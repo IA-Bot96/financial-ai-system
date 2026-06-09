@@ -1,15 +1,17 @@
 import { MouseEvent } from 'react'
 import { useApp } from '@/store'
 
-const RAIL = 76 // left-rail width
+const LEFT_RAIL = 76
+const RIGHT_RAIL = 60
 
 /** Thin draggable divider on a dock's inner edge; updates the panel width in the store. */
-export function PanelResizer({ panel }: { panel: 'pdf' | 'askAI' }) {
+export function PanelResizer({ panel }: { panel: 'pdf' | 'askAI' | 'history' }) {
   const setPanelWidth = useApp((s) => s.setPanelWidth)
   function onDown(e: MouseEvent) {
     e.preventDefault()
     const move = (ev: globalThis.MouseEvent) => {
-      const w = panel === 'askAI' ? window.innerWidth - ev.clientX : ev.clientX - RAIL
+      // askAI + history dock on the RIGHT (width measured from the right edge); pdf on the LEFT.
+      const w = panel === 'pdf' ? ev.clientX - LEFT_RAIL : window.innerWidth - ev.clientX - RIGHT_RAIL
       setPanelWidth(panel, w)
     }
     const up = () => {

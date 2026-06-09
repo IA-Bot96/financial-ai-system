@@ -167,10 +167,19 @@ _TREND_RE = re.compile(r"\btrend|over the years|historical|history|year[- ]over[
 _EDIT_HISTORY_RE = re.compile(
     r"\bunsaved\b"
     r"|\bin (this|the current|my) session\b"
-    r"|\b(change|edit|modification|update)s?\b[^.?]{0,40}\b(i (made|did|make)|did i (make|do))\b"
-    r"|\b(i (made|did|make)|did i (make|do))\b[^.?]{0,40}\b(change|edit|modification|update)s?\b"
+    # authorship + change word (either order); allow up to 2 words between (e.g. "I have made",
+    # "did I just make") so "which sheet I have made most changes" / "how many changes did I make"
+    # are caught. Requires first-person authorship, so data queries about "changes" don't match.
+    r"|\b(change|edit|modification|update)s?\b[^.?]{0,40}\b(i (?:\w+ ){0,2}(made|did|make)|did i (?:\w+ ){0,2}(make|do))\b"
+    r"|\b(i (?:\w+ ){0,2}(made|did|make)|did i (?:\w+ ){0,2}(make|do))\b[^.?]{0,40}\b(change|edit|modification|update)s?\b"
     r"|\bmy (last |recent |latest )?(\d+ )?(unsaved )?(change|edit|modification|update)s?\b"
-    r"|\bwhat did i (change|edit|update|modify)\b",
+    r"|\bwhat did i (change|edit|update|modify)\b"
+    # "which sheet did I change/edit (most)" — first-person, so data queries don't match
+    r"|\bwhich sheets?\b[^.?]{0,30}\b(did i|i)\b[^.?]{0,20}\b(chang\w*|edit\w*|made|make|updat\w*|modif\w*)\b"
+    # workbook lifecycle: "when was this workbook opened/loaded" (tight — requires the
+    # open/load/upload verb adjacent to workbook/file/session so financial queries don't match)
+    r"|\b(open(ed)?|load(ed)?|upload(ed)?)\b[^.?]{0,30}\b(workbook|file|session|excel|spreadsheet)\b"
+    r"|\b(workbook|file|session|excel|spreadsheet)\b[^.?]{0,30}\b(open(ed)?|load(ed)?|uploaded)\b",
     re.I)
 
 
@@ -470,11 +479,17 @@ _VALIDATE_SYS = (
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
     "metric_lookup, overview, metric_comparison, driver_analysis, edit_history, agent, unknown. "
-    "edit_history is for questions about CHANGES THE USER MADE to the workbook in the app — "
-    "'what was my last change', 'my last 5 unsaved changes', 'changes I made in the balance "
-    "sheet', 'changes in this session', 'my changes in the last 5 minutes', 'what did I change "
-    "on 31 Aug 2025'. It reads the app's edit log, NOT financial data. Keep it edit_history; do "
-    "NOT reclassify as trend_analysis (how a metric MOVED over years) or validation (audit). "
+    "edit_history is the app's CHANGE LOG of the USER's OWN activity on this workbook in the app "
+    "(schema: timestamp, sheet, cell, old, new, saved). It records cell edits, 'manually verified' "
+    "toggles, and workbook open/load/upload events. Route here for: what/when/how-many changes the "
+    "user made, unsaved changes, changes in a given sheet/session/time-window/date, WHICH SHEET "
+    "changed the most, and WHEN the workbook was opened/loaded — e.g. 'what was my last change', "
+    "'my last 5 unsaved changes', 'changes I made in the balance sheet', 'changes in this session', "
+    "'my changes in the last 5 minutes', 'what did I change on 31 Aug 2025', 'which sheet did I "
+    "change most', 'when was this workbook opened'. It reads the app's edit log, NOT the financial "
+    "data. Do NOT route here for questions about the data itself, a metric's movement over years "
+    "(trend_analysis), a data audit (validation), or a sheet's NAME/CONTENTS — only the user's own "
+    "edit activity. "
     "agent is the GENERAL reasoner for open-ended, causal, premise-bearing, or multi-step "
     "questions that don't fit one clean shape. Prefer agent (NOT trend_analysis / "
     "metric_comparison) whenever the question asks WHY a metric changed, why it is "
