@@ -220,7 +220,23 @@ class FinancialIntelligenceEngine:
                 degraded=ctx.degraded, partial_coverage=ctx.partial_coverage,
             )
             graph = synthesis.build_graph(frame, ctx.evidence, ctx.calcs, ctx.conflicts)
-            ctx.llm_analysis = self.synthesizer.narrate(frame, graph, audience=audience)
+            # For an AGENT query, prefer the agent's OWN answer over a fresh narration. The
+            # agent answer is the product of the tool-calling loop + verification pass (and any
+            # deterministic premise correction), grounded in the evidence the agent gathered.
+            # narrate() instead re-derives prose from the raw evidence graph and will faithfully
+            # re-affirm a FALSE premise the question carried (e.g. "why was gp LESS" → "gp was
+            # lower…") — the failure we're closing — and would also discard the verification
+            # pass entirely. The numeric guard in response.render still gates whatever we set
+            # here (falling back to the deterministic "Compiled N data point(s)" summary if it
+            # doesn't verify), so this never surfaces an unbacked figure. Using the agent answer
+            # also skips a redundant LLM call. Non-agent intents narrate exactly as before.
+            agent_answer = (ctx.extra or {}).get("agent_answer")
+            if frame.intent == "agent" and agent_answer:
+                ctx.llm_analysis = agent_answer
+                _layer("Respond", "agent answer used directly%s (narration skipped)",
+                       " [premise-corrected]" if (ctx.extra or {}).get("agent_premise_overridden") else "")
+            else:
+                ctx.llm_analysis = self.synthesizer.narrate(frame, graph, audience=audience)
         # per-layer dump: confidence (json), reasoning graph (json), narration (text)
         if dumper.enabled:
             if conf is not None:

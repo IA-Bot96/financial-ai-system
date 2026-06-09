@@ -176,6 +176,65 @@ def _two_years(engine, target, args):
     return (have[-2], have[-1]) if len(have) >= 2 else (None, None)
 
 
+# Direction words the user might assert about a metric's movement. "up" and "down" are
+# mutually exclusive — if a query mixes both (rare) we treat the direction as ambiguous and
+# defer to the model rather than risk a wrong deterministic override.
+_DOWN_RE = re.compile(
+    r"\b(less|lower|fell|fall(en)?|drop(p?ed)?|declin\w*|smaller|below|reduc\w*|weaker|"
+    r"down|shrank|shrunk|worse)\b", re.I)
+_UP_RE = re.compile(
+    r"\b(more|higher|rose|risen|grew|grow\w*|increas\w*|larger|bigger|above|stronger|"
+    r"up|improv\w*|better)\b", re.I)
+
+
+def _premise_correction(query: str, precomp: dict | None) -> str | None:
+    """DETERMINISTIC false-premise guard for causal questions.
+
+    The pre-decompose gives the metric's actual move (from/to/total_delta). If the question
+    asserts a direction that CONTRADICTS the data — e.g. asks "why did gross profit FALL" when
+    it actually ROSE — return a correct, fully-grounded answer built from the decomposition.
+    This does NOT depend on the LLM (a weak model affirmed the false premise even after the
+    verifier flagged it), so the user can never get a confidently-backwards answer.
+
+    Returns None when the premise is consistent, ambiguous, or there's nothing to decompose —
+    in which case the model's own answer stands (no downgrade to correct-premise queries)."""
+    if not precomp:
+        return None
+    delta = precomp.get("total_delta")
+    fr_, to_ = precomp.get("from"), precomp.get("to")
+    if delta is None or fr_ is None or to_ is None or delta == 0:
+        return None
+    q = query or ""
+    asserted_down = bool(_DOWN_RE.search(q)) and not bool(_UP_RE.search(q))
+    asserted_up = bool(_UP_RE.search(q)) and not bool(_DOWN_RE.search(q))
+    actual_up = delta > 0
+    contradicted = (asserted_down and actual_up) or (asserted_up and not actual_up)
+    # Always log the verdict — so debugging covers BOTH the override and the no-op cases
+    # (consistent premise / no direction asserted / direction ambiguous) without a code change.
+    _log.debug("fie agent: premise check metric=%s actual=%s asserted=%s -> %s",
+               precomp.get("metric"), ("up" if actual_up else "down"),
+               ("down" if asserted_down else "up" if asserted_up else "none/ambiguous"),
+               ("CONTRADICTED" if contradicted else "consistent"),
+               extra={"component": "Agent"})
+    if not contradicted:
+        return None
+    metric = (precomp.get("metric") or "the figure").replace("_", " ")
+    yfrom, yto = precomp.get("from_year"), precomp.get("to_year")
+    dirw = "rose" if actual_up else "fell"
+    oppw = "fall" if actual_up else "rise"
+    span = f" from {yfrom} to {yto}" if (yfrom and yto) else ""
+    # Movers shown as magnitudes (from→to) — factual, and we avoid asserting a per-line
+    # up/down direction so negative-stored expense lines can't be mislabelled.
+    movers = [m for m in (precomp.get("movers") or []) if m.get("from") is not None][:3]
+    bd = "; ".join(f"{m['item'].replace('_', ' ')} {abs(m['from']):,.0f} → {abs(m['to']):,.0f}"
+                   for m in movers)
+    out = (f"{metric.capitalize()} did not {oppw}{span} — it {dirw} from {abs(fr_):,.0f} "
+           f"({yfrom}) to {abs(to_):,.0f} ({yto}), a change of {delta:+,.0f}.")
+    if bd:
+        out += f" The underlying lines moved as follows: {bd}."
+    return out
+
+
 # --- tools: each takes (engine, frame, ctx, args) -> compact observation dict --------------
 def _t_list_metrics(engine, frame, ctx, args):
     return {"metrics": sorted(engine.store.available_metrics()),
@@ -275,20 +334,28 @@ def _t_decompose(engine, frame, ctx, args):
     # 1) statement aggregate → signed additive attribution
     if target in _STATEMENT_DECOMP:
         movers = []
-        for m, sign in _STATEMENT_DECOMP[target]:
+        for m, _sign in _STATEMENT_DECOMP[target]:
             if m not in avail:
                 continue
             v0, v1 = engine._safe_lookup(m, y0), engine._safe_lookup(m, y1)
             if v0 is None or v1 is None:
                 continue
-            movers.append({"item": m, "from": v0, "to": v1, "delta": round(v1 - v0, 2),
-                           "contribution": round(sign * (v1 - v0), 2)})
+            # Components foot to the total AS STORED (expense lines carry their natural
+            # negative sign), so a component's contribution to the total's CHANGE is its raw
+            # delta — NOT sign*delta. The old sign*delta flipped expense contributions (a
+            # rising cost looked like it *raised* gross profit, which misled the model into
+            # "cost increased more than revenue"). total_delta == sum(contribution) by
+            # construction, and the foot check (_t_check_balance) sums the same way.
+            delta = round(v1 - v0, 2)
+            movers.append({"item": m, "from": v0, "to": v1, "delta": delta,
+                           "contribution": delta})
             _add(m, y0, y1)
         ctx.evidence += retrieval.evidence_from_facts(engine.store, facts)
         movers.sort(key=lambda d: abs(d["contribution"]), reverse=True)
         t0, t1 = engine._safe_lookup(target, y0), engine._safe_lookup(target, y1)
         td = round(t1 - t0, 2) if t0 is not None and t1 is not None else None
-        _allow(ctx, td, *[m["delta"] for m in movers], *[m["contribution"] for m in movers])
+        # register the aggregate's own from/to too (the deterministic premise guard quotes them)
+        _allow(ctx, t0, t1, td, *[m["delta"] for m in movers], *[m["contribution"] for m in movers])
         return {"kind": "aggregate", "metric": target, "from_year": y0, "to_year": y1,
                 "from": t0, "to": t1, "total_delta": td, "movers": movers[:8]}
 
@@ -656,6 +723,7 @@ def run(engine, frame, ctx, *, max_steps: int = MAX_STEPS, verify: bool = True) 
     # deterministic (no LLM call, no step consumed), registers its derived figures with the
     # numeric guard, and seeds the transcript so the answer explains WHAT drove the change.
     primary = next(iter(frame.metrics or []), None)
+    precomp = None   # captured decomposition → feeds the deterministic premise guard below
     if (primary and _WHY_RE.search(frame.raw_query or "")
             and (primary in _STATEMENT_DECOMP or calc_registry.get(primary) is not None)):
         dargs: dict = {"metric": primary}
@@ -663,6 +731,7 @@ def run(engine, frame, ctx, *, max_steps: int = MAX_STEPS, verify: bool = True) 
             dargs["year"] = frame.year
         try:
             dobs = _t_decompose(engine, frame, ctx, dargs)
+            precomp = dobs if isinstance(dobs, dict) else None
             transcript.append(f"Tool decompose args={json.dumps(dargs)} -> "
                               f"{json.dumps(dobs, default=str)[:1500]}")
             transcript.append(
@@ -670,7 +739,11 @@ def run(engine, frame, ctx, *, max_steps: int = MAX_STEPS, verify: bool = True) 
                 "question's premise against these numbers — if it's false (e.g. the figure rose "
                 "when the question assumes it fell), say so plainly, then explain the real movement."
             )
-            _log.info("fie agent: pre-decomposed %r for causal query", primary,
+            _log.info("fie agent: pre-decomposed %r for causal query (from=%s to=%s total_delta=%s)",
+                      primary,
+                      precomp.get("from") if precomp else None,
+                      precomp.get("to") if precomp else None,
+                      precomp.get("total_delta") if precomp else None,
                       extra={"component": "Agent"})
         except Exception as exc:  # noqa: BLE001 — pre-decompose is best-effort
             _log.warning("fie agent: pre-decompose failed: %s", exc, extra={"component": "Agent"})
@@ -731,11 +804,28 @@ def run(engine, frame, ctx, *, max_steps: int = MAX_STEPS, verify: bool = True) 
         _log.info("fie agent: hit max_steps=%d without final", max_steps,
                   extra={"component": "Agent"})
 
+    # DETERMINISTIC premise guard (runs BEFORE the LLM verifier). If the question asserts a
+    # direction the decomposition contradicts, override with a correct, fully-grounded answer —
+    # the model (even after the LLM verifier flags premise_ok=False) can still produce a
+    # backwards correction on weak tiers, so we don't trust it for this. Only fires when a
+    # causal pre-decompose ran AND the premise is genuinely contradicted, so correct-premise
+    # and non-causal queries are untouched.
+    premise_overridden = False
+    correction = _premise_correction(frame.raw_query, precomp)
+    if correction:
+        _log.info("fie agent: premise contradicted by data — deterministic correction "
+                  "(metric=%s total_delta=%s); was=%r",
+                  precomp.get("metric"), precomp.get("total_delta"), (answer or "")[:80],
+                  extra={"component": "Agent"})
+        answer = correction
+        premise_overridden = True
+
     # Verification pass — re-check the draft against the raw tool outputs (the ground truth),
     # confirm any premise was verified, and rewrite the answer if it isn't fully supported.
     # transcript[4:] is the tool-result log (the first 4 lines are the question/context header).
+    # Skipped when we already overrode deterministically (that answer is authoritative).
     verification = None
-    if answer and verify:
+    if answer and verify and not premise_overridden:
         vdata = engine.llm.complete_json(
             _VERIFY_SYS,
             f"Question: {frame.raw_query}\n\nAgent answer:\n{answer}\n\n"
@@ -752,6 +842,7 @@ def run(engine, frame, ctx, *, max_steps: int = MAX_STEPS, verify: bool = True) 
                 answer = revised
 
     ctx.extra = {**(ctx.extra or {}), "agent_answer": answer, "agent_findings": findings,
-                 "agent_steps": steps, "agent_verification": verification}
+                 "agent_steps": steps, "agent_verification": verification,
+                 "agent_premise_overridden": premise_overridden}
     ctx.llm_analysis = answer  # response layer verifies (numeric guard) + promotes to direct
     return answer

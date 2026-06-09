@@ -440,7 +440,14 @@ def render(
             else:
                 analysis = llm_text
             prose_source = "llm"
-        # else: silently fall back — the LLM tried to introduce an unbacked number
+        else:
+            # Fell back to the deterministic answer because the prose carried a number not
+            # backed by evidence/calcs. For an AGENT query the prose IS the agent's answer, so
+            # this is why a verified-looking answer can degrade to the "Compiled N data points"
+            # summary — log it (with a snippet) so the offending figure is debuggable.
+            _log.info("numeric guard rejected %s prose for intent=%s — using deterministic "
+                      "fallback; prose=%r", "agent" if frame.intent == "agent" else "llm",
+                      frame.intent, (llm_analysis or "")[:160], extra={"component": "Respond"})
 
     # surface numeric divergences explicitly (both sides + authority/chronology verdict),
     # appended so they are never silently dropped by the LLM/deterministic prose choice.
