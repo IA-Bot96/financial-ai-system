@@ -52,8 +52,8 @@ def classify_sheet(title: str) -> SheetClass:
         return "source_ledger"
     if t == "Validation Ledger":
         return "validation_ledger"
-    if t == "History":            # app-managed change log (datetime|sheet|cell|old|new|saved)
-        return "history"
+    if t == "Edit History":       # app-managed change log (datetime|sheet|cell|old|new|saved)
+        return "history"          # "History" is avoided — Excel/ExcelJS reserve/protect that name
     if t == "Insights":
         return "insights"
     if t == "Insights Review":

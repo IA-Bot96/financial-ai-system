@@ -3,7 +3,7 @@ import type { ParsedSheet } from '@/lib/sheetjs'
 import { api, type Citation, type FieResponse } from '@/api'
 import { parseWorkbook, readSheetSources } from '@/lib/sheetjs'
 import { buildEditedXlsx, pendingEditsForQuery } from '@/lib/save'
-import { nowLocalIso } from '@/lib/history'
+import { nowLocalIso, HISTORY_SHEET, SESSION_SHEET } from '@/lib/history'
 import {
   buildValidationData,
   colorOf,
@@ -270,6 +270,7 @@ interface AppState {
   // marker + "this session" scoping) and per-cell last-edit times ("sheet!A1" -> ISO).
   sessionStart: string | null
   editTimes: Record<string, string>
+  historyMarkerWritten: boolean // the once-per-session "(session) opened" row has been saved
   toasts: Toast[]
 
   // actions
@@ -367,6 +368,7 @@ export const useApp = create<AppState>((set) => ({
   verifyWrites: {},
   sessionStart: null,
   editTimes: {},
+  historyMarkerWritten: false,
   toasts: [],
 
   setBackend: (status, logPath) =>
@@ -390,6 +392,7 @@ export const useApp = create<AppState>((set) => ({
       // new session: stamp the open time (the "(session)" marker) and clear per-cell edit times
       sessionStart: nowLocalIso(),
       editTimes: {},
+      historyMarkerWritten: false,
       sheetSources: {},
       activeSheet: null,
       activePdf: null,
@@ -666,7 +669,7 @@ export const useApp = create<AppState>((set) => ({
   markEdit: (sheet, a1) => {
     // record WHEN a cell was edited so history windows ("last 5 min") are accurate. Best-effort
     // and additive — never throws; if the listener misses a cell the time falls back to save time.
-    if (sheet === 'History' || sheet === '(session)') return // never track the log itself
+    if (sheet === HISTORY_SHEET || sheet === SESSION_SHEET) return // never track the log itself
     set((s) => ({ editTimes: { ...s.editTimes, [`${sheet}!${a1}`]: nowLocalIso() } }))
   },
   setDirty: (dirty) => {
@@ -679,10 +682,11 @@ export const useApp = create<AppState>((set) => ({
     const visible = s.sheets.map((x) => x.name)
     try {
       const original = await window.api.readFile(s.workbook.filePath)
-      const { bytes, warnings } = await buildEditedXlsx(original, visible, s.sheets, {
+      const { bytes, warnings, historyWritten } = await buildEditedXlsx(original, visible, s.sheets, {
         editTimes: s.editTimes,
         sessionStart: s.sessionStart ?? nowLocalIso(),
-        saveNow: nowLocalIso()
+        saveNow: nowLocalIso(),
+        includeMarker: !s.historyMarkerWritten // write the "opened" row once per session
       })
       let path = s.workbook.filePath
       if (asNew || s.workbook.origin === 'ocr') {
@@ -703,10 +707,30 @@ export const useApp = create<AppState>((set) => ({
       await window.api.writeFileAt(sidecar, new TextEncoder().encode(meta).buffer as ArrayBuffer)
       // re-ingest so Ask AI / Dashboard reflect the edits (cache-bust)
       const r = await window.api.reloadSession(s.session.session_id, path)
+      // Re-parse the just-saved bytes so the grid reflects the persisted state — including the
+      // appended Edit History rows (#2 visibility) — and so the saved file becomes the new
+      // baseline (the next save records only NEW changes; a clean remount can't be dirty, so no
+      // save→re-dirty loop). Best-effort: a parse hiccup still leaves a successful save.
+      let refreshed: ParsedSheet[] | null = null
+      try {
+        refreshed = await parseWorkbook(bytes, s.session.sheets)
+      } catch (e) {
+        console.error('[save] post-save refresh parse failed; grid not remounted', e)
+      }
+      console.info(
+        `[history] saved: historyRows=${historyWritten} ` +
+          `sessionMarker=${!s.historyMarkerWritten && historyWritten} ` +
+          `gridRefreshed=${!!refreshed} origin=excel(was:${s.workbook.origin})`
+      )
       set((st) => ({
-        workbook: { ...st.workbook, dirty: false, filePath: path },
+        ...(refreshed
+          ? { sheets: refreshed, validationLedger: buildValidationData(refreshed), loadSeq: st.loadSeq + 1 }
+          : {}),
+        // first save flips origin ocr->excel so later Ctrl+S writes in place (not Save As, #4)
+        workbook: { ...st.workbook, dirty: false, filePath: path, origin: 'excel' },
         cleanToken: st.cleanToken + 1, // re-baseline the grid's undo depth to "saved"
-        verifyWrites: {} // Manually Verified writes are now persisted in the file
+        verifyWrites: {}, // Manually Verified writes are now persisted in the file
+        historyMarkerWritten: st.historyMarkerWritten || historyWritten
       }))
       window.api.setDirty(false)
       window.api.setLastFile(path)

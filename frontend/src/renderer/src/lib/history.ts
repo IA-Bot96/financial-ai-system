@@ -17,7 +17,11 @@
  */
 import type { CellEdit } from './xlsxPatch'
 
-export const HISTORY_SHEET = 'History'
+// NB: NOT "History" — that name is RESERVED by Excel/ExcelJS, and the app's ExcelJS parser
+// throws when loading a workbook that contains a sheet named "History", silently falling back
+// to a values-only parse (dropping styles + formulas for the WHOLE workbook). Must match the
+// extraction seeding + backend classify_sheet exactly.
+export const HISTORY_SHEET = 'Edit History'
 export const SESSION_SHEET = '(session)' // sentinel "sheet" for the workbook-opened marker
 
 export interface HistEntry {

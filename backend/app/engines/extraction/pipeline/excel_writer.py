@@ -337,9 +337,11 @@ def write_workbook(
         write_insights_sheet(wb.create_sheet("Insights Review"), insights_review)
     # App-managed change log: must EXIST in the delivered workbook (the desktop app's
     # surgical save can't create sheets — it only appends rows here). Seed header-only.
-    if "History" not in wb.sheetnames:
-        write_history_sheet(wb.create_sheet("History"))
-        logger.debug("Seeded empty History change-log sheet")
+    # Named "Edit History" (NOT "History" — that's a name Excel/ExcelJS reserves/protects,
+    # which makes the app's ExcelJS load throw and silently fall back to a lossy parse).
+    if "Edit History" not in wb.sheetnames:
+        write_history_sheet(wb.create_sheet("Edit History"))
+        logger.debug("Seeded empty Edit History change-log sheet")
 
     if not wb.sheetnames:
         wb.create_sheet("Empty")
@@ -370,13 +372,15 @@ def append_insights_sheets(
     write_insights_sheet(wb.create_sheet("Insights"), insights)
     if insights_review:
         write_insights_sheet(wb.create_sheet("Insights Review"), insights_review)
-    # App-managed change log: seed ONCE, header-only. Idempotent — if a History sheet
-    # already exists (re-extraction of an edited file), leave its saved rows intact.
-    if "History" not in wb.sheetnames:
-        write_history_sheet(wb.create_sheet("History"))
-        logger.info("Seeded empty History change-log sheet in %s", workbook_path)
+    # App-managed change log: seed ONCE, header-only. Idempotent — if an Edit History sheet
+    # already exists (re-extraction of an edited file), leave its saved rows intact. Named
+    # "Edit History" (NOT "History" — Excel/ExcelJS reserve/protect that name, breaking the
+    # app's loader).
+    if "Edit History" not in wb.sheetnames:
+        write_history_sheet(wb.create_sheet("Edit History"))
+        logger.info("Seeded empty Edit History change-log sheet in %s", workbook_path)
     else:
-        logger.info("History change-log sheet already present in %s — preserving %d existing row(s)",
-                    workbook_path, max(0, wb["History"].max_row - 1))
+        logger.info("Edit History change-log sheet already present in %s — preserving %d existing row(s)",
+                    workbook_path, max(0, wb["Edit History"].max_row - 1))
     wb.save(workbook_path)
     return Path(workbook_path)

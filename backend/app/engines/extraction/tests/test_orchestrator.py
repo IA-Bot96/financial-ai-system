@@ -55,8 +55,8 @@ def test_no_template_writes_styled_workbook(tmp_path):
 def _assert_seeded_history(path):
     wb = openpyxl.load_workbook(path)
     try:
-        assert "History" in wb.sheetnames
-        h = wb["History"]
+        assert "Edit History" in wb.sheetnames                       # not "History" (ExcelJS-reserved)
+        h = wb["Edit History"]
         assert [h.cell(1, c).value for c in range(1, 7)] == \
             ["Timestamp", "Sheet", "Cell", "Old", "New", "Saved"]   # exact header contract
         assert h.max_row == 1                                        # header only, no data rows
@@ -86,14 +86,14 @@ def test_history_append_is_idempotent(tmp_path):
     wb = openpyxl.Workbook()
     wb.active.title = "PL1 - Revenue"
     wb["PL1 - Revenue"]["A1"] = "x"
-    write_history_sheet(wb.create_sheet("History"))
-    wb["History"].append(["2026-01-01T00:00", "PL1 - Revenue", "B2", "1", "2", "yes"])  # user edit
+    write_history_sheet(wb.create_sheet("Edit History"))
+    wb["Edit History"].append(["2026-01-01T00:00", "PL1 - Revenue", "B2", "1", "2", "yes"])  # user edit
     wb.save(p)
 
     append_insights_sheets(p, [], [])     # re-run meta-sheet step
     wb2 = openpyxl.load_workbook(p)
     try:
-        h = wb2["History"]
+        h = wb2["Edit History"]
         assert h.max_row == 2 and h.cell(2, 3).value == "B2"   # existing row preserved, not wiped
     finally:
         wb2.close()
@@ -102,7 +102,7 @@ def test_history_append_is_idempotent(tmp_path):
 def test_history_not_ingested_as_financial_data(tmp_path):
     from app.engines.fie.ingest.classify import classify_sheet
     from app.engines.fie.store import FinancialFactStore
-    assert classify_sheet("History") == "history"
+    assert classify_sheet("Edit History") == "history"
     results = [_doc(2025, StatementType.income_statement,
                     [LineItem(label="Revenue", values=[LineItemValue(year=2024, value=100.0),
                                                         LineItemValue(year=2025, value=120.0)])])]

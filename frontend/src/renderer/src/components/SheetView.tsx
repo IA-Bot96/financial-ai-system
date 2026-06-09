@@ -8,6 +8,7 @@ import { useApp } from '@/store'
 import { toUniverData } from '@/lib/sheetjs'
 import { setSheetApi } from '@/lib/sheetApi'
 import { buildColorMap, type ValidationIssue } from '@/lib/validation'
+import { HISTORY_SHEET } from '@/lib/history'
 import { ValidationCard } from './ValidationTooltip'
 
 /** 0-based row/col → A1 (e.g. 0,2 → "C1"). */
@@ -155,7 +156,7 @@ export function SheetView() {
         // never the grid. Block value edits/clears while it's the active sheet.
         const editingHistory =
           /set-range-values|set-cell|clear-selection-content/i.test(cmd.id) &&
-          useApp.getState().activeSheet === 'History'
+          useApp.getState().activeSheet === HISTORY_SHEET
         if (!BLOCKED_STRUCTURAL_CMD.test(cmd.id) && !editingHistory) return
         const now = Date.now()
         if (now - lastToast > 1500) {
@@ -181,14 +182,27 @@ export function SheetView() {
       // Best-effort: stamp the edited cell's time so history windows ("last 5 min") are
       // accurate. Reads the cell from the command's range params; if the param shape differs
       // across Univer versions this silently no-ops and timestamps fall back to save time.
+      // A one-shot diagnostic (per mount) reports whether the capture path actually works.
+      let stampDiag = false
       editSub = commandService.onCommandExecuted((cmd) => {
         if (!cmd?.id || !/set-range-values/i.test(cmd.id)) return
         const sheet = useApp.getState().activeSheet
-        if (!sheet || sheet === 'History') return
+        if (!sheet || sheet === HISTORY_SHEET) return
         try {
           const r = (cmd.params as { range?: { startRow?: number; startColumn?: number } })?.range
           if (r && typeof r.startRow === 'number' && typeof r.startColumn === 'number') {
             useApp.getState().markEdit(sheet, rcToA1(r.startRow, r.startColumn))
+            if (!stampDiag) {
+              console.debug('[history] edit-time capture active (cell read from command params)')
+              stampDiag = true
+            }
+          } else if (!stampDiag) {
+            console.warn(
+              '[history] edit-time capture: command has no readable range — timestamps will fall ' +
+                'back to save time. cmd.id=' + cmd.id,
+              cmd.params
+            )
+            stampDiag = true
           }
         } catch {
           /* best-effort — never block an edit */

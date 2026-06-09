@@ -8,6 +8,9 @@ export interface SaveResult {
   bytes: ArrayBuffer
   /** Non-fatal warnings to surface to the user (e.g. structural edits that don't persist). */
   warnings: string[]
+  /** True when this save appended rows to the Edit History sheet (incl. the session marker),
+   *  so the caller can stop re-writing the once-per-session "opened" marker. */
+  historyWritten: boolean
 }
 
 /** One unsaved change to send to the backend with a query (so "my unsaved changes" works). */
@@ -24,6 +27,7 @@ export interface HistoryCtx {
   editTimes: Record<string, string> // "sheet!A1" -> ISO time the cell was last edited
   sessionStart: string // ISO time the workbook was opened this session (-> "(session)" marker)
   saveNow: string // fallback timestamp for edits with no recorded time
+  includeMarker: boolean // write the "(session) opened" row (true only on the FIRST save)
 }
 
 const baseVal = (b: ParsedSheet | undefined, r: number, c: number): string => {
@@ -126,7 +130,7 @@ export async function buildEditedXlsx(
   try {
     const snap = getSnapshot()
     const sheets = snap?.sheets
-    if (!sheets) return { bytes: originalBytes, warnings: [] }
+    if (!sheets) return { bytes: originalBytes, warnings: [], historyWritten: false }
 
     const baseByName = new Map(baseline.map((s) => [s.name, s]))
     const editsBySheet = new Map<string, CellEdit[]>()
@@ -142,19 +146,20 @@ export async function buildEditedXlsx(
     }
 
     const warnings = structuralWarnings(baseline, snapshotNames)
-    if (!editsBySheet.size) return { bytes: originalBytes, warnings }
+    if (!editsBySheet.size) return { bytes: originalBytes, warnings, historyWritten: false }
 
-    // Append the change log to the workbook's History sheet WITHIN this same patch (so it is
-    // persisted, not left as a fresh unsaved change — invariant 3, no save loop). Only when the
-    // sheet exists (OCR-seeded); the surgical patch cannot create a sheet. We re-write the
-    // session's block each save from the cumulative diff — idempotent and append-only in
-    // practice. Skipped silently for older workbooks without a History sheet.
+    // Append this save's changes to the Edit History sheet WITHIN this same patch (so they are
+    // persisted, not left as a fresh unsaved change — no save loop). Only when the sheet exists
+    // (extraction-seeded; the surgical patch cannot create a sheet). The caller re-parses the
+    // saved bytes as the new baseline, so each save records only the NEW changes since the last
+    // (incremental, append-only); the "(session) opened" marker is written once per session.
+    let historyWritten = false
     if (history) {
       const baseHist = baseByName.get(HISTORY_SHEET)
       if (baseHist) {
-        const rows: HistEntry[] = [
-          { ts: history.sessionStart, sheet: SESSION_SHEET, cell: '', old: '', new: 'opened', saved: true }
-        ]
+        const rows: HistEntry[] = history.includeMarker
+          ? [{ ts: history.sessionStart, sheet: SESSION_SHEET, cell: '', old: '', new: 'opened', saved: true }]
+          : []
         for (const [name, edits] of editsBySheet) {
           if (name === HISTORY_SHEET) continue
           const base = baseByName.get(name)
@@ -171,14 +176,17 @@ export async function buildEditedXlsx(
           }
         }
         const hEdits = historyEdits(rows, nextRow(baseHist))
-        if (hEdits.length) editsBySheet.set(HISTORY_SHEET, hEdits)
+        if (hEdits.length) {
+          editsBySheet.set(HISTORY_SHEET, hEdits)
+          historyWritten = true
+        }
       }
     }
 
     const bytes = await patchXlsx(originalBytes, editsBySheet)
-    return { bytes, warnings }
+    return { bytes, warnings, historyWritten }
   } catch (e) {
     console.error('[save] surgical patch failed; keeping original bytes (no edits applied)', e)
-    return { bytes: originalBytes, warnings: [] }
+    return { bytes: originalBytes, warnings: [], historyWritten: false }
   }
 }

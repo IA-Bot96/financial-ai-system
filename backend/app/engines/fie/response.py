@@ -436,15 +436,18 @@ def render(
             shown, total = eh.get("shown", len(items)), eh.get("total", len(items))
             lead = ("Your most recent change" + fstr + ":" if shown == 1
                     else f"{total} change(s){fstr}" + (f"; showing {shown}:" if shown < total else ":"))
+            # Render as a Markdown list (blank line after the lead, one "- " item per line). The
+            # chat renderer collapses single newlines into spaces, so a "\n"-joined blob ran
+            # together — a list renders one change per line.
             lines = []
             for it in items:
                 status = "saved" if it.get("saved") else "unsaved"
                 old = it.get("old") or "(blank)"
                 new = it.get("new") or "(blank)"
                 cell = f"!{it['cell']}" if it.get("cell") else ""
-                lines.append(f"• {it.get('timestamp')} — {it.get('sheet')}{cell}: "
-                             f"{old} → {new} [{status}]")
-            direct = lead + "\n" + "\n".join(lines)
+                lines.append(f"- {it.get('timestamp')} — {it.get('sheet')}{cell}: "
+                             f"{old} → {new} ({status})")
+            direct = lead + "\n\n" + "\n".join(lines)
         findings = []   # listing lives in `direct`; no per-fact citations to enforce
 
     else:

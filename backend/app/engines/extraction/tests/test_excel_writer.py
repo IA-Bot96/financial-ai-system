@@ -34,10 +34,11 @@ def test_workbook_structure_and_values(tmp_path):
     out = tmp_path / "out.xlsx"
     write_company_workbook(_company(), out)
     wb = openpyxl.load_workbook(out)
-    # History = app-managed change log, seeded (header-only) on every produced workbook.
-    assert wb.sheetnames == ["Income Statement", "Insights", "Insights Review", "History"]
-    assert [wb["History"].cell(1, c).value for c in range(1, 7)] == \
-        ["Timestamp", "Sheet", "Cell", "Old", "New", "Saved"] and wb["History"].max_row == 1
+    # Edit History = app-managed change log, seeded (header-only) on every produced workbook.
+    # (Named "Edit History", not "History", which Excel/ExcelJS reserve.)
+    assert wb.sheetnames == ["Income Statement", "Insights", "Insights Review", "Edit History"]
+    assert [wb["Edit History"].cell(1, c).value for c in range(1, 7)] == \
+        ["Timestamp", "Sheet", "Cell", "Old", "New", "Saved"] and wb["Edit History"].max_row == 1
 
     ws = wb["Income Statement"]
     assert ws["A1"].value == "Income Statement"
