@@ -108,6 +108,12 @@ def render(
             if valued:
                 e = valued[0]
                 direct = f"{company}'s {metric} for {frame.year} was {_fmt(e.value, 'currency')} (Rs '000)."
+                # share/percentage request: append the deterministically-computed ratio (the
+                # denominator fact + CalcResult were attached in _attach_percentage) so the
+                # user's "and percentage" is answered even if the LLM narration omits it.
+                pct = (extra or {}).get("percentage")
+                if pct and pct.get("pct") is not None:
+                    direct += f" That is {pct['pct'] * 100:.2f}% of {pct['denom'].replace('_', ' ')}."
             else:
                 sugg = extra.get("suggestions") or []
                 hint = (" Available metrics include: "

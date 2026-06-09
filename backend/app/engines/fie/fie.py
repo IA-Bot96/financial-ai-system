@@ -40,6 +40,11 @@ def _layer(component: str, msg: str, *args) -> None:
     _log.info(msg, *args, extra={"component": component})
 
 
+# A metric_lookup phrased as "... value AND percentage", "what percent of revenue", etc. needs
+# the denominator fetched so the share can be computed (see _attach_percentage).
+_PCT_REQUEST_RE = re.compile(r"\bpercent\w*\b|\bproportion\b|\bfraction\b|%", re.I)
+
+
 def ev_over_ebitda(price, shares, ebitda, debt, cash) -> dict | None:
     """EV/EBITDA = (market_cap + net_debt) / EBITDA. Returns None unless price,
     shares and EBITDA are all present (so it degrades silently). ``debt`` is a
@@ -350,6 +355,48 @@ class FinancialIntelligenceEngine:
         ctx.conflicts = self.conflicts.detect(
             facts=[f for e in ctx.evidence for f in e.fact_refs],
             report_year_preference=frame.report_year_preference)
+        # "value AND percentage" — a share/percentage request needs the DENOMINATOR too. Intent
+        # validation often returns only the numerator metric (e.g. just gross_profit), so the
+        # percentage can't be computed. Deterministically fetch the natural base and register the
+        # ratio so it's both numerically backed and rendered. No-op for non-percentage lookups.
+        if frame.metrics and frame.year and _PCT_REQUEST_RE.search(frame.raw_query or ""):
+            self._attach_percentage(frame, ctx)
+
+    def _attach_percentage(self, frame, ctx) -> None:
+        """Add the denominator fact + a percentage CalcResult for a 'share of X' metric_lookup.
+        Denominator: revenue for P&L items, total_assets for balance-sheet items (with a
+        fallback to the other). Primary stays evidence[0] so the headline answer is unchanged."""
+        primary, year = frame.metrics[0], frame.year
+        try:
+            pf = self.store.lookup(primary, year)
+        except KeyError:
+            return
+        if pf.value is None:
+            return
+        first = "total_assets" if pf.statement == "bs" else "revenue"
+        for denom in (first, "revenue" if first == "total_assets" else "total_assets"):
+            if denom == primary:
+                continue
+            try:
+                df = self.store.lookup(denom, year)
+            except KeyError:
+                continue
+            if df.value:
+                break
+        else:
+            _log.info("fie metric_lookup: percentage requested but no denominator found for "
+                      "%r %s — value only", primary, year, extra={"component": "Respond"})
+            return
+        pct = round(pf.value / df.value, 6)
+        ctx.evidence += retrieval.evidence_from_facts(self.store, [df])  # cite the denominator
+        ctx.calcs.append(CalcResult(
+            formula_id=f"{primary}_pct_of_{denom}", value=pct, unit="ratio",
+            inputs=[pf, df], citations=self.store.cite(df),
+            expression=f"{primary} / {denom}", confidence="High"))
+        ctx.extra = {**(ctx.extra or {}),
+                     "percentage": {"metric": primary, "denom": denom, "pct": pct, "year": year}}
+        _log.info("fie metric_lookup: %s = %.2f%% of %s (%s) — denominator fetched + ratio registered",
+                  primary, pct * 100, denom, year, extra={"component": "Respond"})
 
     # Headline KPIs surfaced for an "overview / summarize the financials" request, in
     # priority order; intersected with what the workbook actually has.
