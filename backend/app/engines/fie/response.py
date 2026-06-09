@@ -422,6 +422,31 @@ def render(
         else:
             direct = f"No recent external items available for {company}."
 
+    elif frame.intent == "edit_history":
+        eh = (extra or {}).get("edit_history") or {}
+        items = eh.get("items") or []
+        filt = eh.get("filters") or []
+        fstr = (" (" + ", ".join(filt) + ")") if filt else ""
+        if not items:
+            direct = f"No matching changes found{fstr}."
+            if eh.get("total", 0) == 0:
+                direct = ("No changes have been recorded for this workbook yet."
+                          if not filt else f"No changes match{fstr}.")
+        else:
+            shown, total = eh.get("shown", len(items)), eh.get("total", len(items))
+            lead = ("Your most recent change" + fstr + ":" if shown == 1
+                    else f"{total} change(s){fstr}" + (f"; showing {shown}:" if shown < total else ":"))
+            lines = []
+            for it in items:
+                status = "saved" if it.get("saved") else "unsaved"
+                old = it.get("old") or "(blank)"
+                new = it.get("new") or "(blank)"
+                cell = f"!{it['cell']}" if it.get("cell") else ""
+                lines.append(f"• {it.get('timestamp')} — {it.get('sheet')}{cell}: "
+                             f"{old} → {new} [{status}]")
+            direct = lead + "\n" + "\n".join(lines)
+        findings = []   # listing lives in `direct`; no per-fact citations to enforce
+
     else:
         direct = f"Could not handle query: intent '{frame.intent}' not supported yet."
 

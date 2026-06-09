@@ -90,6 +90,9 @@ def process_documents(
     # is STILL computed (manifest counts, production gate) and corrections (formula plugs,
     # headline overrides) STILL apply — only the user-facing review surface is hidden.
     review = get_settings().validation_review_enabled
+    if not review:
+        logger.info("Validation review disabled — suppressing the Validation Ledger sheet and "
+                    "in-cell review annotations (validation still computed; corrections still applied)")
     _emit("merging")
     company_result = resolve_multiyear(results, company=company)
     output_path = str(output_path)

@@ -13,6 +13,7 @@ import re
 import time
 import uuid
 from contextlib import ExitStack
+from datetime import datetime, timedelta
 from typing import Callable
 
 from app.core.debug import make_fie_dumper
@@ -43,6 +44,68 @@ def _layer(component: str, msg: str, *args) -> None:
 # A metric_lookup phrased as "... value AND percentage", "what percent of revenue", etc. needs
 # the denominator fetched so the share can be computed (see _attach_percentage).
 _PCT_REQUEST_RE = re.compile(r"\bpercent\w*\b|\bproportion\b|\bfraction\b|%", re.I)
+
+# --- edit_history query parsing (temporal / sheet filters) ---------------------------------
+_HIST_WIN_RE = re.compile(r"\b(?:last|past|within|in|over|in the last|in the past|over the last)\s+"
+                          r"(\d{1,4})\s*(min|minute|hour|hr|day|week)s?\b", re.I)
+_HIST_LIMIT_RE = re.compile(r"\b(?:last|recent|latest)\s+(\d{1,3})\b", re.I)
+_HIST_ONE_RE = re.compile(r"\b(?:last|latest|recent|most recent)\s+"
+                          r"(?:change|edit|modification|update)\b", re.I)
+_HIST_MONTHS = {m: i for i, m in enumerate(
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+_HIST_DATE_DMY = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\.?\s+(\d{4})\b", re.I)
+_HIST_DATE_MDY = re.compile(r"\b([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b", re.I)
+_HIST_DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_HIST_DATE_SLASH = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
+
+
+def _hist_parse_dt(s):
+    """Tolerant timestamp parse for History-sheet / pending-edit rows (-> datetime|None)."""
+    if not s:
+        return None
+    s = str(s).strip()
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        pass
+    s2 = s.replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+                "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(s2, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _hist_parse_query_date(q):
+    """Parse an explicit calendar date out of a query ('31 Aug 2025', 'Aug 31 2025',
+    '2025-08-31', '31/08/2025') -> datetime|None (day precision)."""
+    m = _HIST_DATE_ISO.search(q)
+    if m:
+        try:
+            return datetime(int(m[1]), int(m[2]), int(m[3]))
+        except ValueError:
+            pass
+    m = _HIST_DATE_DMY.search(q)
+    if m and m.group(2).lower()[:3] in _HIST_MONTHS:
+        try:
+            return datetime(int(m.group(3)), _HIST_MONTHS[m.group(2).lower()[:3]], int(m.group(1)))
+        except ValueError:
+            pass
+    m = _HIST_DATE_MDY.search(q)
+    if m and m.group(1).lower()[:3] in _HIST_MONTHS:
+        try:
+            return datetime(int(m.group(3)), _HIST_MONTHS[m.group(1).lower()[:3]], int(m.group(2)))
+        except ValueError:
+            pass
+    m = _HIST_DATE_SLASH.search(q)
+    if m:
+        try:
+            return datetime(int(m[3]), int(m[2]), int(m[1]))   # d/m/y
+        except ValueError:
+            pass
+    return None
 
 
 def ev_over_ebitda(price, shares, ebitda, debt, cash) -> dict | None:
@@ -85,6 +148,7 @@ class FinancialIntelligenceEngine:
         "metric_comparison": "_h_metric_comparison",
         "driver_analysis": "_h_driver_analysis",
         "validation": "_h_validation",
+        "edit_history": "_h_edit_history",
         "risk_assessment": "_h_risk_assessment",
         "peer_comparison": "_h_peer_comparison",
         "valuation": "_h_valuation",
@@ -96,13 +160,17 @@ class FinancialIntelligenceEngine:
     }
 
     def answer(self, query: str, *, audience: str = "analyst",
-               history: list[dict] | None = None) -> Response:
-        _frame, _plan, _ctx, resp = self._run(query, audience, history or [])
+               history: list[dict] | None = None, now: str | None = None,
+               pending_edits: list[dict] | None = None) -> Response:
+        _frame, _plan, _ctx, resp = self._run(query, audience, history or [],
+                                              now=now, pending_edits=pending_edits or [])
         return resp
 
     def answer_with_trace(self, query: str, *, audience: str = "analyst",
-                          history: list[dict] | None = None) -> tuple[Response, TraceRecord]:
-        frame, plan, ctx, resp = self._run(query, audience, history or [])
+                          history: list[dict] | None = None, now: str | None = None,
+                          pending_edits: list[dict] | None = None) -> tuple[Response, TraceRecord]:
+        frame, plan, ctx, resp = self._run(query, audience, history or [],
+                                           now=now, pending_edits=pending_edits or [])
         trace = TraceRecord(
             trace_id=ctx.trace_id or self._trace_id(), query=query, audience=audience,
             company=frame.company, frame=frame, plan=plan,
@@ -111,7 +179,8 @@ class FinancialIntelligenceEngine:
         return resp, trace
 
     # ------------------------------------------------------------ core run
-    def _run(self, query: str, audience: str, history: list[dict]):
+    def _run(self, query: str, audience: str, history: list[dict],
+             *, now: str | None = None, pending_edits: list[dict] | None = None):
         """Mint a trace id, set up DEBUG observability (a per-query .log file + a
         per-layer artifact dump), then run the pipeline. All dumping is a no-op when
         DEBUG is off — same behavior, ~zero overhead."""
@@ -122,10 +191,12 @@ class FinancialIntelligenceEngine:
                 stack.enter_context(per_query_log(trace_id))  # logs/<ts>_<id>.log
                 dumper.subject(trace_id)
                 stack.callback(restore_llms, wrap_llms(self, dumper))  # capture LLM calls
-            return self._pipeline(query, audience, trace_id, dumper, history)
+            return self._pipeline(query, audience, trace_id, dumper, history,
+                                  now=now, pending_edits=pending_edits or [])
 
     def _pipeline(self, query: str, audience: str, trace_id: str, dumper,
-                  history: list[dict]):
+                  history: list[dict], *, now: str | None = None,
+                  pending_edits: list[dict] | None = None):
         t0 = time.monotonic()
         frame = understanding.understand(
             query,
@@ -147,6 +218,8 @@ class FinancialIntelligenceEngine:
         ctx = _Ctx()
         ctx.trace_id = trace_id
         ctx.dumper = dumper
+        ctx.now = now
+        ctx.pending_edits = pending_edits or []
 
         # intent -> handler dispatch (registry, not an if/elif ladder): a new intent
         # without a registered handler degrades EXPLICITLY (logged), never silently.
@@ -164,7 +237,11 @@ class FinancialIntelligenceEngine:
         # No real LLM (or the agent gathered nothing) -> deterministic external fallback.
         internal_empty = not ctx.evidence and not ctx.calcs and not ctx.selected_insights
         clarifying = bool((ctx.extra or {}).get("clarify"))
-        if not clarifying and (frame.intent in ("unknown", "agent") or internal_empty):
+        # edit_history answers from the change log (ctx.extra), never from financial evidence —
+        # so an empty ctx.evidence is EXPECTED, not a miss. Don't let the agent fallback hijack it.
+        handled_via_extra = frame.intent == "edit_history"
+        if (not clarifying and not handled_via_extra
+                and (frame.intent in ("unknown", "agent") or internal_empty)):
             self._run_agent(frame, ctx)
             if not ctx.evidence and not (ctx.extra or {}).get("agent_answer"):
                 self._external_fallback(frame, ctx)  # no-LLM / agent found nothing
@@ -218,7 +295,10 @@ class FinancialIntelligenceEngine:
         cites, withheld = citations_mod.bind(ctx.evidence, ctx.calcs)
         conf = None
         graph = None
-        if frame.intent != "unknown":
+        # edit_history is a deterministic listing of app actions (not financial claims): it
+        # carries no evidence/calcs, so confidence scoring is meaningless and narration would
+        # only risk reformatting timestamps/values past the numeric guard. Render it as-is.
+        if frame.intent not in ("unknown", "edit_history"):
             conf = self.confidence.score(
                 evidence=ctx.evidence, calcs=ctx.calcs, conflicts=ctx.conflicts,
                 selected_insights=ctx.selected_insights,
@@ -691,6 +771,120 @@ class FinancialIntelligenceEngine:
                        extra={"component": "Validation"})
         ctx.extra = {**(ctx.extra or {}),
                      "validation_report": {"balance": balance, "anomalies": anomalies}}
+
+    def _h_edit_history(self, frame, ctx, plan) -> None:
+        """Answer questions about the user's own edits, from the workbook's History log
+        (saved changes) merged with the client's pending/unsaved edits. Filters parsed
+        deterministically from the query: unsaved-only, this-session, last-N-minutes/hours/days,
+        a specific date, a sheet, and a result limit. Purely a listing — no financial evidence,
+        so it never touches the numeric/citation/confidence machinery."""
+        q = frame.raw_query or ""
+        now = _hist_parse_dt(ctx.now) or datetime.now()
+
+        # Merge the saved log (from the uploaded workbook's History sheet — may be empty or hold
+        # PRIOR-session rows, since a file can be opened many times) with the client's unsaved
+        # edits. Dedupe by (timestamp, sheet, cell): a re-uploaded file already contains rows a
+        # stale pending buffer might resend — the saved copy wins so nothing is counted twice.
+        entries: list[dict] = []
+        seen: set = set()
+        for e in (self.store.history or []):                    # saved log (History sheet)
+            seen.add((str(e.get("timestamp") or ""), str(e.get("sheet") or ""),
+                      str(e.get("cell") or "")))
+            entries.append({**e, "_dt": _hist_parse_dt(e.get("timestamp")),
+                            "saved": bool(e.get("saved"))})
+        for e in (ctx.pending_edits or []):                     # unsaved edits from the client
+            sheet = str(e.get("sheet") or "")
+            key = (str(e.get("timestamp") or ""), sheet, str(e.get("cell") or ""))
+            if key in seen:
+                continue                                        # already saved in the file
+            seen.add(key)
+            entries.append({
+                "timestamp": str(e.get("timestamp") or ""), "sheet": sheet,
+                "cell": str(e.get("cell") or ""),
+                "old": "" if e.get("old") is None else str(e.get("old")),
+                "new": "" if e.get("new") is None else str(e.get("new")),
+                "saved": False,
+                # the app writes the "workbook opened" marker into the unsaved buffer FIRST
+                # (persisted on save), so a session marker can arrive here before it's in the
+                # file — tag it so it still bounds "this session".
+                "event": "session" if sheet.lower() in ("(session)", "session") else None,
+                "_dt": _hist_parse_dt(e.get("timestamp")) or now})
+
+        # "this session" boundary = the latest session-open marker from EITHER source. Taking the
+        # max makes prior-session markers in a re-uploaded file harmless (the current open is newest).
+        starts = [x["_dt"] for x in entries if x.get("event") == "session" and x.get("_dt")]
+        session_start = max(starts) if starts else None
+        changes = [x for x in entries if x.get("event") != "session"]   # drop session markers
+
+        applied: list[str] = []
+        if re.search(r"\bunsaved\b", q, re.I):
+            changes = [x for x in changes if not x["saved"]]
+            applied.append("unsaved")
+        if re.search(r"\b(this|current) session\b", q, re.I):
+            if session_start is not None:
+                changes = [x for x in changes if x["_dt"] and x["_dt"] >= session_start]
+            else:
+                # no open-marker known (file had none yet) — only the live unsaved edits are
+                # certainly from this session; prior saved rows can't be attributed to it.
+                changes = [x for x in changes if not x["saved"]]
+            applied.append("this session")
+        win = _HIST_WIN_RE.search(q)
+        if win:
+            n, unit = int(win.group(1)), win.group(2).lower()
+            delta = {"min": timedelta(minutes=n), "minute": timedelta(minutes=n),
+                     "hour": timedelta(hours=n), "hr": timedelta(hours=n),
+                     "day": timedelta(days=n), "week": timedelta(weeks=n)}[unit]
+            cutoff = now - delta
+            changes = [x for x in changes if x["_dt"] and x["_dt"] >= cutoff]
+            applied.append(f"last {n} {unit}{'s' if n != 1 else ''}")
+        qd = _hist_parse_query_date(q)
+        if qd:
+            changes = [x for x in changes if x["_dt"] and x["_dt"].date() == qd.date()]
+            applied.append(qd.strftime("%Y-%m-%d"))
+        sheet_q = self._history_sheet_filter(q, changes)
+        if sheet_q:
+            changes = [x for x in changes if x["sheet"].lower() == sheet_q.lower()]
+            applied.append(sheet_q)
+
+        changes.sort(key=lambda x: (x["_dt"] or datetime.min), reverse=True)
+        limit = 20
+        lm = _HIST_LIMIT_RE.search(q)
+        if lm:
+            limit = max(1, int(lm.group(1)))
+        elif _HIST_ONE_RE.search(q):
+            limit = 1
+        shown = changes[:limit]
+
+        ctx.evidence = []
+        ctx.extra = {"edit_history": {
+            "items": [{"timestamp": x["timestamp"], "sheet": x["sheet"], "cell": x["cell"],
+                       "old": x["old"], "new": x["new"], "saved": x["saved"]} for x in shown],
+            "total": len(changes), "shown": len(shown), "filters": applied,
+            "now": now.isoformat(timespec="seconds"), "session_known": session_start is not None,
+        }}
+        _log.info("fie edit_history: total=%d shown=%d filters=%s saved_log=%d pending=%d "
+                  "session_start=%s now=%s", len(changes), len(shown), applied,
+                  len(self.store.history or []), len(ctx.pending_edits or []),
+                  session_start.isoformat(timespec="seconds") if session_start else None,
+                  now.isoformat(timespec="seconds"), extra={"component": "Respond"})
+
+    def _history_sheet_filter(self, q: str, changes: list[dict]) -> str | None:
+        """Resolve a sheet mentioned in the query to an actual edited sheet name. Direct
+        substring match first; then statement-family keywords (balance/p&l/cash flow)."""
+        ql = q.lower()
+        sheets = sorted({x["sheet"] for x in changes if x.get("sheet")})
+        for s in sheets:
+            if s.lower() in ql:
+                return s
+        families = (("balance", ("balance",)), ("income", ("p&l", "p and l", "profit", "income")),
+                    ("cash", ("cash flow", "cashflow")))
+        for _key, cues in families:
+            if any(c in ql for c in cues):
+                for s in sheets:
+                    sl = s.lower()
+                    if _key in sl or any(c.split()[0] in sl for c in cues):
+                        return s
+        return None
 
     # ------------------------------------------------------------ handlers
     def _store_for(self, company: str | None):
@@ -1325,3 +1519,5 @@ class _Ctx:
         self.total_insights = 0
         self.superseded = 0
         self.dumper = None  # DebugDumper — set by _pipeline for dump-layer access in handlers
+        self.now: str | None = None          # client/server current time (ISO) for edit_history
+        self.pending_edits: list[dict] = []   # unsaved edits sent by the client (edit_history)

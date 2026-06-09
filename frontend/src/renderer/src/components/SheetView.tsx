@@ -138,23 +138,35 @@ export function SheetView() {
     // before-command listener vetoes the command from EVERY entry point. A throttled toast
     // explains why so the user isn't left with a silently dead button.
     let cmdSub: { dispose: () => void } | null = null
+    let editSub: { dispose: () => void } | null = null
     try {
       const commandService = (
         univer as unknown as { __getInjector: () => { get: (t: unknown) => unknown } }
       ).__getInjector().get(ICommandService) as {
         beforeCommandExecuted: (cb: (cmd: { id?: string }) => void) => { dispose: () => void }
+        onCommandExecuted: (
+          cb: (cmd: { id?: string; params?: unknown }) => void
+        ) => { dispose: () => void }
       }
       let lastToast = 0
       cmdSub = commandService.beforeCommandExecuted((cmd) => {
-        if (!cmd?.id || !BLOCKED_STRUCTURAL_CMD.test(cmd.id)) return
+        if (!cmd?.id) return
+        // The History sheet is the app's read-only change log — only the save patch writes it,
+        // never the grid. Block value edits/clears while it's the active sheet.
+        const editingHistory =
+          /set-range-values|set-cell|clear-selection-content/i.test(cmd.id) &&
+          useApp.getState().activeSheet === 'History'
+        if (!BLOCKED_STRUCTURAL_CMD.test(cmd.id) && !editingHistory) return
         const now = Date.now()
         if (now - lastToast > 1500) {
           useApp
             .getState()
             .toast(
               'info',
-              'Inserting, deleting, moving, or renaming rows, columns, or sheets is disabled — ' +
-                'the workbook must keep the structure the extraction pipeline produced.'
+              editingHistory
+                ? 'The History sheet is a read-only change log maintained by the app.'
+                : 'Inserting, deleting, moving, or renaming rows, columns, or sheets is disabled — ' +
+                    'the workbook must keep the structure the extraction pipeline produced.'
             )
           lastToast = now
         }
@@ -164,7 +176,23 @@ export function SheetView() {
         // CustomCommandExecutionError specifically: the command service catches that type
         // and returns false (a clean cancel), whereas a plain Error would re-throw and
         // surface as an unhandled rejection in the toolbar/keyboard caller.
-        throw new CustomCommandExecutionError(`structural command blocked: ${cmd.id}`)
+        throw new CustomCommandExecutionError(`command blocked: ${cmd.id}`)
+      })
+      // Best-effort: stamp the edited cell's time so history windows ("last 5 min") are
+      // accurate. Reads the cell from the command's range params; if the param shape differs
+      // across Univer versions this silently no-ops and timestamps fall back to save time.
+      editSub = commandService.onCommandExecuted((cmd) => {
+        if (!cmd?.id || !/set-range-values/i.test(cmd.id)) return
+        const sheet = useApp.getState().activeSheet
+        if (!sheet || sheet === 'History') return
+        try {
+          const r = (cmd.params as { range?: { startRow?: number; startColumn?: number } })?.range
+          if (r && typeof r.startRow === 'number' && typeof r.startColumn === 'number') {
+            useApp.getState().markEdit(sheet, rcToA1(r.startRow, r.startColumn))
+          }
+        } catch {
+          /* best-effort — never block an edit */
+        }
       })
     } catch (e) {
       // If the guard can't be installed, fail safe by NOT silently allowing structural edits
@@ -349,6 +377,7 @@ export function SheetView() {
       }
       try {
         cmdSub?.dispose()
+        editSub?.dispose()
       } catch {
         /* noop */
       }

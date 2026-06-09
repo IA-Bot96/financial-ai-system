@@ -1,12 +1,92 @@
 import type { ParsedSheet } from './sheetjs'
 import { getSnapshot } from './sheetApi'
-import { patchXlsx, type CellEdit } from './xlsxPatch'
+import { patchXlsx, colToA1, type CellEdit } from './xlsxPatch'
 import { diffSheet, type SnapCellData } from './saveDiff'
+import { historyEdits, type HistEntry, HISTORY_SHEET, SESSION_SHEET } from './history'
 
 export interface SaveResult {
   bytes: ArrayBuffer
   /** Non-fatal warnings to surface to the user (e.g. structural edits that don't persist). */
   warnings: string[]
+}
+
+/** One unsaved change to send to the backend with a query (so "my unsaved changes" works). */
+export interface PendingEdit {
+  timestamp: string
+  sheet: string
+  cell: string
+  old: string
+  new: string
+}
+
+/** Session context the save uses to write the History block. */
+export interface HistoryCtx {
+  editTimes: Record<string, string> // "sheet!A1" -> ISO time the cell was last edited
+  sessionStart: string // ISO time the workbook was opened this session (-> "(session)" marker)
+  saveNow: string // fallback timestamp for edits with no recorded time
+}
+
+const baseVal = (b: ParsedSheet | undefined, r: number, c: number): string => {
+  const v = b?.cellData?.[r]?.[c]?.v
+  return v == null ? '' : String(v)
+}
+
+/** First empty row (0-based) of a sheet, from its populated cells — NOT ParsedSheet.rows,
+ *  which is padded. Header-only History (row 0) -> 1; prior-session rows -> after them. */
+function nextRow(base: ParsedSheet | undefined): number {
+  let max = -1
+  for (const r in base?.cellData ?? {}) {
+    const n = Number(r)
+    if (n > max) max = n
+  }
+  return max + 1
+}
+
+/**
+ * Live diff of the visible sheets vs the loaded baseline -> change entries {sheet, A1, old,
+ * new, timestamp}. Undo/redo net out for free (a cell returned to baseline isn't in the diff).
+ * The History sheet itself is never included (invariant 1). Used to send unsaved edits with a
+ * query; prepend the session marker for "this session".
+ */
+export function collectChangeEntries(
+  visibleNames: string[],
+  baseline: ParsedSheet[],
+  editTimes: Record<string, string>,
+  fallbackTs: string
+): PendingEdit[] {
+  const sheets = getSnapshot()?.sheets
+  if (!sheets) return []
+  const baseByName = new Map(baseline.map((s) => [s.name, s]))
+  const out: PendingEdit[] = []
+  for (const id in sheets) {
+    const name = sheets[id]?.name
+    if (!name || name === HISTORY_SHEET || !visibleNames.includes(name)) continue
+    const base = baseByName.get(name)
+    for (const e of diffSheet(base, (sheets[id].cellData as SnapCellData) || {})) {
+      const a1 = colToA1(e.col) + (e.row + 1)
+      out.push({
+        sheet: name,
+        cell: a1,
+        old: baseVal(base, e.row, e.col),
+        new: e.value == null ? '' : String(e.value),
+        timestamp: editTimes[`${name}!${a1}`] ?? fallbackTs
+      })
+    }
+  }
+  return out
+}
+
+/** Unsaved edits + the session-open marker, to send with a query. */
+export function pendingEditsForQuery(
+  visibleNames: string[],
+  baseline: ParsedSheet[],
+  editTimes: Record<string, string>,
+  sessionStart: string
+): PendingEdit[] {
+  return [
+    { timestamp: sessionStart, sheet: SESSION_SHEET, cell: '', old: '', new: 'opened' },
+    ...collectChangeEntries(visibleNames, baseline, editTimes, sessionStart)
+  ]
 }
 
 /**
@@ -40,7 +120,8 @@ function structuralWarnings(baseline: ParsedSheet[], snapshotNames: string[]): s
 export async function buildEditedXlsx(
   originalBytes: ArrayBuffer,
   visibleNames: string[],
-  baseline: ParsedSheet[]
+  baseline: ParsedSheet[],
+  history?: HistoryCtx
 ): Promise<SaveResult> {
   try {
     const snap = getSnapshot()
@@ -62,6 +143,38 @@ export async function buildEditedXlsx(
 
     const warnings = structuralWarnings(baseline, snapshotNames)
     if (!editsBySheet.size) return { bytes: originalBytes, warnings }
+
+    // Append the change log to the workbook's History sheet WITHIN this same patch (so it is
+    // persisted, not left as a fresh unsaved change — invariant 3, no save loop). Only when the
+    // sheet exists (OCR-seeded); the surgical patch cannot create a sheet. We re-write the
+    // session's block each save from the cumulative diff — idempotent and append-only in
+    // practice. Skipped silently for older workbooks without a History sheet.
+    if (history) {
+      const baseHist = baseByName.get(HISTORY_SHEET)
+      if (baseHist) {
+        const rows: HistEntry[] = [
+          { ts: history.sessionStart, sheet: SESSION_SHEET, cell: '', old: '', new: 'opened', saved: true }
+        ]
+        for (const [name, edits] of editsBySheet) {
+          if (name === HISTORY_SHEET) continue
+          const base = baseByName.get(name)
+          for (const e of edits) {
+            const a1 = colToA1(e.col) + (e.row + 1)
+            rows.push({
+              ts: history.editTimes[`${name}!${a1}`] ?? history.saveNow,
+              sheet: name,
+              cell: a1,
+              old: baseVal(base, e.row, e.col),
+              new: e.value == null ? '' : String(e.value),
+              saved: true
+            })
+          }
+        }
+        const hEdits = historyEdits(rows, nextRow(baseHist))
+        if (hEdits.length) editsBySheet.set(HISTORY_SHEET, hEdits)
+      }
+    }
+
     const bytes = await patchXlsx(originalBytes, editsBySheet)
     return { bytes, warnings }
   } catch (e) {

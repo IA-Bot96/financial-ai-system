@@ -160,6 +160,19 @@ _RANGE_RE = re.compile(r"\b(19|20)\d{2}\b\s*(?:-|to|through|–|until|and)\s*\b(
 _WINDOW_RE = re.compile(r"\b(?:last|past)\s+(\d{1,2})\s+years?|\b(\d{1,2})[- ]year\b", re.I)
 _TREND_RE = re.compile(r"\btrend|over the years|historical|history|year[- ]over[- ]year|yoy|trajectory", re.I)
 
+# Edit-history: questions about CHANGES THE USER MADE to the workbook via the app (not about
+# how a financial metric moved over years). Requires first-person authorship ("I made / my
+# changes / did I change") or an app-state cue ("unsaved", "this session") so "why did revenue
+# change" / "my revenue change over the years" stay financial. The LLM validator is a backstop.
+_EDIT_HISTORY_RE = re.compile(
+    r"\bunsaved\b"
+    r"|\bin (this|the current|my) session\b"
+    r"|\b(change|edit|modification|update)s?\b[^.?]{0,40}\b(i (made|did|make)|did i (make|do))\b"
+    r"|\b(i (made|did|make)|did i (make|do))\b[^.?]{0,40}\b(change|edit|modification|update)s?\b"
+    r"|\bmy (last |recent |latest )?(\d+ )?(unsaved )?(change|edit|modification|update)s?\b"
+    r"|\bwhat did i (change|edit|update|modify)\b",
+    re.I)
+
 
 def _extract_company(q: str) -> Optional[str]:
     found = _extract_companies(q)
@@ -299,6 +312,11 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
     if _VALIDATION_RE.search(query):
         return QueryFrame(raw_query=query, intent="validation", company=company, year=year)
 
+    # edit-history: changes the USER made via the app (answered from the History log, not
+    # financial data). High precedence so "what did I change" isn't mis-read as a lookup.
+    if _EDIT_HISTORY_RE.search(query):
+        return QueryFrame(raw_query=query, intent="edit_history", company=company, year=year)
+
     # peer comparison: two companies, or an explicit compare/vs cue
     if len(companies) >= 2 or (_PEER_RE.search(query) and companies):
         formula_id, _ = _matched_formula(query)
@@ -414,7 +432,7 @@ _ALL_INTENTS = {
     "peer_comparison", "valuation", "forecast_validation", "earnings_review",
     "news_impact", "dividend_analysis", "trend_analysis", "ratio_analysis",
     "risk_assessment", "metric_lookup", "overview", "metric_comparison",
-    "driver_analysis", "validation", "agent", "unknown",
+    "driver_analysis", "validation", "edit_history", "agent", "unknown",
 }
 
 _LLM_SYS = (
@@ -451,7 +469,12 @@ _VALIDATE_SYS = (
     "metrics list for a year-only query if the history shows a prior resolved metric. "
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
-    "metric_lookup, overview, metric_comparison, driver_analysis, agent, unknown. "
+    "metric_lookup, overview, metric_comparison, driver_analysis, edit_history, agent, unknown. "
+    "edit_history is for questions about CHANGES THE USER MADE to the workbook in the app — "
+    "'what was my last change', 'my last 5 unsaved changes', 'changes I made in the balance "
+    "sheet', 'changes in this session', 'my changes in the last 5 minutes', 'what did I change "
+    "on 31 Aug 2025'. It reads the app's edit log, NOT financial data. Keep it edit_history; do "
+    "NOT reclassify as trend_analysis (how a metric MOVED over years) or validation (audit). "
     "agent is the GENERAL reasoner for open-ended, causal, premise-bearing, or multi-step "
     "questions that don't fit one clean shape. Prefer agent (NOT trend_analysis / "
     "metric_comparison) whenever the question asks WHY a metric changed, why it is "

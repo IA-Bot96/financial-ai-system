@@ -66,6 +66,42 @@ def _company_from_workbook(wb) -> Optional[str]:
     return candidates.most_common(1)[0][0] if candidates else None
 
 
+def _parse_history(ws) -> list[dict]:
+    """Parse the app-managed 'History' change log. Header row: Timestamp | Sheet | Cell |
+    Old | New | Saved. Returns one dict per data row with a parsed bool `saved` and an
+    `event` tag for session markers (rows whose Sheet is '(session)'); a normal edit has
+    event=None. Tolerant of missing trailing columns. Order is preserved (append order)."""
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    # locate the header row (first row containing 'timestamp' + 'cell'); default to row 0
+    hdr_idx = 0
+    for i, r in enumerate(rows[:5]):
+        cells = [str(c).strip().lower() for c in r if c is not None]
+        if "timestamp" in cells and "cell" in cells:
+            hdr_idx = i
+            break
+    out: list[dict] = []
+    for r in rows[hdr_idx + 1:]:
+        if r is None or all(c is None or str(c).strip() == "" for c in r):
+            continue
+        cells = list(r) + [None] * (6 - len(r))
+        ts, sheet, cell, old, new, saved = cells[:6]
+        if ts is None and sheet is None:
+            continue
+        sheet_s = "" if sheet is None else str(sheet).strip()
+        out.append({
+            "timestamp": "" if ts is None else str(ts).strip(),
+            "sheet": sheet_s,
+            "cell": "" if cell is None else str(cell).strip(),
+            "old": "" if old is None else str(old),
+            "new": "" if new is None else str(new),
+            "saved": str(saved).strip().lower() in ("true", "1", "yes", "y"),
+            "event": "session" if sheet_s.lower() in ("(session)", "session") else None,
+        })
+    return out
+
+
 class FinancialFactStore:
     def __init__(
         self,
@@ -77,6 +113,7 @@ class FinancialFactStore:
         insights: list[dict],
         manifest: dict,
         ontology: MetricOntology,
+        history: list[dict] | None = None,
     ) -> None:
         self.company = company
         self.unit = _UNIT
@@ -86,6 +123,9 @@ class FinancialFactStore:
         self._insights = insights
         self.manifest = manifest
         self.ontology = ontology
+        # app-managed edit log parsed from the workbook's "History" sheet (may be empty);
+        # each row: {timestamp, sheet, cell, old, new, saved:bool, event:Optional[str]}
+        self.history: list[dict] = history or []
         self._cite_seq = 0
         self._cached_query_matcher: list | None = None
 
@@ -105,6 +145,7 @@ class FinancialFactStore:
         source_ledger = pd.DataFrame()
         validation_ledger = pd.DataFrame()
         insights: list[dict] = []
+        history: list[dict] = []
 
         for ws in wb.worksheets:
             kind = classify_sheet(ws.title)
@@ -121,6 +162,8 @@ class FinancialFactStore:
                 insights += parse_insights(ws, id_prefix="INS")
             elif kind == "insights_review":
                 insights += parse_insights(ws, id_prefix="INSR")
+            elif kind == "history":
+                history = _parse_history(ws)
 
         manifest = cls._load_manifest(path, manifest_path)
         # Prefer the manifest; else recover the real company from the workbook's Source
@@ -134,7 +177,7 @@ class FinancialFactStore:
         return cls(
             company=company, findata=findata, source_ledger=source_ledger,
             validation_ledger=validation_ledger, insights=insights,
-            manifest=manifest, ontology=onto,
+            manifest=manifest, ontology=onto, history=history,
         )
 
     @staticmethod

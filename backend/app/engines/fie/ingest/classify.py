@@ -15,7 +15,7 @@ from typing import Literal, Optional
 
 SheetClass = Literal[
     "separator", "statement", "detail", "insights", "insights_review",
-    "source_ledger", "validation_ledger", "freetext", "unknown",
+    "source_ledger", "validation_ledger", "freetext", "history", "unknown",
 ]
 Family = Optional[Literal["pl", "bs", "cf", "equity"]]
 
@@ -52,6 +52,8 @@ def classify_sheet(title: str) -> SheetClass:
         return "source_ledger"
     if t == "Validation Ledger":
         return "validation_ledger"
+    if t == "History":            # app-managed change log (datetime|sheet|cell|old|new|saved)
+        return "history"
     if t == "Insights":
         return "insights"
     if t == "Insights Review":

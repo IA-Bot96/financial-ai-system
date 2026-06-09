@@ -297,6 +297,22 @@ def write_insights_sheet(ws, insights: list[Insight]) -> None:
     ws.freeze_panes = "A2"
 
 
+# App-managed change log. Header is a HARD CONTRACT the FIE backend parses positionally
+# (it locates the header by "timestamp"+"cell" and reads columns A..F in this exact order).
+# All-textual headers so it's never mistaken for a financial grid.
+_HISTORY_HEADERS = ["Timestamp", "Sheet", "Cell", "Old", "New", "Saved"]
+
+
+def write_history_sheet(ws) -> None:
+    """Seed the app-managed change log. Header only — the desktop app appends rows
+    (datetime|sheet|cell|old|new|saved) as the user edits; never write data rows here."""
+    ws.append(_HISTORY_HEADERS)
+    for col in range(1, len(_HISTORY_HEADERS) + 1):       # cosmetic only (backend ignores styling)
+        c = ws.cell(1, col)
+        c.font, c.fill, c.alignment = S.HEADER_FONT, S.HEADER_FILL, S.CENTER
+    ws.freeze_panes = "A2"
+
+
 def write_workbook(
     tables: list[FinancialTable],
     insights: list[Insight],
@@ -319,6 +335,11 @@ def write_workbook(
     write_insights_sheet(wb.create_sheet("Insights"), insights)
     if insights_review:
         write_insights_sheet(wb.create_sheet("Insights Review"), insights_review)
+    # App-managed change log: must EXIST in the delivered workbook (the desktop app's
+    # surgical save can't create sheets — it only appends rows here). Seed header-only.
+    if "History" not in wb.sheetnames:
+        write_history_sheet(wb.create_sheet("History"))
+        logger.debug("Seeded empty History change-log sheet")
 
     if not wb.sheetnames:
         wb.create_sheet("Empty")
@@ -349,5 +370,13 @@ def append_insights_sheets(
     write_insights_sheet(wb.create_sheet("Insights"), insights)
     if insights_review:
         write_insights_sheet(wb.create_sheet("Insights Review"), insights_review)
+    # App-managed change log: seed ONCE, header-only. Idempotent — if a History sheet
+    # already exists (re-extraction of an edited file), leave its saved rows intact.
+    if "History" not in wb.sheetnames:
+        write_history_sheet(wb.create_sheet("History"))
+        logger.info("Seeded empty History change-log sheet in %s", workbook_path)
+    else:
+        logger.info("History change-log sheet already present in %s — preserving %d existing row(s)",
+                    workbook_path, max(0, wb["History"].max_row - 1))
     wb.save(workbook_path)
     return Path(workbook_path)

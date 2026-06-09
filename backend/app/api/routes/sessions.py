@@ -73,10 +73,27 @@ class HistoryTurn(BaseModel):
     frame: dict | None = None  # resolved QueryFrame echoed back from the prior response
 
 
+class PendingEdit(BaseModel):
+    """An unsaved cell edit the client is holding (not yet written to the History sheet).
+    Sent with the query so edit_history can answer 'my unsaved changes' / mix saved+unsaved."""
+    timestamp: str = ""
+    sheet: str = ""
+    cell: str = ""
+    old: str | None = None
+    new: str | None = None
+
+
 class SessionAnswerRequest(BaseModel):
     query: str
     audience: str = "analyst"
     history: list[HistoryTurn] = []   # recent conversation turns for follow-up context
+    client_now: str | None = None     # client local time (ISO) — anchors edit_history windows
+    pending_edits: list[PendingEdit] = []  # unsaved edits not yet in the workbook History sheet
+
+    @field_validator("pending_edits")
+    @classmethod
+    def _bounded_edits(cls, v):
+        return v[:5000]   # safety cap; the History sheet holds the durable record
 
     @field_validator("query")
     @classmethod
@@ -230,7 +247,9 @@ def answer_in_session(session_id: str, req: SessionAnswerRequest) -> dict:
               extra={"component": "fie-api"})
 
     t0 = time.monotonic()
-    resp, trace = engine.answer_with_trace(req.query, audience=req.audience, history=history)
+    resp, trace = engine.answer_with_trace(
+        req.query, audience=req.audience, history=history,
+        now=req.client_now, pending_edits=[e.model_dump() for e in req.pending_edits])
     elapsed = time.monotonic() - t0
     cov = resp.coverage or {}
     band = resp.confidence.band if resp.confidence else "n/a"

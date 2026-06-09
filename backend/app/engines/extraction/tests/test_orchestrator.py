@@ -52,6 +52,65 @@ def test_no_template_writes_styled_workbook(tmp_path):
     wb.close()
 
 
+def _assert_seeded_history(path):
+    wb = openpyxl.load_workbook(path)
+    try:
+        assert "History" in wb.sheetnames
+        h = wb["History"]
+        assert [h.cell(1, c).value for c in range(1, 7)] == \
+            ["Timestamp", "Sheet", "Cell", "Old", "New", "Saved"]   # exact header contract
+        assert h.max_row == 1                                        # header only, no data rows
+    finally:
+        wb.close()
+
+
+def test_history_sheet_seeded_both_paths(tmp_path):
+    results = [_doc(2025, StatementType.income_statement,
+                    [LineItem(label="Revenue", values=[LineItemValue(year=2024, value=100.0),
+                                                        LineItemValue(year=2025, value=120.0)])])]
+    # no-template path
+    process_documents(results, tmp_path / "nt.xlsx")
+    _assert_seeded_history(tmp_path / "nt.xlsx")
+    # template path
+    tpl = tmp_path / "tpl.xlsx"
+    _make_template(tpl)
+    process_documents([_doc(2025, StatementType.revenue, _rev_lines(2024, 2025, (50.0, 60.0), (30.0, 40.0)))],
+                      tmp_path / "t.xlsx", template_path=tpl)
+    _assert_seeded_history(tmp_path / "t.xlsx")
+
+
+def test_history_append_is_idempotent(tmp_path):
+    # Simulates re-extraction over a workbook whose History the app already wrote to.
+    from app.engines.extraction.pipeline.excel_writer import append_insights_sheets, write_history_sheet
+    p = tmp_path / "edited.xlsx"
+    wb = openpyxl.Workbook()
+    wb.active.title = "PL1 - Revenue"
+    wb["PL1 - Revenue"]["A1"] = "x"
+    write_history_sheet(wb.create_sheet("History"))
+    wb["History"].append(["2026-01-01T00:00", "PL1 - Revenue", "B2", "1", "2", "yes"])  # user edit
+    wb.save(p)
+
+    append_insights_sheets(p, [], [])     # re-run meta-sheet step
+    wb2 = openpyxl.load_workbook(p)
+    try:
+        h = wb2["History"]
+        assert h.max_row == 2 and h.cell(2, 3).value == "B2"   # existing row preserved, not wiped
+    finally:
+        wb2.close()
+
+
+def test_history_not_ingested_as_financial_data(tmp_path):
+    from app.engines.fie.ingest.classify import classify_sheet
+    from app.engines.fie.store import FinancialFactStore
+    assert classify_sheet("History") == "history"
+    results = [_doc(2025, StatementType.income_statement,
+                    [LineItem(label="Revenue", values=[LineItemValue(year=2024, value=100.0),
+                                                        LineItemValue(year=2025, value=120.0)])])]
+    process_documents(results, tmp_path / "wb.xlsx")
+    store = FinancialFactStore.from_workbook(str(tmp_path / "wb.xlsx"))
+    assert store.history == []                                  # empty log, not polluting data
+
+
 def test_validation_review_toggle_gates_ledger_sheet(tmp_path, monkeypatch):
     results = [_doc(2025, StatementType.income_statement,
                     [LineItem(label="Revenue", values=[LineItemValue(year=2024, value=100.0),

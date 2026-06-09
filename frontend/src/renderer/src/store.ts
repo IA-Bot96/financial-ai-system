@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import type { ParsedSheet } from '@/lib/sheetjs'
 import { api, type Citation, type FieResponse } from '@/api'
 import { parseWorkbook, readSheetSources } from '@/lib/sheetjs'
-import { buildEditedXlsx } from '@/lib/save'
+import { buildEditedXlsx, pendingEditsForQuery } from '@/lib/save'
+import { nowLocalIso } from '@/lib/history'
 import {
   buildValidationData,
   colorOf,
@@ -265,6 +266,10 @@ interface AppState {
   // session "Manually Verified" cell writes (ledger "sheet!A1" → "TRUE"|""), replayed after a
   // highlight-toggle remount so the unsaved edits survive; cleared on a successful save.
   verifyWrites: Record<string, string>
+  // change-history (edit log): when the workbook was opened this session (-> "(session)"
+  // marker + "this session" scoping) and per-cell last-edit times ("sheet!A1" -> ISO).
+  sessionStart: string | null
+  editTimes: Record<string, string>
   toasts: Toast[]
 
   // actions
@@ -300,6 +305,7 @@ interface AppState {
   focusSheetSource: (entry: SheetSourceEntry, page?: number) => void
   toggleShowSource: () => void
   setDirty: (dirty: boolean) => void
+  markEdit: (sheet: string, a1: string) => void  // stamp a cell's last-edit time (history)
   save: (asNew?: boolean) => Promise<void>
   openWorkbookPath: (path: string, origin?: 'ocr' | 'excel') => Promise<boolean>
   reopenLast: () => Promise<void>
@@ -359,6 +365,8 @@ export const useApp = create<AppState>((set) => ({
   validationPanelOpen: false,
   workbookNotesDismissed: false,
   verifyWrites: {},
+  sessionStart: null,
+  editTimes: {},
   toasts: [],
 
   setBackend: (status, logPath) =>
@@ -379,6 +387,9 @@ export const useApp = create<AppState>((set) => ({
       validationPanelOpen: false,
       workbookNotesDismissed: false,
       verifyWrites: {},
+      // new session: stamp the open time (the "(session)" marker) and clear per-cell edit times
+      sessionStart: nowLocalIso(),
+      editTimes: {},
       sheetSources: {},
       activeSheet: null,
       activePdf: null,
@@ -494,7 +505,15 @@ export const useApp = create<AppState>((set) => ({
         ]
       }
     }))
-    const res = await api.answer(s.session.session_id, query, history)
+    // Send the current local time + unsaved edits so edit_history queries ("my unsaved
+    // changes", "this session", "last 5 min") can be answered against the live grid state.
+    const pending = pendingEditsForQuery(
+      s.sheets.map((x) => x.name), s.sheets, s.editTimes, s.sessionStart ?? nowLocalIso()
+    )
+    const res = await api.answer(s.session.session_id, query, history, {
+      client_now: nowLocalIso(),
+      pending_edits: pending
+    })
     set((st) => ({
       chat: {
         pending: false,
@@ -644,6 +663,12 @@ export const useApp = create<AppState>((set) => ({
       }
     })),
   toggleShowSource: () => set((s) => ({ showSource: !s.showSource })),
+  markEdit: (sheet, a1) => {
+    // record WHEN a cell was edited so history windows ("last 5 min") are accurate. Best-effort
+    // and additive — never throws; if the listener misses a cell the time falls back to save time.
+    if (sheet === 'History' || sheet === '(session)') return // never track the log itself
+    set((s) => ({ editTimes: { ...s.editTimes, [`${sheet}!${a1}`]: nowLocalIso() } }))
+  },
   setDirty: (dirty) => {
     set((s) => ({ workbook: { ...s.workbook, dirty } }))
     window.api.setDirty(dirty)
@@ -654,7 +679,11 @@ export const useApp = create<AppState>((set) => ({
     const visible = s.sheets.map((x) => x.name)
     try {
       const original = await window.api.readFile(s.workbook.filePath)
-      const { bytes, warnings } = await buildEditedXlsx(original, visible, s.sheets)
+      const { bytes, warnings } = await buildEditedXlsx(original, visible, s.sheets, {
+        editTimes: s.editTimes,
+        sessionStart: s.sessionStart ?? nowLocalIso(),
+        saveNow: nowLocalIso()
+      })
       let path = s.workbook.filePath
       if (asNew || s.workbook.origin === 'ocr') {
         const suggested = `${s.session.company || 'workbook'}.xlsx`

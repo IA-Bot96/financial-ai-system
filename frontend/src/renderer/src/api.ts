@@ -83,8 +83,18 @@ export const api = {
   answer: (
     sessionId: string,
     query: string,
-    history: Array<{ role: string; text: string; frame?: Record<string, unknown> }> = []
-  ) => post<FieResponse>(`/api/fie/sessions/${sessionId}/answer`, { query, history }),
+    history: Array<{ role: string; text: string; frame?: Record<string, unknown> }> = [],
+    opts?: {
+      client_now?: string
+      pending_edits?: Array<{ timestamp: string; sheet: string; cell: string; old: string; new: string }>
+    }
+  ) =>
+    post<FieResponse>(`/api/fie/sessions/${sessionId}/answer`, {
+      query,
+      history,
+      ...(opts?.client_now ? { client_now: opts.client_now } : {}),
+      ...(opts?.pending_edits ? { pending_edits: opts.pending_edits } : {})
+    }),
   series: (sessionId: string) =>
     get<SeriesResponse>(`/api/fie/sessions/${sessionId}/series`),
   // settings — read/update/reset engine config. POST returns the same { fields } snapshot;
