@@ -618,6 +618,14 @@ class FinancialIntelligenceEngine:
         reliably regardless of the model, and never affects non-audit queries."""
         balance = agent._t_check_balance(self, frame, ctx, {})
         anomalies = agent._t_scan_anomalies(self, frame, ctx, {})
+        breaks = balance.get("breaks") or []
+        anoms = anomalies.get("anomalies") or []
+        _log.info("fie validation: checks=%d breaks=%d anomalies=%d all_ok=%s",
+                  balance.get("checks_run", 0), len(breaks), len(anoms),
+                  balance.get("all_ok"), extra={"component": "Validation"})
+        if breaks or anoms:   # the specifics — what to fix
+            _log.debug("fie validation: breaks=%s anomalies=%s", breaks, anoms,
+                       extra={"component": "Validation"})
         ctx.extra = {**(ctx.extra or {}),
                      "validation_report": {"balance": balance, "anomalies": anomalies}}
 
@@ -757,6 +765,14 @@ class FinancialIntelligenceEngine:
                     md[i.citations[0].locator.get("field")] = i.value
                     md.setdefault("_units", {})[i.citations[0].locator.get("field")] = i.unit
         md["_cites"] = cites
+        _log.debug(
+            "fie _market_data: ticker=%s source=%s price=%s pe=%s market_cap=%s shares=%s "
+            "(overview=%s psx=%s)",
+            ticker,
+            "overview" if ov is not None and md else ("psx" if md else "none"),
+            md.get("price"), md.get("pe_ratio"), md.get("market_cap"), md.get("shares"),
+            ov is not None, self.external.psx is not None,
+            extra={"component": "Valuation"})
         return md
 
     def _valuation(self, frame, ctx) -> None:

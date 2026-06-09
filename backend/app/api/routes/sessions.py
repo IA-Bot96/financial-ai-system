@@ -130,6 +130,9 @@ def _build(session_id: str, data: bytes) -> dict:
     # companies as peers so peer_comparison works once ≥2 workbooks have been opened.
     _register_peer(store)
     peers = {c: s for c, s in _PEER_STORES.items() if c != store.company}
+    _log.info("fie peer pool: company=%r pool=[%s] peers_available=%d",
+              store.company, ", ".join(_PEER_STORES.keys()), len(peers),
+              extra={"component": "fie-api"})
     client = _external_client()
     symbols = Symbols(client)
     # RegistryFetcher makes the full 17-API PSX catalog callable generically; the planner's
