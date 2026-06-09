@@ -174,6 +174,9 @@ _EDIT_HISTORY_RE = re.compile(
     r"|\b(i (?:\w+ ){0,2}(made|did|make)|did i (?:\w+ ){0,2}(make|do))\b[^.?]{0,40}\b(change|edit|modification|update)s?\b"
     r"|\bmy (last |recent |latest )?(\d+ )?(unsaved )?(change|edit|modification|update)s?\b"
     r"|\bwhat did i (change|edit|update|modify)\b"
+    # manual-verification markers ("which cells did I mark as manually verified") — an
+    # edit-history concept (the MV markers live in the History log), not a data question.
+    r"|\bmanually verified\b|\bmark(ed)?\b[^.?]{0,20}\bverif\w*\b"
     # "which sheet did I change/edit (most)" — first-person, so data queries don't match
     r"|\bwhich sheets?\b[^.?]{0,30}\b(did i|i)\b[^.?]{0,20}\b(chang\w*|edit\w*|made|make|updat\w*|modif\w*)\b"
     # workbook lifecycle: "when was this workbook opened/loaded" (tight — requires the
@@ -197,6 +200,48 @@ _ADHOC_METRIC_RE = re.compile(
 # the percentage path), NOT a two-series comparison.
 _PCT_OF_RE = re.compile(
     r"\b(percent(age)?|share|fraction|proportion)\s+of\b|%\s*of\b|\bas a (?:%|percent\w*|share)\b", re.I)
+
+# Workbook-METADATA / availability questions ("does this workbook have cash-flow data?",
+# "what years are covered?", "what's in this workbook") — answered from the store's
+# metrics/sheets/years, NOT a value lookup.
+_AVAILABILITY_RE = re.compile(
+    r"\b(does|do|is there|are there|has it|do we|do you)\b[^?]*\b(have|contain|include|got)\b"
+    r"[^?]*\b(data|statement|sheet|cash[\s-]?flow|cashflow|balance sheet|p&l|income|metric|figures?)"
+    r"|\bis there (any |a )?(cash[\s-]?flow|balance sheet|income|p&l|statement|equity|sheet)\b"
+    r"|\bwhat\b[^?]*\b(data|metrics?|sheets?|statements?|years?)\b[^?]*"
+    r"\b(available|covered|present|in (this|the) (workbook|file|model)|do (we|you) have)\b"
+    r"|\b(what|which)\s+years\b"
+    r"|\bwhich (financial )?(statements?|sheets?)\b"
+    r"|\bhow many (metrics?|sheets?|statements?|line items?)\b"
+    r"|\bwhat(?:'?s| is| are)? in (this|the) (workbook|file)\b"
+    # specific-year membership: "is 2020 included?", "does it cover 2026?", "do you have 2023 data?".
+    # The coverage keyword must sit near the year so a comparison ("is 2024 revenue > 2023?") is NOT caught.
+    r"|\b(includ|cover|present|contain|have|got|reported?|available)\w*\b[^?]{0,30}\b(19|20)\d{2}\b"
+    r"|\b(19|20)\d{2}\b[^?]{0,30}\b(includ|cover|present|contain|available|reported?)\w*",
+    re.I)
+
+# Year-coverage metadata phrased without a coverage keyword — "what is the latest year?",
+# "how many years of data?", "date range". AMBIGUOUS with metric lookups ("revenue in the
+# latest year"), so build_frame only routes these when the query names NO metric. The
+# superlative must sit DIRECTLY on "year(s)" so "newest report ... prior-year" is not caught.
+_YEAR_META_RE = re.compile(
+    r"\b(earliest|latest|oldest|newest|first|last)\s+years?\b"
+    r"|\bhow many years\b|\b(date|time)\s+(range|period)\b"
+    r"|\byears?\s+(range|of data)\b|\brange of (the )?(data|years?)\b", re.I)
+
+# Company / entity identity of the loaded workbook — "what company is this?", "whose
+# financials are these?", "name of the company". Answered from store.company metadata.
+# NB: tightly anchored so the POSSESSIVE "the company's <metric>" (a value question) and
+# "business risks" (a qualitative question) do NOT trip it — only when the company/entity
+# itself is the thing being asked about.
+_COMPANY_ID_RE = re.compile(
+    r"\b(what|which)\s+(company|entity|business|firm|organi[sz]ation|issuer)\b"
+    r"|\bname of (the |this )?(company|entity|business|firm|issuer)\b"
+    r"|\b(company|entity|firm)\s+is\s+this\b"
+    r"|\bwho\s+is\s+this\b[^?]*\b(company|financ|statement|workbook|report)\w*"
+    r"|\bwhose\b[^?]*\b(financ|statement|sheet|book|report|workbook|number)\w*\b"
+    r"|\bwho\b[^?]*\b(owns|prepared)\b[^?]*\b(company|financ|statement|workbook|report)\w*\b",
+    re.I)
 
 # A follow-up that is JUST a number/percentage/year ("1000%?", "25%", "2025?", "23?") — a
 # YEAR or ASSUMPTION swap on the immediately-preceding forecast/projection/calc question.
@@ -358,7 +403,11 @@ _VALIDATION_RE = re.compile(
     r"|\bdoes?\s+(the\s+)?balance\s+sheet\s+balance\b"
     r"|\bbalance\s+sheet[^?.]{0,40}\b(balance|add up|foot|tie out|reconcil\w+|consistent)\b"
     r"|\b(numbers?|figures?|components?|line items?|totals?|assets?)[^?.]{0,40}\b(add up|sum (up )?to|tie out|foot)\b"
-    r"|\bsum\b[^?.]{0,30}\b(assets|liabilities|components?|line items?)\b",
+    r"|\bsum\b[^?.]{0,30}\b(assets|liabilities|components?|line items?)\b"
+    # accounting-identity check: "do equity plus liabilities equal total assets?" — the
+    # equation phrasing ("X ... equal/tie/match total assets") is a balance-test, not a lookup.
+    r"|\b(equity|liabilit\w+|assets?|components?|totals?)\b[^?.]{0,40}\b(equals?|tie\w*|matche?s?|reconcile\w*)\b"
+    r"|\bequal\w*\b[^?.]{0,20}\btotal assets\b",
     re.I,
 )
 _OVERVIEW_RE = re.compile(
@@ -428,6 +477,16 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
     # financial data). High precedence so "what did I change" isn't mis-read as a lookup.
     if _EDIT_HISTORY_RE.search(query):
         return QueryFrame(raw_query=query, intent="edit_history", company=company, year=year)
+
+    # data availability / workbook metadata (incl. company identity) -> answered from the
+    # store's metrics/sheets/years/company. Company check first: "what company is this?" must
+    # not be swallowed by the generic "what ... in this workbook" availability rule.
+    if _COMPANY_ID_RE.search(query):
+        return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
+    if _AVAILABILITY_RE.search(query):
+        return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
+    if _YEAR_META_RE.search(query) and not _matched_metric(query, metric_matcher):
+        return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
 
     # ad-hoc formula / unregistered ratio -> agent (compute_expr). Keeps "calculate ROIC = a/(b-c)"
     # off the metric_lookup path, where the composed value would be numeric-guard rejected.
@@ -562,7 +621,7 @@ _ALL_INTENTS = {
     "peer_comparison", "valuation", "forecast_validation", "earnings_review",
     "news_impact", "dividend_analysis", "trend_analysis", "ratio_analysis",
     "risk_assessment", "metric_lookup", "overview", "metric_comparison",
-    "driver_analysis", "validation", "edit_history", "agent", "unknown",
+    "driver_analysis", "validation", "edit_history", "data_availability", "agent", "unknown",
 }
 
 _LLM_SYS = (
@@ -604,7 +663,12 @@ _VALIDATE_SYS = (
     "year; never return 'unknown'. "
     "Supported intents: peer_comparison, valuation, forecast_validation, earnings_review, "
     "news_impact, dividend_analysis, trend_analysis, ratio_analysis, risk_assessment, "
-    "metric_lookup, overview, metric_comparison, driver_analysis, edit_history, agent, unknown. "
+    "metric_lookup, overview, metric_comparison, driver_analysis, edit_history, data_availability, "
+    "agent, unknown. "
+    "data_availability answers what the WORKBOOK CONTAINS — 'does this workbook have cash-flow "
+    "data', 'is there a balance sheet', 'what years are covered', 'what metrics/sheets are "
+    "available'. It reports presence/coverage from the workbook's metrics/sheets/years, NOT a "
+    "value. "
     "edit_history is the app's CHANGE LOG of the USER's OWN activity on this workbook in the app "
     "(schema: timestamp, sheet, cell, old, new, saved). It records cell edits, 'manually verified' "
     "toggles, and workbook open/load/upload events. Route here for: what/when/how-many changes the "

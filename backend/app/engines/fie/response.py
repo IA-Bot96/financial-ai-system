@@ -465,6 +465,55 @@ def render(
             direct = direct + " " + ", ".join(f"{s}: {n}" for s, n in eh["by_sheet"].items())
         findings = []   # listing lives in the structured payload; no per-fact citations to enforce
 
+    elif frame.intent == "data_availability":
+        av = (extra or {}).get("availability") or {}
+        yrs = av.get("years") or []
+        yspan = f"{yrs[0]}–{yrs[-1]}" if len(yrs) > 1 else (str(yrs[0]) if yrs else "no")
+        names = {"pl": "an income statement (P&L)", "bs": "a balance sheet",
+                 "cf": "a cash-flow statement", "equity": "a statement of changes in equity"}
+        have = ", ".join(names.get(s, s) for s in av.get("statements", []))
+        kind = av.get("kind")
+        if kind == "company":
+            direct = (f"This workbook contains the financial statements of {av['company']}."
+                      if av.get("company")
+                      else "The company name isn't recorded in this workbook's metadata.")
+        elif kind == "category":
+            if av.get("present"):
+                direct = f"Yes — this workbook includes {av['label']}."
+            else:
+                direct = (f"No — this workbook does not include {av['label']}. It has "
+                          f"{have or 'no recognised statements'}"
+                          + (f" covering {yspan}." if yrs else "."))
+                rel = av.get("related")
+                if rel:
+                    direct += f" It does carry related items: {', '.join(rel)}."
+        elif kind == "metric":
+            direct = (f"Yes — “{av['label']}” is in this workbook."
+                      if av.get("present")
+                      else f"No — “{av['label']}” is not in this workbook.")
+        elif kind == "year":
+            yr = av.get("year")
+            if av.get("present"):
+                direct = f"Yes — {yr} is included; this workbook covers {yspan}."
+            else:
+                direct = (f"No — {yr} is not included. This workbook covers {yspan}."
+                          if yrs else f"No — {yr} is not included; no year data is present.")
+        elif kind == "years":
+            if not yrs:
+                direct = "No year data is present in this workbook."
+            elif av.get("count"):
+                direct = f"This workbook has {len(yrs)} year(s) of data, covering {yspan}."
+            elif av.get("bounds"):
+                direct = (f"The earliest year of data is {yrs[0]} and the latest is {yrs[-1]}."
+                          if len(yrs) > 1 else f"The only year of data is {yrs[0]}.")
+            else:
+                direct = f"This workbook covers {yspan}."
+        else:  # overview
+            direct = (f"This workbook contains {have or 'no recognised statements'}"
+                      + (f" covering {yspan}" if yrs else "")
+                      + f", with {av.get('metric_count', 0)} metric(s).")
+        findings = []
+
     else:
         direct = f"Could not handle query: intent '{frame.intent}' not supported yet."
 
