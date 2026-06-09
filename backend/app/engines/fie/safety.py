@@ -92,18 +92,28 @@ def build_allowed(
             if f.value is not None:
                 base_vals.append(float(f.value))
 
-    # Arithmetic closure: a figure the model DERIVES from two cited values — a change (A − B)
-    # or a subtotal (A + B) — is itself grounded in the workbook, so allow it. This covers the
-    # common "X rose by <delta>" / premise-correction case even when the agent answered with
-    # plain lookups (no decompose tool to pre-register the delta). Bounded to stay O(n²)-safe;
-    # ratios/percentages are intentionally NOT closed over (too permissive — those must come
-    # from a calc/growth tool that registers them).
+    # Arithmetic closure: a figure the model DERIVES from two cited values — a change (A − B),
+    # a subtotal (A + B), or a ratio/percentage (A ÷ B) — is itself grounded in the workbook, so
+    # allow it. The change/subtotal forms cover "X rose by <delta>"; the ratio form covers
+    # "<metric> was N% of revenue" (e.g. gross margin = gross_profit/revenue = 21.63%), which a
+    # user often asks for alongside a value but which no metric_lookup calc pre-registers. A
+    # percentage token "21.63%" parses to the FRACTION 0.2163, so whitelisting A/B (both
+    # directions) covers it. Bounded to stay O(n²)-safe; ratios are magnitude-banded (not scaled)
+    # so the whitelist isn't flooded with meaningless tiny/huge values.
     uniq = list({round(v, 6) for v in base_vals})
     if 1 < len(uniq) <= 64:
         for i in range(len(uniq)):
             for j in range(i + 1, len(uniq)):
                 _add_value(uniq[i] - uniq[j])
                 _add_value(uniq[i] + uniq[j])
+        for i in range(len(uniq)):
+            for j in range(len(uniq)):
+                if i == j or not uniq[j]:
+                    continue
+                r = uniq[i] / uniq[j]
+                if 1e-4 <= abs(r) <= 1e4:          # a plausible ratio/margin, not noise
+                    values.add(round(r, 6))
+                    values.add(round(abs(r), 6))
 
     if frame.year:
         ints.add(int(frame.year))
@@ -166,6 +176,12 @@ def build_allowed(
 
     # structural counts the renderer may legitimately mention
     ints.update({0, 1, 2, len(evidence), len(citations)})
+    # one line so "why was figure X backed / rejected" is answerable from the log: how many
+    # cited values seeded the closure (>1 and <=64 means sum/diff + ratio closure was active)
+    # and how large the final whitelist is.
+    _log.debug("fie safety.build_allowed: closure_inputs=%d (active=%s) -> %d allowed values, %d ints",
+               len(uniq), 1 < len(uniq) <= 64, len(values), len(ints),
+               extra={"component": "Safety"})
     return values, ints
 
 
@@ -215,8 +231,8 @@ def verify_prose(text: str, frame: QueryFrame, evidence, calcs, citations) -> bo
         )
     else:
         _log.debug(
-            "fie safety.verify_prose: PASSED intent=%s",
-            frame.intent,
+            "fie safety.verify_prose: PASSED intent=%s allowed_values_count=%d",
+            frame.intent, len(vals),
             extra={"component": "Safety"},
         )
     return passed
