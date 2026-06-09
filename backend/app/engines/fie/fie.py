@@ -149,7 +149,6 @@ class FinancialIntelligenceEngine:
         "driver_analysis": "_h_driver_analysis",
         "validation": "_h_validation",
         "edit_history": "_h_edit_history",
-        "data_availability": "_h_data_availability",
         "risk_assessment": "_h_risk_assessment",
         "peer_comparison": "_h_peer_comparison",
         "valuation": "_h_valuation",
@@ -238,10 +237,9 @@ class FinancialIntelligenceEngine:
         # No real LLM (or the agent gathered nothing) -> deterministic external fallback.
         internal_empty = not ctx.evidence and not ctx.calcs and not ctx.selected_insights
         clarifying = bool((ctx.extra or {}).get("clarify"))
-        # edit_history / data_availability answer from ctx.extra (the change log / workbook
-        # metadata), never from financial evidence — so an empty ctx.evidence is EXPECTED, not a
-        # miss. Don't let the agent fallback hijack them.
-        handled_via_extra = frame.intent in ("edit_history", "data_availability")
+        # edit_history answers from the change log (ctx.extra), never from financial evidence —
+        # so an empty ctx.evidence is EXPECTED, not a miss. Don't let the agent fallback hijack it.
+        handled_via_extra = frame.intent == "edit_history"
         if (not clarifying and not handled_via_extra
                 and (frame.intent in ("unknown", "agent") or internal_empty)):
             self._run_agent(frame, ctx)
@@ -297,10 +295,10 @@ class FinancialIntelligenceEngine:
         cites, withheld = citations_mod.bind(ctx.evidence, ctx.calcs)
         conf = None
         graph = None
-        # edit_history / data_availability are deterministic listings (app actions / workbook
-        # metadata), not financial claims: no evidence/calcs, so confidence scoring is meaningless
-        # and narration would only risk distorting them. Render as-is.
-        if frame.intent not in ("unknown", "edit_history", "data_availability"):
+        # edit_history is a deterministic listing of app actions (not financial claims): it
+        # carries no evidence/calcs, so confidence scoring is meaningless and narration would
+        # only risk reformatting timestamps/values past the numeric guard. Render it as-is.
+        if frame.intent not in ("unknown", "edit_history"):
             conf = self.confidence.score(
                 evidence=ctx.evidence, calcs=ctx.calcs, conflicts=ctx.conflicts,
                 selected_insights=ctx.selected_insights,
@@ -809,64 +807,6 @@ class FinancialIntelligenceEngine:
         ctx.extra = {**(ctx.extra or {}), "validation_report": {
             "balance": {"breaks": breaks, "checks_run": n_checks, "all_ok": not breaks, "scope": scope},
             "anomalies": {"anomalies": anomalies}}}
-
-    def _h_data_availability(self, frame, ctx, plan) -> None:
-        """Answer 'does this workbook have X data / what years / what's in it' from the store's
-        statements, metrics and years — deterministically, never a value lookup or an agent punt."""
-        q = (frame.raw_query or "").lower()
-        df = self.store.findata
-        statements: set = set()
-        data_years: list = []
-        if df is not None and not df.empty:
-            if "statement" in df.columns:
-                statements = {str(s) for s in df["statement"].dropna().unique() if str(s) != "other"}
-            valued = df[df["value"].notna()]
-            data_years = sorted({int(y) for y in valued["year"].dropna().unique()})
-        metrics = set(self.store.available_metrics()) | set(self.store.available_metrics(level="detail"))
-
-        fam_map = [
-            (("cash flow", "cashflow", "cash-flow", "cash flows"), "cf", "a cash-flow statement"),
-            (("balance sheet", "financial position", "statement of financial"), "bs", "a balance sheet"),
-            (("income statement", "p&l", "p & l", "profit and loss", "profit & loss",
-              "profit or loss", "profit/loss"), "pl", "an income statement (P&L)"),
-            (("changes in equity", "statement of equity", "equity statement"), "equity",
-             "a statement of changes in equity"),
-        ]
-        av: dict = {"statements": sorted(statements), "years": data_years, "metric_count": len(metrics)}
-        cat = next(((fam, label) for kws, fam, label in fam_map if any(k in q for k in kws)), None)
-        if understanding._COMPANY_ID_RE.search(q):
-            av.update(kind="company", company=(self.store.company or None))
-        elif cat:
-            fam, label = cat
-            av.update(kind="category", label=label, present=fam in statements)
-            if fam == "cf" and fam not in statements:
-                av["related"] = [m.replace("_", " ") for m in ("cash_and_bank", "dividends_paid")
-                                 if m in metrics]
-        elif re.search(r"\b(what|which)\s+years?\b|\byears?\b[^?]*\b(covered|available)\b"
-                       r"|\b(earliest|latest|first|last|oldest|newest)\b[^?]*\byear\b"
-                       r"|\byear\b[^?]*\b(range|covered|available|of data)\b"
-                       r"|\bhow many years\b|\b(date|time)\s+(range|period)\b", q):
-            av.update(kind="years",
-                      bounds=bool(re.search(r"\b(earliest|latest|first|last|oldest|newest)\b", q)),
-                      count=bool(re.search(r"\bhow many\b", q)))
-        elif (ym := re.search(r"\b(19|20)\d{2}\b", q)):
-            yr = int(ym.group(0))
-            av.update(kind="year", year=yr, present=(yr in data_years))
-        else:
-            m = understanding._matched_metric(q, self.store.query_metric_matcher())
-            if not m:   # substring fallback: a metric whose name word(s) appear in the query
-                m = next((cand for cand in metrics
-                          if any(len(w) >= 4 and w in q for w in cand.split("_"))), None)
-            if m and re.search(r"\b(have|has|contain|include|got|is there|any)\b", q):
-                av.update(kind="metric", label=m.replace("_", " "), present=m in metrics)
-            else:
-                av.update(kind="overview")
-
-        ctx.evidence = []
-        ctx.extra = {**(ctx.extra or {}), "availability": av}
-        _log.info("fie data_availability: kind=%s statements=%s data_years=%s metrics=%d",
-                  av.get("kind"), sorted(statements), data_years, len(metrics),
-                  extra={"component": "Respond"})
 
     def _h_edit_history(self, frame, ctx, plan) -> None:
         """Answer questions about the user's own edits, from the workbook's History log
