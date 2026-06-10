@@ -975,10 +975,11 @@ class FinancialIntelligenceEngine:
             yv = int(yr_m.group(0))
             changes = [x for x in changes if x["_dt"] and x["_dt"].year == yv]
             applied.append(str(yv))
-        sheet_q = self._history_sheet_filter(q, changes)
-        if sheet_q:
-            changes = [x for x in changes if x["sheet"].lower() == sheet_q.lower()]
-            applied.append(sheet_q)
+        matched_sheets, requested_sheet = self._history_sheet_filter(q, changes)
+        if requested_sheet is not None:   # a sheet was NAMED — filter to it even if that yields none
+            _keep = {s.lower() for s in matched_sheets}
+            changes = [x for x in changes if x["sheet"].lower() in _keep]
+            applied.append(requested_sheet)
 
         changes.sort(key=lambda x: (x["_dt"] or datetime.min), reverse=True)   # newest first
         fstr = (" (" + ", ".join(applied) + ")") if applied else ""
@@ -1139,23 +1140,42 @@ class FinancialIntelligenceEngine:
         vc = str(row[cc]).strip() if cc is not None and row[cc] is not None else None
         return vs, vc
 
-    def _history_sheet_filter(self, q: str, changes: list[dict]) -> str | None:
-        """Resolve a sheet mentioned in the query to an actual edited sheet name. Direct
-        substring match first; then statement-family keywords (balance/p&l/cash flow)."""
+    def _history_sheet_filter(self, q: str, changes: list[dict]) -> tuple[list[str], str | None]:
+        """Resolve a sheet/area mentioned in the query. Returns (matched_sheets, requested_label).
+
+        requested_label is non-None whenever the query NAMES a sheet or statement area — even if
+        NO edit touched it — so the caller reports "no changes in <sheet>" instead of silently
+        dropping the filter and dumping every change. matched_sheets are the edited sheets to keep
+        (a family like 'the balance sheet' can match several, e.g. BS1–BS5)."""
         ql = q.lower()
-        sheets = sorted({x["sheet"] for x in changes if x.get("sheet")})
-        for s in sheets:
-            if s.lower() in ql:
-                return s
-        families = (("balance", ("balance",)), ("income", ("p&l", "p and l", "profit", "income")),
-                    ("cash", ("cash flow", "cashflow")))
-        for _key, cues in families:
+        edited = sorted({x["sheet"] for x in changes if x.get("sheet")})
+        wb = list(self.store.sheet_names or [])
+        requested: str | None = None
+        matched: set[str] = set()
+
+        # (a) an explicit sheet name — an edited sheet OR any real workbook tab — appears verbatim
+        named = sorted((s for s in set(edited) | set(wb) if len(s) >= 3 and s.lower() in ql),
+                       key=len, reverse=True)
+        if named:
+            requested = named[0]
+            matched |= {s for s in edited if s.lower() == requested.lower()}
+
+        # (b) a statement-family cue -> every edited sheet in that family (catches 'BS2' under
+        # 'balance sheet'). Sets requested even when nothing matched, so we report an empty result.
+        families = (
+            ("the Balance Sheet", ("balance sheet", "balance-sheet"), r"^bs\d|balance"),
+            ("the Income Statement (P&L)", ("p&l", "p and l", "profit and loss", "income statement"),
+             r"^pl\d|p&l|profit|income"),
+            ("the Cash-Flow statement", ("cash flow", "cashflow", "cash-flow"), r"cash"),
+            ("the Statement of Changes in Equity", ("changes in equity", "equity statement"),
+             r"equity|share capital"),
+        )
+        for label, cues, pat in families:
             if any(c in ql for c in cues):
-                for s in sheets:
-                    sl = s.lower()
-                    if _key in sl or any(c.split()[0] in sl for c in cues):
-                        return s
-        return None
+                requested = requested or label
+                matched |= {s for s in edited if re.search(pat, s, re.I)}
+
+        return sorted(matched), requested
 
     # ------------------------------------------------------------ handlers
     def _store_for(self, company: str | None):
