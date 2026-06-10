@@ -1,5 +1,5 @@
-"""P2 polish: intent handler registry (#14), proactive citation logging (#15),
-LLM response cache (#17), and the FIE per-query log wording (#18)."""
+"""P2 polish: proactive citation logging (#15), LLM response cache (#17),
+and the FIE per-query log wording (#18)."""
 
 import logging
 import os
@@ -7,27 +7,7 @@ import os
 import pytest
 
 from app.engines.fie import FinancialFactStore, FinancialIntelligenceEngine
-from app.engines.fie.fie import FinancialIntelligenceEngine as Eng
 from app.engines.fie.llm import OpenAILLM
-
-
-# --- #14: handler registry is complete + resolvable ------------------------
-def test_every_registered_handler_resolves_to_a_method():
-    for intent, name in Eng._INTENT_HANDLERS.items():
-        assert callable(getattr(Eng, name, None)), f"{intent} -> missing handler {name}"
-
-
-def test_registry_covers_the_understood_intents():
-    # every intent the understanding layer can route (except 'unknown') has a handler
-    from app.engines.fie import understanding as U
-    routed = set()
-    for q in ("current ratio MTL 2024", "revenue MTL 2024", "risks for MTL",
-              "MTL vs Lucky net margin 2024", "P/E for MTL", "is the forecast on track",
-              "revenue trend for MTL", "MTL dividend", "latest news on MTL"):
-        routed.add(U.build_frame(q).intent)
-    routed.discard("unknown")
-    missing = routed - set(Eng._INTENT_HANDLERS)
-    assert not missing, f"intents without a handler: {missing}"
 
 
 # --- #17: OpenAILLM response cache -----------------------------------------

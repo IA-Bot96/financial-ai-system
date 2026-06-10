@@ -192,6 +192,16 @@ def build_allowed(
     return values, ints
 
 
+def _value_backed(mag: float, is_pct: bool, allowed_values: set[float],
+                  rel_tol: float = _REL_TOL) -> bool:
+    """Is ``mag`` backed by a cited value? A PERCENT token like "7.03%" parses to the fraction
+    0.0703, but external feeds often store a percentage as its MAGNITUDE (e.g. dividend_yield_pct
+    = 7.025). So for a percent token we accept either the fraction (mag) OR magnitude*100 — i.e.
+    "7.03%" matches a backed 7.025. Non-percent tokens match only their own value."""
+    cands = (mag, mag * 100.0) if is_pct else (mag,)
+    return any(abs(c - a) <= rel_tol * max(abs(a), 1.0) for c in cands for a in allowed_values)
+
+
 def numbers_are_backed(text: str, allowed_values: set[float], allowed_ints: set[int],
                        rel_tol: float = _REL_TOL) -> bool:
     for tok in extract_numbers(text):
@@ -205,7 +215,7 @@ def numbers_are_backed(text: str, allowed_values: set[float], allowed_ints: set[
             continue
         if is_int and int(mag) in allowed_ints:
             continue
-        if any(abs(mag - a) <= rel_tol * max(abs(a), 1.0) for a in allowed_values):
+        if _value_backed(mag, is_pct, allowed_values, rel_tol):
             continue
         return False  # an unbacked number appeared
     return True
@@ -227,7 +237,7 @@ def verify_prose(text: str, frame: QueryFrame, evidence, calcs, citations) -> bo
                 continue
             if is_int and int(mag) in ints:
                 continue
-            if any(abs(mag - a) <= _REL_TOL * max(abs(a), 1.0) for a in vals):
+            if _value_backed(mag, is_pct, vals):
                 continue
             failed.append(f"{tok}(mag={mag:.4g})")
         _log.warning(

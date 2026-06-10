@@ -114,6 +114,12 @@ class Settings(BaseSettings):
     debug_dump_dir: str = str(BACKEND_ROOT / "logs" / "debug")
     debug_dump_gpt: bool = True
 
+    # Open-web escalation: when the workbook can't answer (a different company/sector, or
+    # low-confidence prose), the controller falls back to the hosted OpenAI web_search tool ONCE,
+    # captures the results as cited external evidence, and re-composes. Set FIE_WEB_ESCALATION=false
+    # to disable (pins the engine to workbook + PSX/news only — no open-web round).
+    fie_web_escalation: bool = True
+
     # --- Interpretation stage: GPT (read from .env) ---
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-mini"

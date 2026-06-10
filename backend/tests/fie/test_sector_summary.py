@@ -90,5 +90,6 @@ def test_sector_summary_registry_entry():
     assert a.method == "GET" and a.response_type == "html"
     assert a.endpoint.endswith("/sector-summary/sectorwise")
     assert a.parser_fn is P.parse_sector_summary
-    # the shortlist still routes a sentiment query here
-    assert shortlist("sector performance and sentiment", top_k=1)[0][0].name == "sector_summary"
+    # exposes its real per-sector output fields (provides tags removed; shortlist now ranks on
+    # description+returns, and the LLM selects — so we no longer assert a heuristic pick)
+    assert "sector" in a.returns and "turnover" in a.returns

@@ -62,3 +62,13 @@ class Symbols:
     def by_sector(self, sector: str) -> list[str]:
         s = (sector or "").lower()
         return [r["symbol"] for r in self._load() if (r.get("sector") or "").lower() == s]
+
+    def records(self) -> list[dict]:
+        """All normalized registry records ({symbol, name, sector, is_etf, is_debt, is_gem})."""
+        return list(self._load())
+
+    def name_for(self, symbol: str) -> str | None:
+        for r in self._load():
+            if (r.get("symbol") or "").upper() == (symbol or "").upper():
+                return r.get("name")
+        return None

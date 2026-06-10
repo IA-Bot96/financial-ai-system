@@ -59,6 +59,9 @@ class LLMClient(Protocol):
     def complete_text(self, system: str, user: str) -> Optional[str]:
         """Return free text, or None on failure."""
 
+    def web_search(self, query: str) -> Optional[dict]:
+        """Hosted open-web search. Return {'text': str, 'sources': [{url,title,snippet}]} or None."""
+
 
 class NullLLM:
     """Default no-op client — forces the deterministic path."""
@@ -67,6 +70,9 @@ class NullLLM:
         return None
 
     def complete_text(self, system: str, user: str) -> Optional[str]:
+        return None
+
+    def web_search(self, query: str) -> Optional[dict]:
         return None
 
 
@@ -199,6 +205,51 @@ class OpenAILLM:
                 self.last_error, self.model, bool(self._api_key),
                 extra={"component": "LLM"},
             )
+            return None
+
+    def web_search(self, query: str) -> Optional[dict]:
+        """TERMINAL last-resort open-web search via the Responses API's hosted `web_search` tool
+        (verified to work on gpt-5.4-mini). Returns the model's grounded summary plus the cited
+        sources (url + title + the surrounding text), so the caller can register them as external
+        EvidenceItems and the numeric guard can admit any figure quoted verbatim from a source.
+        Degrades to None on any failure so the controller falls back to an honest 'not found'."""
+        key = ("web", query)
+        hit = self._cache_get(key)
+        if hit is not _MISS:
+            _log.debug("OpenAI web_search: cache hit", extra={"component": "LLM"})
+            return hit
+        try:
+            client = self._ensure()
+            resp = client.responses.create(
+                model=self.model,
+                tools=[{"type": "web_search"}],
+                input=("Search the web and answer concisely with figures and dates where available. "
+                       f"Query: {self._clip(query)}"),
+            )
+            text = getattr(resp, "output_text", None) or ""
+            sources: list[dict] = []
+            seen: set[str] = set()
+            for item in getattr(resp, "output", []) or []:
+                if getattr(item, "type", None) != "message":
+                    continue
+                for chunk in getattr(item, "content", []) or []:
+                    snippet = getattr(chunk, "text", None) or ""
+                    for ann in getattr(chunk, "annotations", []) or []:
+                        url = getattr(ann, "url", None)
+                        if not url or url in seen:
+                            continue
+                        seen.add(url)
+                        sources.append({"url": url, "title": getattr(ann, "title", None) or url,
+                                        "snippet": snippet})
+            out = {"text": text, "sources": sources}
+            _log.info("OpenAI web_search ok: model=%s sources=%d", self.model, len(sources),
+                      extra={"component": "LLM"})
+            self._cache_put(key, out)
+            return out
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            _log.warning("OpenAI web_search failed: %s  [model=%s]", self.last_error, self.model,
+                         extra={"component": "LLM"})
             return None
 
     def complete_text(self, system: str, user: str) -> Optional[str]:

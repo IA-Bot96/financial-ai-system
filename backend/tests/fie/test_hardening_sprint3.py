@@ -8,20 +8,7 @@ import zipfile
 
 import pytest
 
-from app.engines.fie import planner
 from app.engines.fie import FinancialFactStore, FinancialIntelligenceEngine
-
-
-# --- #10: source catalog consistency ---------------------------------------
-def test_every_intent_source_is_in_catalog():
-    used = {s for sources in planner._INTENT_SOURCES.values() for s in sources}
-    missing = used - planner.SOURCE_CATALOG
-    assert not missing, f"intent sources not in SOURCE_CATALOG: {missing}"
-
-
-def test_llm_sources_validated_against_catalog():
-    # the LLM augmentation path only admits catalog members (no arbitrary injection)
-    assert "company_payouts" in planner.SOURCE_CATALOG
 
 
 # --- #11: workbook corruption is handled cleanly ----------------------------

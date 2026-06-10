@@ -123,8 +123,18 @@ export function HistoryPanel(): JSX.Element {
   const dirty = useApp((s) => s.workbook.dirty)
   const cleanToken = useApp((s) => s.cleanToken)
   const loadSeq = useApp((s) => s.loadSeq)
+  const editSeq = useApp((s) => s.editSeq)
   const toast = useApp((s) => s.toast)
   const setPanel = useApp((s) => s.setPanel)
+
+  // Live edits live in the Univer snapshot (read imperatively by buildHistory), not in React
+  // state — so a per-edit editSeq tick is what drives a recompute. Debounce it (~200ms) so a
+  // burst of keystrokes coalesces into one refresh instead of thrashing on every cell write.
+  const [editTick, setEditTick] = useState(0)
+  useEffect(() => {
+    const t = setTimeout(() => setEditTick(editSeq), 200)
+    return () => clearTimeout(t)
+  }, [editSeq])
 
   const excludeCells = useMemo(
     () =>
@@ -138,7 +148,7 @@ export function HistoryPanel(): JSX.Element {
   const all = useMemo(
     () => buildHistory(sheets, editTimes, sessionStart ?? '', excludeCells),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sheets, editTimes, sessionStart, excludeCells, dirty, cleanToken, loadSeq]
+    [sheets, editTimes, sessionStart, excludeCells, dirty, cleanToken, loadSeq, editTick]
   )
 
   const sheetOptions = useMemo(

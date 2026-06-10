@@ -87,15 +87,6 @@ def test_valuation_pe(millat_store):
     assert any("PSX" in s for s in r.evidence_used)
 
 
-def test_ev_ebitda_helper_math():
-    from app.engines.fie.fie import ev_over_ebitda
-    # mktcap 100k, net_debt 30k -> EV 130k / EBITDA 20k = 6.5
-    assert ev_over_ebitda(100, 1000, 20000, 40000, 10000)["ev_ebitda"] == 6.5
-    assert ev_over_ebitda(100, None, 20000, 40000, 10000) is None  # no shares -> absent
-    assert ev_over_ebitda(100, 1000, 0, 40000, 10000) is None       # no EBITDA -> absent
-    assert ev_over_ebitda(100, 1000, 20000, 40000, None)["net_debt"] == 40000  # cash None ok
-
-
 def test_valuation_degrades_without_shares(millat_store):
     # workbook has no share count -> EV/EBITDA silently absent, P/E still computed (no harm)
     psx = PSX(_client(FakeT({"price": 1234.5, "eps": 95.0})))

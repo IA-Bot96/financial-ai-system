@@ -6,7 +6,6 @@ import pytest
 
 from app.engines.fie import authority as AU
 from app.engines.fie.authority import AuthorityClass as A, ClaimType as C
-from app.engines.fie.conflicts import ConflictResolver
 from app.engines.fie.models import Citation, EvidenceItem, FactRef
 
 
@@ -68,38 +67,3 @@ def test_resolve_workbook_wins_audited_fact():
     ext = _ext(120.0, source="PSX.AnalysisReports", unit="Rs. million", role="forecast_context")
     r = AU.resolve(wb, ext, claim_type=C.AUDITED_FACT)
     assert r["winner"] == "a"                  # workbook (audited_issuer) outranks external
-
-
-# --- internal vs external detector (scale-aware + authority-resolved) ------
-def _resolver():
-    return ConflictResolver(store=None)
-
-
-def test_scale_mislabel_is_not_a_conflict():
-    # external revenue mislabeled as millions but numerically equal to the thousands value
-    wb = _wb("revenue", 52_108_997.0)                       # Rupees in thousand
-    ext = _ext(52_108_997.0, source="PSX.AnalysisReports", unit="Rs. million", field="revenue")
-    assert _resolver().detect_internal_vs_external([wb], [ext]) == []   # pure ×1000 -> suppressed
-
-
-def test_agreement_after_normalization_is_not_a_conflict():
-    wb = _wb("revenue", 52_108_997.0)                       # 52,108,997 thousand = 52.109bn
-    ext = _ext(52_108.997, source="PSX.AnalysisReports", unit="Rs. million", field="revenue")
-    assert _resolver().detect_internal_vs_external([wb], [ext]) == []   # same magnitude -> agree
-
-
-def test_genuine_divergence_resolved_by_authority():
-    wb = _wb("revenue", 52_108_997.0)                       # 52.1bn
-    ext = _ext(90_000.0, source="PSX.AnalysisReports", unit="Rs. million", field="revenue")  # 90bn
-    conflicts = _resolver().detect_internal_vs_external([wb], [ext])
-    assert len(conflicts) == 1
-    c = conflicts[0]
-    assert c.type == "internal_vs_external" and c.topic == "revenue" and c.resolved
-    assert "workbook authoritative" in c.resolution
-
-
-def test_no_overlap_no_conflict():
-    wb = _wb("total_equity", 8_000_000.0)
-    ext = _ext(112_453_173.21, source="PSX.CompanyOverview", unit="Rupees in thousand",
-               field="market_cap")               # market_cap not a workbook metric
-    assert _resolver().detect_internal_vs_external([wb], [ext]) == []

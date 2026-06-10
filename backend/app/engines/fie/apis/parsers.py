@@ -308,10 +308,11 @@ def _parse_market_watch_precise(raw: Any, *, futures: bool = False) -> list[dict
         if dn:
             name_idx[dn] = i
 
-    # data-name (header) -> our field, numeric value read from data-order
+    # data-name (header) -> our field, numeric value read from data-order. 'yield' only appears
+    # on the debt board (/market-watch-debt); it's absent on equity/futures -> stays None there.
     NUM = {"ldcp": "ldcp", "open": "open", "high": "high", "low": "low",
-           "close": "price", "change": "change", "percentChange": "change_pct",
-           "volume": "volume"}
+           "close": "price", "yield": "yield_pct", "change": "change",
+           "percentChange": "change_pct", "volume": "volume"}
 
     out: list[dict] = []
     body = table.find("tbody") or table
@@ -370,6 +371,13 @@ def _parse_market_watch_precise(raw: Any, *, futures: bool = False) -> list[dict
 def parse_market_watch(raw: Any) -> list[dict]:
     rows = _parse_market_watch_precise(raw)
     return rows if rows else _parse_market_like(raw)
+
+
+def parse_debt_market_watch(raw: Any) -> list[dict]:
+    """The debt board (/market-watch-debt): same table as market_watch plus a YIELD % column
+    (emitted as yield_pct). Symbols are debt instruments (e.g. P01GHS130527); the 'sector' cell
+    holds a debt category code (e.g. GDS), surfaced as sector_code."""
+    return _parse_market_watch_precise(raw)
 
 
 def parse_sector_market_watch(raw: Any) -> list[dict]:
@@ -435,6 +443,58 @@ def filter_futures_by_symbol(rows: list[dict], symbol: Any) -> list[dict]:
         rs = (r.get("symbol") or "").upper()
         if rs == sym or rs.startswith(sym + "-"):
             out.append(r)
+    return out
+
+
+def _parse_performers_table(table) -> list[dict]:
+    """One /performers section table: SYMBOL | PRICE | CHANGE (abs + (pct%)) | VOLUME."""
+    if table is None:
+        return []
+    out: list[dict] = []
+    body = table.find("tbody") or table
+    for tr in body.find_all("tr"):
+        tds = tr.find_all("td")
+        if len(tds) < 4:
+            continue
+        a = tds[0].find("a")
+        tag = tds[0].find(class_="tag")
+        chg_td = tds[2]
+        span = chg_td.find("span")
+        pct = _num(span.get_text(strip=True).strip("()%")) if span else None
+        if span:
+            span.extract()                         # leaves just the absolute change text
+        out.append({
+            "symbol": a.get_text(strip=True) if a else tds[0].get_text(strip=True),
+            "name": a.get("data-tippy") if a else None,
+            "status": tag.get_text(strip=True) if tag else None,
+            "price": _num(tds[1].get_text(strip=True)),
+            "change": _num(chg_td.get_text(strip=True)),
+            "change_pct": pct,
+            "volume": int(v) if (v := _num(tds[3].get_text(strip=True))) is not None else None,
+        })
+    return out
+
+
+def parse_performers(raw: Any) -> dict:
+    """The /performers page: three ranked lists — TOP ACTIVE STOCKS, TOP ADVANCERS, TOP DECLINERS.
+    Returns {active, advancers, decliners}, each a list of
+    {symbol, name, status, price, change, change_pct, volume}."""
+    out = {"active": [], "advancers": [], "decliners": []}
+    if not isinstance(raw, str) or "<" not in raw:
+        return out
+    try:
+        soup = BeautifulSoup(raw, "lxml")
+    except Exception:
+        soup = BeautifulSoup(raw, "html.parser")
+    for h in soup.find_all("h3", class_="marketPerf__heading"):
+        title = h.get_text(strip=True).lower()
+        rows = _parse_performers_table(h.find_next("table"))
+        if "active" in title:
+            out["active"] = rows
+        elif "advancer" in title:
+            out["advancers"] = rows
+        elif "decliner" in title:
+            out["decliners"] = rows
     return out
 
 
@@ -645,8 +705,12 @@ def _year_table(table) -> dict:
     header_cells = rows[0].find_all(["th", "td"])
     years = []
     for c in header_cells[1:]:
-        y = re.search(r"(19|20)\d{2}", c.get_text())
-        years.append(y.group(0) if y else c.get_text(strip=True))
+        txt = c.get_text(strip=True)
+        if re.search(r"\bQ[1-4]\b", txt, re.I):   # quarterly: keep the full period (e.g. "Q3 2026")
+            years.append(txt)
+        else:                                      # annual: the year alone
+            y = re.search(r"(19|20)\d{2}", txt)
+            years.append(y.group(0) if y else txt)
     out: dict = {y: {} for y in years}
     for tr in rows[1:]:
         cells = tr.find_all(["td", "th"])
@@ -681,6 +745,9 @@ def parse_company_overview(raw: Any) -> dict:
     out["name"] = _txt(".quote__name")
     out["sector"] = _txt(".quote__sector")
     out["price"] = _money(_txt(".quote__close"))
+    out["change"] = _num(_txt(".quote__change .change__value"))
+    cp = _txt(".quote__change .change__percent")
+    out["change_pct"] = _num(cp.strip("()%") if cp else None)
 
     # quote stats — scope to the regular (REG) panel to avoid futures/CSF stats
     reg = soup.select_one('#quote .tabs__panel[data-name="REG"]') or soup.find(id="quote")
@@ -722,34 +789,55 @@ def parse_company_overview(raw: Any) -> dict:
     for head in soup.select(".company__profile .item__head"):
         label = head.get_text(strip=True).lower()
         nxt = head.find_next_sibling("p")
-        if nxt and "website" in label:
-            prof["website"] = nxt.get_text(" ", strip=True)
-        elif nxt and "auditor" in label:
-            prof["auditor"] = nxt.get_text(" ", strip=True)
-        elif nxt and "fiscal year" in label:
-            prof["fiscal_year_end"] = nxt.get_text(" ", strip=True)
+        if not nxt:
+            continue
+        text = nxt.get_text(" ", strip=True)
+        if "website" in label:
+            prof["website"] = text
+        elif "auditor" in label:
+            prof["auditor"] = text
+        elif "fiscal year" in label:
+            prof["fiscal_year_end"] = text
+        elif "address" in label:
+            prof["address"] = text
+        elif "registrar" in label:
+            prof["registrar"] = text
+    # key people (name + role)
+    people = []
+    for tr in soup.select(".profile__item--people table tr"):
+        tds = tr.find_all("td")
+        if len(tds) >= 2:
+            nm = tds[0].get_text(" ", strip=True)
+            role = tds[1].get_text(" ", strip=True)
+            if nm:
+                people.append({"name": nm, "role": role})
+    if people:
+        prof["key_people"] = people
     out["profile"] = prof
 
-    # annual financials (Sales / Profit after Taxation / EPS by year)
-    fin_panel = soup.select_one('#financials .tabs__panel[data-name="Annual"]')
-    fin_table = fin_panel.find("table") if fin_panel else None
-    fin_by_year = _year_table(fin_table)
-    norm = {}
-    for year, metrics in fin_by_year.items():
-        row = {}
-        for lab, v in metrics.items():
-            ll = lab.lower()
-            if "sales" in ll or "revenue" in ll:
-                row["sales"] = v
-            elif "profit after" in ll or ll == "pat":
-                row["pat"] = v
-            elif "eps" in ll:
-                row["eps"] = v
-        if row:
-            norm[year] = row
-    out["financials_annual"] = norm
+    # financials (Sales / Profit after Taxation / EPS by period) — annual + quarterly
+    def _norm_financials(panel_name):
+        panel = soup.select_one(f'#financials .tabs__panel[data-name="{panel_name}"]')
+        table = panel.find("table") if panel else None
+        norm = {}
+        for period, metrics in _year_table(table).items():
+            row = {}
+            for lab, v in metrics.items():
+                ll = lab.lower()
+                if "sales" in ll or "revenue" in ll:
+                    row["sales"] = v
+                elif "profit after" in ll or ll == "pat":
+                    row["pat"] = v
+                elif "eps" in ll:
+                    row["eps"] = v
+            if row:
+                norm[period] = row
+        return norm
 
-    # ratios
+    out["financials_annual"] = _norm_financials("Annual")
+    out["financials_quarterly"] = _norm_financials("Quarterly")
+
+    # ratios (gross/net margin %, EPS growth %, PEG by year)
     ratios_table = soup.select_one("#ratios table")
     out["ratios"] = _year_table(ratios_table)
     return out
@@ -814,9 +902,67 @@ def _parse_market_summary_precise(raw: Any) -> dict:
     return out
 
 
+def _parse_market_summary_sectors(raw: Any) -> list[dict]:
+    """Per-sector quote tables on the PSX market-summary MAIN board. The page groups every
+    listed equity under a sector heading (<h4>), one row per company with its own OHLC:
+    {symbol, name, ldcp, open, high, low, price (=CURRENT), change, change_pct (computed
+    change/LDCP, since the page shows only an absolute change), volume}. We restrict to the
+    main-board tab pane (the GEM-board pane is a separate tab) and skip the FUTURE/CSF blocks
+    on the same page (those are the futures tools' job)."""
+    if not isinstance(raw, str) or "<" not in raw:
+        return []
+    try:
+        soup = BeautifulSoup(raw, "lxml")
+    except Exception:
+        soup = BeautifulSoup(raw, "html.parser")
+
+    main = soup.find(id="marketmainboard") or soup     # the main-board tab pane (GEM pane excluded)
+    out: list[dict] = []
+    for table in main.find_all("table"):
+        h4 = table.find("h4")
+        if not h4:
+            continue
+        title = h4.get_text(" ", strip=True)
+        tu = title.upper()
+        if "FUTURE" in tu or "CSF" in tu:             # futures/CSF blocks -> getFutures, not a sector
+            continue
+        rows: list[dict] = []
+        for tr in table.find_all("tr"):
+            tds = tr.find_all("td")
+            sym_td = next((t for t in tds if t.get("data-srip")), None)
+            if sym_td is None:                         # header row / spacer
+                continue
+            i = tds.index(sym_td)
+            rest = tds[i + 1:i + 8]                     # LDCP, OPEN, HIGH, LOW, CURRENT, CHANGE, VOLUME
+            if len(rest) < 7:
+                continue
+            ldcp_td, open_td, high_td, low_td, cur_td, chg_td, vol_td = rest[:7]
+            ldcp = _num(ldcp_td.get_text(strip=True))
+            change = _num(chg_td.get_text(" ", strip=True))
+            change_pct = round(change / ldcp * 100, 2) if (change is not None and ldcp) else None
+            rows.append({
+                "symbol": sym_td.get("data-srip"),
+                "name": sym_td.get_text(" ", strip=True) or None,
+                "ldcp": ldcp,
+                "open": _num(open_td.get_text(strip=True)),
+                "high": _num(high_td.get_text(strip=True)),
+                "low": _num(low_td.get_text(strip=True)),
+                "price": _num(cur_td.get_text(strip=True)),
+                "change": change,
+                "change_pct": change_pct,
+                "volume": _num(vol_td.get_text(strip=True)),
+            })
+        if rows:
+            out.append({"sector": title, "count": len(rows), "rows": rows})
+    return out
+
+
 def parse_daily_market_summary(raw: Any) -> dict:
     data = _parse_market_summary_precise(raw)
     if data.get("indices") or data.get("exchange"):
+        sectors = _parse_market_summary_sectors(raw)
+        if sectors:
+            data["sectors"] = sectors                 # per-sector OHLC tables (getSectorMarketSummary)
         return data
     return {"tables": [_records(df) for df in _tables(raw)]}  # generic fallback
 
@@ -953,17 +1099,32 @@ def parse_analysis_report_xlsx(raw: Any) -> list[dict]:
     if m:
         fiscal_year = int(m.group(1))
 
-    # locate the header row (has a "Symbol" + "Name of Company" cell)
-    header_row = srno_col = None
+    # locate the header BAND. PSX stacks the header across 2-3 physical rows (e.g. col reads
+    # "PROFIT" / "BEFORE" / "TAXATION" top-to-bottom, and "SYMBOL" sits on a different row than
+    # "NAME OF COMPANY"), so a single-row "symbol AND name of company" match never fires. Anchor
+    # on the row carrying "symbol", then MERGE label fragments down the band (skipping the units
+    # row) to reconstruct each column's full label.
+    header_row = None
     for i in range(min(15, len(df))):
-        labels = {j: _norm_label(v) for j, v in enumerate(df.iloc[i]) if pd.notna(v)}
-        if "symbol" in labels.values() and "name of company" in labels.values():
+        if "symbol" in {_norm_label(v) for v in df.iloc[i] if pd.notna(v)}:
             header_row = i
-            colmap = {_ANALYSIS_HEADER[lbl]: j for j, lbl in labels.items()
-                      if lbl in _ANALYSIS_HEADER}
-            srno_col = next((j for j, lbl in labels.items() if lbl.startswith("sr")), None)
             break
-    if header_row is None or "symbol" not in colmap:
+    if header_row is None:
+        return []
+    frags: dict[int, list[str]] = {}
+    for i in range(max(0, header_row - 1), min(header_row + 4, len(df))):
+        for j, v in enumerate(df.iloc[i]):
+            if pd.isna(v):
+                continue
+            t = _norm_label(v)
+            if (not t or t == "%" or t.startswith("(rs") or "in million" in t
+                    or "data for the year" in t):
+                continue  # skip the units / percent / banner annotation cells
+            frags.setdefault(j, []).append(t)
+    labels = {j: " ".join(parts) for j, parts in frags.items()}
+    colmap = {_ANALYSIS_HEADER[lbl]: j for j, lbl in labels.items() if lbl in _ANALYSIS_HEADER}
+    srno_col = next((j for j, lbl in labels.items() if lbl.startswith("sr")), None)
+    if "symbol" not in colmap:
         return []
 
     def _cell(row, field):
@@ -1016,6 +1177,9 @@ PARSERS = {
     "company_overview": parse_company_overview,
     "company_payouts": parse_company_payouts,
     "market_watch": parse_market_watch,
+    "debt_market_watch": parse_debt_market_watch,
+    "performers": parse_performers,
+    "debt_performers": parse_performers,   # same page structure as /performers
     # sector market-watch hits the same feed, then narrows by sector id (see registry)
     "sector_market_watch": parse_sector_market_watch,
     "deliverable_futures_market_watch": parse_deliverable_futures_market_watch,

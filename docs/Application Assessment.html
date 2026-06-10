@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Financial Intelligence — Application Assessment</title>
+<style>
+  :root{
+    --ink:#0f172a; --body:#334155; --mute:#64748b; --line:#e2e8f0; --bg:#f1f5f9; --card:#fff;
+    --green:#2f9e6a; --blue:#3b7dd8; --purple:#5b4ba8; --orange:#e0992f; --navy:#16243f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.5;padding:32px 16px}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:28px;margin:0 0 6px}
+  .sub{color:var(--body);font-size:15px;margin:0 0 18px}
+  .caveat{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;
+          padding:12px 16px;font-size:13.5px;margin-bottom:26px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;
+        box-shadow:0 3px 10px rgba(15,23,42,.06);margin-bottom:28px}
+  .card-head{display:flex;justify-content:space-between;align-items:center;padding:16px 22px;
+             background:var(--navy);color:#fff}
+  .card-head h2{font-size:19px;margin:0;font-weight:700}
+  .card-head .tot{font-size:15px;font-weight:700;background:rgba(255,255,255,.14);
+                  padding:6px 14px;border-radius:20px}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:12px 16px;vertical-align:top;border-bottom:1px solid var(--line)}
+  th{font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--mute);font-weight:700;
+     background:#f8fafc}
+  td.q{width:230px;font-weight:600;color:var(--ink)}
+  td.q small{display:block;font-weight:400;color:var(--mute);font-size:12.5px;margin-top:2px}
+  td.j{font-size:13.5px;color:var(--body)}
+  td.s{width:78px;text-align:center}
+  .sec td{font-weight:800;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:#fff;
+          padding:8px 16px}
+  .sec.green td{background:var(--green)} .sec.blue td{background:var(--blue)}
+  .sec.purple td{background:var(--purple)} .sec.orange td{background:var(--orange)}
+  .pill{display:inline-block;min-width:46px;padding:4px 0;border-radius:8px;font-weight:700;font-size:14px}
+  .p5{background:#dcfce7;color:#15803d}.p45{background:#ccfbf1;color:#0f766e}
+  .p4{background:#dbeafe;color:#1d4ed8}.p35{background:#fef3c7;color:#b45309}
+  .p3{background:#ffedd5;color:#c2410c}
+  .subtot td{background:#f8fafc;font-weight:700}
+  .summary{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px;
+           box-shadow:0 3px 10px rgba(15,23,42,.06)}
+  .summary h2{margin:0 0 12px;font-size:19px}
+  .summary li{margin:7px 0;font-size:14px;color:var(--body)}
+  .summary b{color:var(--ink)}
+  .overall{display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 22px}
+  .scorebox{flex:1;min-width:200px;background:var(--card);border:1px solid var(--line);border-radius:14px;
+            padding:16px 18px;box-shadow:0 3px 10px rgba(15,23,42,.06)}
+  .scorebox .n{font-size:30px;font-weight:800;color:var(--ink)}
+  .scorebox .l{font-size:12.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.5px}
+  .scorebox .pct{font-size:13px;color:var(--green);font-weight:700}
+  @media print{body{background:#fff;padding:0}.card,.summary,.scorebox{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Financial Intelligence — Application Assessment</h1>
+  <p class="sub">Whole-product evaluation: extraction/OCR engine · FIE Q&amp;A engine · FastAPI backend · Electron/React frontend.</p>
+
+  <div class="caveat">
+    <b>Scope &amp; confidence:</b> Deep visibility into the backend/engines; partial visibility into the frontend
+    (reviewed, not fully audited); the live demo was not observed. Product scores are informed estimates —
+    a grader with the live demo and full frontend access might move them ±0.5 per item.
+  </div>
+
+  <div class="overall">
+    <div class="scorebox"><div class="l">Technical (Rubric 1)</div><div class="n">25 / 30</div><div class="pct">83%</div></div>
+    <div class="scorebox"><div class="l">Product (Rubric 2)</div><div class="n">37.5 / 50</div><div class="pct">75%</div></div>
+    <div class="scorebox"><div class="l">Combined</div><div class="n">62.5 / 80</div><div class="pct">78%</div></div>
+  </div>
+
+  <!-- RUBRIC 1 -->
+  <div class="card">
+    <div class="card-head"><h2>Code &amp; Architecture · Quality &amp; NFRs · AI Maturity</h2><span class="tot">25 / 30</span></div>
+    <table>
+      <thead><tr><th>Question</th><th>Score</th><th>Justification</th></tr></thead>
+      <tbody>
+        <tr class="sec green"><td colspan="3">Code &amp; Architecture</td></tr>
+        <tr><td class="q">Q1 · Code quality &amp; architecture</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Clean layered pipeline (ingest→detect→interpret→multi-year→map→validate→export), Pydantic models, boot-time contract checks, sensible stack. −1: residual bugs (face-truth wrong-table selection) and a volatile in-memory job store.</td></tr>
+        <tr><td class="q">Q2 · UI/UX implementation</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Univer Excel previewer, <b>lossless surgical-patch save</b> (verified), PDF side-by-side, settings page, validation highlighting. −1: several features specced/in-flight, not all confirmed shipped/polished.</td></tr>
+        <tr class="sec blue"><td colspan="3">Quality &amp; NFRs</td></tr>
+        <tr><td class="q">Q3 · Testing &amp; documentation</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">251 backend tests passing; strong engine/settings/cancellation/provenance coverage; extensive docs (pipeline guides, SVGs, layer guides). −1: thin frontend testing, no full-stack e2e.</td></tr>
+        <tr><td class="q">Q4 · Security &amp; performance</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Above-average hardening: rate limiting, upload validation (magic/zip-bomb/macro), SSRF guards, size/timeout middleware, secret redaction, security headers. −1: cost-heavy (vision ≈$1/PDF), memory fragility (mitigated).</td></tr>
+        <tr class="sec purple"><td colspan="3">AI Maturity</td></tr>
+        <tr><td class="q">Q5 · AI architecture &amp; patterns</td><td class="s"><span class="pill p5">5/5</span></td>
+            <td class="j">Standout breadth: RAG (chunk→embed→rank→dedup), agentic tool-composer, forced structured output, multi-source planning, authority matrix for conflicts, citation enforcement, confidence scoring, vision+text, local embeddings.</td></tr>
+        <tr><td class="q">Q6 · AI engineering maturity</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Mature guardrails (numeric guard, citation enforcement, materiality-gated plugging, withholding), observability (debug dumps, trace, manifest, logs), thoughtful HIL. −1: eval ground truth has bugs; no automated golden-set regression eval.</td></tr>
+        <tr class="subtot"><td class="q">Subtotal</td><td class="s"><span class="pill p4">25/30</span></td><td class="j">Strong technical foundation; AI patterns are the highlight.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- RUBRIC 2 -->
+  <div class="card">
+    <div class="card-head"><h2>Delivered Product · Quality &amp; Experience · Readiness · Impact</h2><span class="tot">37.5 / 50</span></div>
+    <table>
+      <thead><tr><th>Question</th><th>Score</th><th>Justification</th></tr></thead>
+      <tbody>
+        <tr class="sec green"><td colspan="3">Delivered Product</td></tr>
+        <tr><td class="q">Q1 · Solution effectiveness</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Genuinely solves PDF→structured-financials + NL Q&amp;A. Headline figures often tie out; accuracy caveats remain.</td></tr>
+        <tr><td class="q">Q2 · Workflow transformation</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Real AI reimagining (GPT structuring + vision + Q&amp;A + auto-validation), not just digitizing manual keying.</td></tr>
+        <tr><td class="q">Q3 · End-to-end completeness</td><td class="s"><span class="pill p35">3.5/5</span></td>
+            <td class="j">Runs start-to-finish on real reports (Millat/Lucky), but real-scenario friction: OCR OOM (fixed), quota, wrong-table face truth, incomplete breakdowns.</td></tr>
+        <tr class="sec blue"><td colspan="3">Quality &amp; Experience</td></tr>
+        <tr><td class="q">Q4 · Output quality</td><td class="s"><span class="pill p35">3.5/5</span></td>
+            <td class="j">Headline statements frequently correct (identity-verified); detail breakdowns often incomplete and some values wrong (e.g. negative liabilities) — honestly disclosed via the ledger, but not yet "clean."</td></tr>
+        <tr><td class="q">Q5 · User experience</td><td class="s"><span class="pill p35">3.5/5</span></td>
+            <td class="j">Side-by-side PDF/Excel + Q&amp;A suits analysts; several UX rough edges only just addressed (jargon, settings taxonomy), not all confirmed live.</td></tr>
+        <tr><td class="q">Q6 · Edge cases &amp; exceptions</td><td class="s"><span class="pill p45">4.5/5</span></td>
+            <td class="j">A real strength: per-report isolation, graceful OCR/pool fallback, FIE degradation (breaker/cache/omit), value withholding, quarantine, materiality gating, job cancellation.</td></tr>
+        <tr class="sec purple"><td colspan="3">Readiness &amp; Viability</td></tr>
+        <tr><td class="q">Q7 · Human oversight</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">Well-designed HIL: validation ledger, manual-verify, confidence bands, exposed conflicts, "suggestions not assertions," trace records.</td></tr>
+        <tr><td class="q">Q8 · Adoption readiness</td><td class="s"><span class="pill p3">3/5</span></td>
+            <td class="j">Packaged desktop app that runs, but known accuracy bugs, cost/quota management, fixes need rebuilds, single-session in-memory job store. Pilot-ready, not production-grade.</td></tr>
+        <tr class="sec orange"><td colspan="3">Impact &amp; Presentation</td></tr>
+        <tr><td class="q">Q9 · Business impact</td><td class="s"><span class="pill p4">4/5</span></td>
+            <td class="j">High — replaces hours of analyst keying per report at ≈$0.1–1/PDF; strong ROI as accuracy improves, with HIL covering the gap meanwhile.</td></tr>
+        <tr><td class="q">Q10 · Demo &amp; articulation</td><td class="s"><span class="pill p35">3.5/5</span></td>
+            <td class="j">Strong articulation support (clear diagrams, guides, value prop); live demo not observed and live runs have had hiccups (quota, crashes) that could undercut it.</td></tr>
+        <tr class="subtot"><td class="q">Subtotal</td><td class="s"><span class="pill p35">37.5/50</span></td><td class="j">Effective and well-guarded; accuracy reliability and adoption polish are the gaps.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="summary">
+    <h2>Honest summary</h2>
+    <ul>
+      <li><b>Strongest:</b> AI patterns/engineering (RAG, agents, conflict resolution, guardrails, auditability) and <b>edge-case / error handling</b> — genuinely above the typical bar.</li>
+      <li><b>Biggest risk to the score:</b> <b>output-accuracy reliability.</b> The face-truth <i>selection</i> bug (wrong source tables → negative/implausible values) undermines output quality <i>and</i> the validation layer's own ground truth — and feeds completeness and adoption-readiness too.</li>
+      <li><b>Highest-leverage fix:</b> repair face-truth selection (prefer primary statements, reject impossible signs, identity-aware selection). It lifts output quality, adoption readiness, <i>and</i> the trustworthiness of validation at once.</li>
+      <li><b>Second lever:</b> ship/verify the in-flight frontend features (page-sync, validation highlighting, settings) so UI scores move from "specced" to "demonstrably polished."</li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

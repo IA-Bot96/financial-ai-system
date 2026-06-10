@@ -225,6 +225,8 @@ interface AppState {
   sheets: ParsedSheet[]
   loadSeq: number // bumped on every explicit (re)load so the grid remounts cleanly
   cleanToken: number // bumped on a successful save so the grid re-baselines its undo depth
+  editSeq: number // bumped on EVERY live grid cell edit so views derived from the live Univer
+  // snapshot (e.g. the History panel) reactively recompute — the snapshot itself isn't React state
   showSource: boolean
   workbook: { dirty: boolean; filePath: string | null; origin: 'ocr' | 'excel' | null }
   pdfPaths: string[]
@@ -308,6 +310,7 @@ interface AppState {
   toggleShowSource: () => void
   setDirty: (dirty: boolean) => void
   markEdit: (sheet: string, a1: string) => void  // stamp a cell's last-edit time (history)
+  noteGridEdit: () => void  // bump editSeq on every live grid edit (reactive history refresh)
   save: (asNew?: boolean) => Promise<void>
   openWorkbookPath: (path: string, origin?: 'ocr' | 'excel') => Promise<boolean>
   reopenLast: () => Promise<void>
@@ -346,6 +349,7 @@ export const useApp = create<AppState>((set) => ({
   sheets: [],
   loadSeq: 0,
   cleanToken: 0,
+  editSeq: 0,
   showSource: false,
   workbook: { dirty: false, filePath: null, origin: null },
   pdfPaths: [],
@@ -720,6 +724,10 @@ export const useApp = create<AppState>((set) => ({
     if (sheet === HISTORY_SHEET || sheet === SESSION_SHEET) return // never track the log itself
     set((s) => ({ editTimes: { ...s.editTimes, [`${sheet}!${a1}`]: nowLocalIso() } }))
   },
+  // Bumped for EVERY grid edit (even when markEdit can't read the cell's range): the History
+  // panel reads the live Univer snapshot imperatively, so it needs a React-state tick to know an
+  // edit happened and recompute. Kept separate from editTimes (which is best-effort + per-cell).
+  noteGridEdit: () => set((s) => ({ editSeq: s.editSeq + 1 })),
   setDirty: (dirty) => {
     set((s) => ({ workbook: { ...s.workbook, dirty } }))
     window.api.setDirty(dirty)
@@ -778,8 +786,14 @@ export const useApp = create<AppState>((set) => ({
           `gridRefreshed=${!!refreshed} origin=excel(was:${s.workbook.origin})`
       )
       set((st) => ({
+        // Refresh the BASELINE (for future diffs + so the History panel's parseSaved sees the
+        // just-appended, now-"saved" rows) WITHOUT bumping loadSeq: a value-only surgical save
+        // leaves the visible cells unchanged, so we must NOT tear down & rebuild the Univer grid
+        // (that full remount is the on-save flicker). Undo depth is re-baselined via cleanToken
+        // below, which doesn't remount. (Trade-off: the raw "Edit History" grid TAB stays stale
+        // until the next real reload; the History PANEL reads the refreshed `sheets`, so it's fine.)
         ...(refreshed
-          ? { sheets: refreshed, validationLedger: buildValidationData(refreshed), loadSeq: st.loadSeq + 1 }
+          ? { sheets: refreshed, validationLedger: buildValidationData(refreshed) }
           : {}),
         // first save flips origin ocr->excel so later Ctrl+S writes in place (not Save As, #4)
         workbook: { ...st.workbook, dirty: false, filePath: path, origin: 'excel' },

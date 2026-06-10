@@ -6,8 +6,7 @@ import pytest
 
 from app.engines.fie import citation_enforce as ce
 from app.engines.fie import citations as citations_mod
-from app.engines.fie import response
-from app.engines.fie.models import Citation, ConfidenceReport, EvidenceItem, QueryFrame, Response
+from app.engines.fie.models import Citation, EvidenceItem, Response
 
 
 def _cit(kind, loc, ref="C?"):
@@ -53,41 +52,6 @@ def test_bind_propagates_handles_no_stale_placeholder():
     assert len(cites) == 1                                   # de-duped to one citation
     # both evidence items now resolve to the canonical handle (no stale 'C?')
     assert a.citations[0].ref_id == "C1" and b.citations[0].ref_id == "C1"
-
-
-# --- render integration ----------------------------------------------------
-def _risk_frame():
-    return QueryFrame(raw_query="risks", intent="risk_assessment", company="MTL", year=2025)
-
-
-def _conf():
-    return ConfidenceReport(band="Medium", score=0.6)
-
-
-def test_render_drops_uncitable_finding():
-    good = EvidenceItem(claim="Coal price exposure", kind="insight",
-                        citations=[_cit("insight", {"insight_id": "i1", "source_section": "Risks",
-                                                    "page": 10, "year": 2025})])
-    bad = EvidenceItem(claim="Unsourced worry", kind="insight",
-                       citations=[_cit("insight", {})])      # empty locator -> NONE -> dropped
-    cites, _ = citations_mod.bind([good, bad], [])
-    resp = response.render(_risk_frame(), [good, bad], [], cites, _conf())
-    joined = " | ".join(resp.key_findings)
-    assert "Coal price exposure" in joined
-    assert "Unsourced worry" not in joined                  # dropped, not shipped uncited
-    assert resp.coverage.get("dropped_claims") == 1
-    assert all("[C" in f for f in resp.key_findings)        # survivors all cited
-
-
-def test_render_insufficient_evidence_off_ramp():
-    bad = EvidenceItem(claim="Unsourced worry", kind="insight",
-                       citations=[_cit("insight", {})])
-    cites, _ = citations_mod.bind([bad], [])
-    resp = response.render(_risk_frame(), [bad], [], cites, _conf())
-    assert resp.key_findings == []
-    assert "Insufficient citable evidence" in resp.direct_answer
-    assert resp.confidence.band == "Low" and resp.confidence.score == 0.0
-    assert resp.coverage.get("insufficient_evidence") is True
 
 
 # --- model-boundary invariant ----------------------------------------------

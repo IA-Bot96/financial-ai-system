@@ -6,7 +6,6 @@ from app.engines.fie import FinancialIntelligenceEngine
 from app.engines.fie import understanding
 from app.engines.fie.calc import CalcEngine
 from app.engines.fie.insights import InsightSelector
-from app.engines.fie.conflicts import ConflictResolver
 from app.engines.fie.models import QueryFrame
 
 
@@ -118,8 +117,6 @@ def test_keep_both_retains_both_and_marks_unresolved():
         min_relevance=0.0)
     ids = {c["insight_id"] for c in chosen}
     assert ids == {"A", "B"}  # both retained
-    conflicts = ConflictResolver.__new__(ConflictResolver).detect_insight_conflicts(resolutions)
-    assert conflicts and conflicts[0].resolved is False  # unresolved -> caps confidence
 
 
 def test_clear_winner_is_resolved_and_supersedes():

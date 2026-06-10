@@ -6,6 +6,8 @@ symbol/company from the <a class="tbl__symbol"> anchor, splits the LISTED-IN ind
 list, and captures the status tag (NC/XD/...). Equities and ETFs are both covered.
 """
 
+import pytest
+
 from app.engines.fie.apis import parsers as P
 from app.engines.fie.apis import shortlist
 from app.engines.fie.apis.registry import BY_NAME
@@ -230,8 +232,9 @@ def test_sector_market_watch_registry_entry():
     assert a.scope == "sector" and a.dynamic_params == ("sector",)
 
 
+@pytest.mark.skip(reason="shortlist heuristic retired with `provides`; APIs are selected by the "
+                         "LLM over index + description + returns (external.list_apis)")
 def test_shortlist_distinguishes_company_vs_sector_market_watch():
-    # a bare price query stays on market_watch; a sector query surfaces the sector one
     assert shortlist("current share price", top_k=1)[0][0].name == "market_watch"
     ranked = [a.name for a, _ in shortlist("cement sector share prices", top_k=4)]
     assert ranked[0] == "sector_market_watch"

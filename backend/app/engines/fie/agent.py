@@ -338,8 +338,8 @@ def _t_decompose(engine, frame, ctx, args):
         for m, _sign in _STATEMENT_DECOMP[target]:
             if m not in avail:
                 continue
-            v0, v1 = engine._safe_lookup(m, y0), engine._safe_lookup(m, y1)
-            if v0 is None or v1 is None:
+            prev, cur = engine._safe_lookup(m, y0), engine._safe_lookup(m, y1)
+            if prev is None or cur is None:
                 continue
             # Components foot to the total AS STORED (expense lines carry their natural
             # negative sign), so a component's contribution to the total's CHANGE is its raw
@@ -347,8 +347,8 @@ def _t_decompose(engine, frame, ctx, args):
             # rising cost looked like it *raised* gross profit, which misled the model into
             # "cost increased more than revenue"). total_delta == sum(contribution) by
             # construction, and the foot check (_t_check_balance) sums the same way.
-            delta = round(v1 - v0, 2)
-            movers.append({"item": m, "from": v0, "to": v1, "delta": delta,
+            delta = round(cur - prev, 2)
+            movers.append({"item": m, "from": prev, "to": cur, "delta": delta,
                            "contribution": delta})
             _add(m, y0, y1)
         ctx.evidence += retrieval.evidence_from_facts(engine.store, facts)
@@ -368,11 +368,11 @@ def _t_decompose(engine, frame, ctx, args):
             if inp.metric in seen:
                 continue
             seen.add(inp.metric)
-            v0, v1 = engine._safe_lookup(inp.metric, y0), engine._safe_lookup(inp.metric, y1)
-            if v0 is None or v1 is None:
+            prev, cur = engine._safe_lookup(inp.metric, y0), engine._safe_lookup(inp.metric, y1)
+            if prev is None or cur is None:
                 continue
-            inputs.append({"input": inp.metric, "from": v0, "to": v1, "delta": round(v1 - v0, 2),
-                           "pct_change": (round(v1 / v0 - 1, 4) if v0 else None)})
+            inputs.append({"input": inp.metric, "from": prev, "to": cur, "delta": round(cur - prev, 2),
+                           "pct_change": (round(cur / prev - 1, 4) if prev else None)})
             _add(inp.metric, y0, y1)
         ctx.evidence += retrieval.evidence_from_facts(engine.store, facts)
         rv = {}
@@ -389,15 +389,15 @@ def _t_decompose(engine, frame, ctx, args):
                 "ratio_from": rv.get(y0), "ratio_to": rv.get(y1), "inputs": inputs}
 
     # 3) base line item → no sub-components; report the change so the agent can state it
-    v0, v1 = engine._safe_lookup(target, y0), engine._safe_lookup(target, y1)
-    if v0 is None or v1 is None:
+    prev, cur = engine._safe_lookup(target, y0), engine._safe_lookup(target, y1)
+    if prev is None or cur is None:
         return {"metric": target, "note": "not a decomposable metric and values are missing"}
     _add(target, y0, y1)
     ctx.evidence += retrieval.evidence_from_facts(engine.store, facts)
-    _allow(ctx, round(v1 - v0, 2), (round(v1 / v0 - 1, 4) if v0 else None))
+    _allow(ctx, round(cur - prev, 2), (round(cur / prev - 1, 4) if prev else None))
     return {"kind": "change", "metric": target, "from_year": y0, "to_year": y1,
-            "from": v0, "to": v1, "delta": round(v1 - v0, 2),
-            "pct_change": (round(v1 / v0 - 1, 4) if v0 else None),
+            "from": prev, "to": cur, "delta": round(cur - prev, 2),
+            "pct_change": (round(cur / prev - 1, 4) if prev else None),
             "note": "base line item — no sub-components; use insights for the underlying reason"}
 
 

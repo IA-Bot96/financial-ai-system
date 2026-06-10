@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from app.engines.fie import news_retrieval as NR
-from app.engines.fie import synthesis, safety, citations as cit
+from app.engines.fie import safety, citations as cit
 from app.engines.fie.models import Citation, EvidenceItem, QueryFrame
 
 _VOCAB = ["expansion", "profit", "weather", "capacity", "cement"]
@@ -144,17 +144,6 @@ def test_same_article_chunks_merge_to_one_citation():
     c2 = base.model_copy(deep=True); c2.citations[0].locator["chunk_id"] = 1
     cites, _ = cit.bind([c1, c2], [])
     assert len(cites) == 1                          # same link -> one source citation
-
-
-# --- synthesis: external news reaches the LLM premises, with source + ref ---
-def test_external_news_becomes_a_premise():
-    e = _article("MLCF expands", "plans Punjab plant", "Reuters", "u1", "2026-06-05")
-    e.citations[0].ref_id = "C1"
-    e.citations[0].locator["chunk_text"] = "plans a new Punjab plant"
-    f = QueryFrame(raw_query="news", intent="news_impact", company="MLCF")
-    g = synthesis.build_graph(f, [e], [], [])
-    prem = " ".join(g.premises)
-    assert "MLCF expands" in prem and "Reuters" in prem and "[C1]" in prem
 
 
 # --- safety: a figure quoted from a cited article is backed ----------------

@@ -131,6 +131,8 @@ def test_announcements_adapter_form_post_and_parse():
 
 # --- API register ---
 
+@pytest.mark.skip(reason="shortlist heuristic retired with `provides`; APIs are selected by the "
+                         "LLM over index + description + returns (external.list_apis)")
 @pytest.mark.parametrize("query,expected_top", [
     ("dividend announcements for Millat", "company_announcements"),
     ("current share price", "market_watch"),
@@ -202,6 +204,9 @@ def test_registry_matches_curl_contracts():
         "company_overview":      ("GET",  None,   "html", "/company/{symbol}", {"symbol"}),
         "company_payouts":       ("POST", "form", "html", "/company/payouts", {"symbol"}),
         "market_watch":          ("GET",  None,   "html", "/market-watch", set()),
+        "performers":            ("GET",  None,   "html", "/performers", set()),
+        "debt_performers":       ("GET",  None,   "html", "/debt-performers", set()),
+        "debt_market_watch":     ("GET",  None,   "html", "/market-watch-debt", set()),
         "deliverable_futures_market_watch": ("GET", None, "html", "/market-watch-futures", set()),
         "cash_settled_futures_market_watch": ("GET", None, "html", "/market-watch-csf", set()),
         "daily_market_summary": ("GET", None, "html", "/market-summary/", set()),
@@ -245,15 +250,11 @@ def test_scope_classification_consistent():
             assert api.scope == "sector", f"{api.name} is query/sector-driven but scope={api.scope}"
 
 
+@pytest.mark.skip(reason="`provides` tags removed (they oversold); APIs now expose `returns`, and "
+                         "selection is by the LLM over description+returns — no provides to leak")
 def test_company_scoped_entries_carry_no_sector_vocab():
-    """A company-scoped API must not advertise sector/industry in its provides tags,
-    or it would get pulled into sector shortlisting."""
-    for api in REGISTRY:
-        if api.scope != "company":
-            continue
-        tags = {t.lower() for t in api.provides}
-        assert "sector" not in tags and "industry" not in tags, \
-            f"{api.name} (company) leaks sector vocab: {api.provides}"
+    """Obsolete: company-scoped APIs no longer carry `provides` tags at all."""
+    pass
 
 
 # --- symbols -> announcements chain: symbol acquired from the symbols API ---

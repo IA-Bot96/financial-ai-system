@@ -188,6 +188,9 @@ export function SheetView() {
         if (!cmd?.id || !/set-range-values/i.test(cmd.id)) return
         const sheet = useApp.getState().activeSheet
         if (!sheet || sheet === HISTORY_SHEET) return
+        // Reactive history: tick editSeq for EVERY edit (independent of the best-effort range
+        // read below), so the History panel recomputes from the live snapshot in real time.
+        useApp.getState().noteGridEdit()
         try {
           const r = (cmd.params as { range?: { startRow?: number; startColumn?: number } })?.range
           if (r && typeof r.startRow === 'number' && typeof r.startColumn === 'number') {

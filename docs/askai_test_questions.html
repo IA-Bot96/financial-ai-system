@@ -229,6 +229,10 @@
       background: #0891b2;
     }
 
+    .category[data-category="Market & Sector (PSX)"] .dot {
+      background: #db2777;
+    }
+
     .count {
       color: var(--muted);
       font-size: 13px;
@@ -360,7 +364,7 @@
     <header>
       <div>
         <h1>AskAI Test Questions</h1>
-        <p class="subtitle">A focused test set for quantitative analysis, data validation, qualitative analysis, forecast validation, edit history, and workbook metadata — 15 prompts per query type.</p>
+        <p class="subtitle">A focused test set for quantitative analysis, data validation, qualitative analysis, forecast validation, edit history, workbook metadata, and market &amp; sector (PSX) intelligence.</p>
       </div>
       <button class="primary" id="copyVisible" type="button" title="Copy visible questions">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -400,10 +404,10 @@
     </section>
 
     <section class="stats" aria-label="Summary">
-      <div class="stat"><strong id="visibleCount">90</strong><span>Visible questions</span></div>
-      <div class="stat"><strong>6</strong><span>Test categories</span></div>
-      <div class="stat"><strong>15</strong><span>Prompts per category</span></div>
-      <div class="stat"><strong>90</strong><span>Total prompts</span></div>
+      <div class="stat"><strong id="visibleCount">120</strong><span>Visible questions</span></div>
+      <div class="stat"><strong>7</strong><span>Test categories</span></div>
+      <div class="stat"><strong>15–30</strong><span>Prompts per category</span></div>
+      <div class="stat"><strong>120</strong><span>Total prompts</span></div>
     </section>
 
     <div id="questionRoot"></div>
@@ -507,7 +511,38 @@
       { id: 87, category: "Workbook Metadata", text: "Which financial statements does this workbook contain?" },
       { id: 88, category: "Workbook Metadata", text: "Is there a statement of changes in equity?" },
       { id: 89, category: "Workbook Metadata", text: "Does this workbook cover 2024?" },
-      { id: 90, category: "Workbook Metadata", text: "What is the earliest and latest year of data available?" }
+      { id: 90, category: "Workbook Metadata", text: "What is the earliest and latest year of data available?" },
+
+      { id: 91, category: "Market & Sector (PSX)", text: "What is the sector net margin for the most recent year?" },
+      { id: 92, category: "Market & Sector (PSX)", text: "What was the sector net margin in 2023?" },
+      { id: 93, category: "Market & Sector (PSX)", text: "What is the sector gross margin?" },
+      { id: 94, category: "Market & Sector (PSX)", text: "How does our gross margin compare to the sector?" },
+      { id: 95, category: "Market & Sector (PSX)", text: "How does our net margin compare to the sector average?" },
+      { id: 96, category: "Market & Sector (PSX)", text: "What is the sector's profit-before-tax margin?" },
+      { id: 97, category: "Market & Sector (PSX)", text: "Which sector does this company belong to on the PSX?" },
+      { id: 98, category: "Market & Sector (PSX)", text: "Which companies are in the same sector?" },
+      { id: 99, category: "Market & Sector (PSX)", text: "How many companies are in the company's sector?" },
+      { id: 100, category: "Market & Sector (PSX)", text: "Is the company more profitable than its sector?" },
+      { id: 101, category: "Market & Sector (PSX)", text: "What is the company's current share price?" },
+      { id: 102, category: "Market & Sector (PSX)", text: "What is the company's P/E ratio?" },
+      { id: 103, category: "Market & Sector (PSX)", text: "What is the company's dividend yield?" },
+      { id: 104, category: "Market & Sector (PSX)", text: "What dividends has the company recently announced?" },
+      { id: 105, category: "Market & Sector (PSX)", text: "What was the company's most recent cash dividend?" },
+      { id: 106, category: "Market & Sector (PSX)", text: "When is the next book closure date?" },
+      { id: 107, category: "Market & Sector (PSX)", text: "What recent announcements has the company made to the exchange?" },
+      { id: 108, category: "Market & Sector (PSX)", text: "Are there any recent regulatory notices for the company?" },
+      { id: 109, category: "Market & Sector (PSX)", text: "What is the latest news about the company?" },
+      { id: 110, category: "Market & Sector (PSX)", text: "What is the latest news affecting the sector?" },
+      { id: 111, category: "Market & Sector (PSX)", text: "What is the market sentiment on the company right now?" },
+      { id: 112, category: "Market & Sector (PSX)", text: "What is the company's market capitalization?" },
+      { id: 113, category: "Market & Sector (PSX)", text: "How has the share price moved over the last year?" },
+      { id: 114, category: "Market & Sector (PSX)", text: "What is the company's free float?" },
+      { id: 115, category: "Market & Sector (PSX)", text: "How does the company's revenue compare with peers in its sector?" },
+      { id: 116, category: "Market & Sector (PSX)", text: "What is the PSX-reported profit after tax for the company?" },
+      { id: 117, category: "Market & Sector (PSX)", text: "Does the PSX-reported revenue match the workbook revenue?" },
+      { id: 118, category: "Market & Sector (PSX)", text: "What is the average net margin across the sector over recent years?" },
+      { id: 119, category: "Market & Sector (PSX)", text: "Which sector peer has the highest profit after tax?" },
+      { id: 120, category: "Market & Sector (PSX)", text: "Is the company's valuation in line with the sector?" }
     ];
 
     const root = document.getElementById("questionRoot");

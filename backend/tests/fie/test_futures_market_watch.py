@@ -135,8 +135,8 @@ def test_company_futures_registry_entry():
     assert base.endpoint == comp.endpoint and comp.method == "GET"
     assert comp.parser_fn is P.parse_deliverable_futures_market_watch   # same feed/parser
     assert comp.scope == "company" and comp.dynamic_params == ("symbol",)
-    # company-scoped: no industry-sector vocab in provides
-    assert "sector" not in comp.provides and "industry" not in comp.provides
+    # exposes its real output fields (provides tags removed)
+    assert "symbol" in comp.returns and "price" in comp.returns
 
 
 def test_company_futures_shortlists_for_symbol_query():

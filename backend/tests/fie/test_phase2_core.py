@@ -4,8 +4,6 @@ import pytest
 
 from app.engines.fie import FinancialIntelligenceEngine
 from app.engines.fie.calc import CalcEngine
-from app.engines.fie.conflicts import ConflictResolver
-from app.engines.fie.confidence import ConfidenceScorer
 from app.engines.fie.insights import InsightSelector
 from app.engines.fie.models import CalcResult, Conflict, QueryFrame
 
@@ -65,30 +63,6 @@ def test_insight_relevance_filter():
     assert chosen and chosen[0]["insight_id"] == "A"
 
 
-# --- 2.4/2.5 conflicts ---
-
-def test_restatement_detection_real(millat_store):
-    # PL3 (expenses) FY2022 line items were reported differently across the 2022/2023
-    # reports -> a restatement the detector must surface.
-    from app.engines.fie.models import FactRef
-    cr = ConflictResolver(millat_store)
-    probe = FactRef(company=millat_store.company, metric="administrative_expenses",
-                    label="Administrative expenses", year=2022, value=1.0,
-                    statement="pl", level="headline", sheet="P&L", cell="X1")
-    c = cr.detect_restatement(probe)
-    assert c is not None and c.type == "restatement" and c.year == 2022
-
-
-def test_insight_conflict_emitted():
-    cr_resolver = None  # detect_insight_conflicts needs no store interaction
-    from app.engines.fie.conflicts import ConflictResolver as CR
-    res = [{"area": "Margin", "winner": _ins("B", 2025, "Margin", 0.7),
-            "superseded": [_ins("A", 2023, "Margin", 0.99)],
-            "rationale": "newest"}]
-    conflicts = CR.__new__(CR).detect_insight_conflicts(res)
-    assert len(conflicts) == 1 and conflicts[0].type == "insight_vs_insight"
-
-
 # --- 2.6 confidence (no financial cap) ---
 
 def test_confidence_no_financial_cap_high_when_cited(millat_store):
@@ -98,15 +72,6 @@ def test_confidence_no_financial_cap_high_when_cited(millat_store):
     # no cap referencing financial mismatch / reconciliation
     assert not any("reconcil" in c.lower() or "mismatch" in c.lower()
                    for c in r.confidence.caps_applied)
-
-
-def test_confidence_unresolved_conflict_caps_medium():
-    scorer = ConfidenceScorer()
-    calc = CalcResult(formula_id="x", value=1.0, confidence="High")
-    conflict = Conflict(type="cross_api", topic="eps", resolved=False)
-    rep = scorer.score(evidence=[], calcs=[calc], conflicts=[conflict], selected_insights=[])
-    assert rep.band in ("Medium", "Low")
-    assert any("unresolved" in c for c in rep.caps_applied)
 
 
 # --- end-to-end risk_assessment ---

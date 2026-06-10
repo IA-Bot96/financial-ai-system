@@ -141,8 +141,8 @@ def test_screener_registry_entries():
     assert sect.endpoint == comp.endpoint
     assert sect.scope == "sector" and sect.dynamic_params == ("sector",)
     assert sect.parser_fn is P.parse_sector_stock_screener
-    # company entry must not leak sector vocab into shortlisting
-    assert "sector" not in {t.lower() for t in comp.provides}
+    # exposes the valuation fields it actually returns (provides tags removed)
+    assert "pe_ratio_ttm" in comp.returns and "dividend_yield_pct" in comp.returns
 
 
 def test_screener_shortlists_on_valuation_query():

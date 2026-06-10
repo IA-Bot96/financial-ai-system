@@ -52,16 +52,24 @@ def _make_normalizer(api: ApiInfo):
         recs = parser(raw) if parser else []
         if isinstance(recs, dict):  # overview / daily_market_summary return one dict
             recs = [recs]
+        fields = api.returns or ()
         items: list[EvidenceItem] = []
         for rec in recs or []:
             if not isinstance(rec, dict):
                 rec = {"value": rec}
+            # Carry the FULL parsed record in the locator so the composer sees every metric the
+            # parser produced (the old code kept only identifier fields, dropping P/E, yield,
+            # market cap, etc.). The claim lists the API's declared `returns` fields with their
+            # values, so the metrics are both human-readable AND admitted by the numeric guard
+            # (which scans external claim text for backed numbers).
             loc = {"source": api.name, "api": api.name, "category": api.category,
                    "retrieved_at": retrieved_at}
-            for k in _LOC_FIELDS:
-                if rec.get(k) not in (None, ""):
-                    loc[k] = rec[k]
-            claim = _record_claim(rec)
+            for k, v in rec.items():
+                if v not in (None, "", []):
+                    loc[k] = v
+            order = ([k for k in fields if rec.get(k) not in (None, "", [])]
+                     or [k for k in rec if rec.get(k) not in (None, "", [])])
+            claim = "; ".join(f"{k}={rec[k]}" for k in order)[:400] or _record_claim(rec)
             items.append(EvidenceItem(
                 claim=claim, kind="external",
                 citations=[Citation(ref_id="C?", kind="external",
@@ -141,6 +149,28 @@ class RegistryFetcher:
 
         status = "ok" if any(s == "ok" for s in statuses) else (
             "cached" if "cached" in statuses else "failed")
+
+        # Narrow market-wide feeds (screener / market-watch / futures return the WHOLE exchange)
+        # to the requested symbol/sector BEFORE capping — otherwise max_records slices the target
+        # row away (this is why per-company P/E came back empty). Guarded: only narrow when it
+        # actually matches something, so endpoint-filtered APIs (announcements/SECP) are untouched.
+        def _loc(it):
+            return (it.citations[0].locator if getattr(it, "citations", None) else {}) or {}
+        if symbol:
+            narrowed = [it for it in items if _loc(it).get("symbol") == symbol]
+            if not narrowed:   # futures symbols are "MTL-JUN" etc. — match the base symbol
+                narrowed = [it for it in items
+                            if str(_loc(it).get("symbol") or "").split("-")[0] == symbol]
+            if narrowed:
+                items = narrowed
+        elif sector:
+            sl = sector.strip().lower()
+            narrowed = [it for it in items
+                        if str(_loc(it).get("sector") or "").strip().lower() == sl
+                        or str(_loc(it).get("sector_code") or "").strip().lower() == sl]
+            if narrowed:
+                items = narrowed
+
         if self.max_records:
             items = items[: self.max_records]
         return CallResult(items=items, status=status)
