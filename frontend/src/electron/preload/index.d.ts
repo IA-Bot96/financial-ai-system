@@ -12,7 +12,8 @@ export interface BackendResponse {
 export interface FieApi {
   getBackendUrl(): Promise<string>
   getBackendLogPath(): Promise<string>
-  request(req: { method: string; path: string; json?: unknown }): Promise<BackendResponse>
+  request(req: { method: string; path: string; json?: unknown; id?: string }): Promise<BackendResponse>
+  cancelRequest(id: string): Promise<void>
   pickFiles(opts?: { extensions?: string[]; multi?: boolean }): Promise<PickedFile[]>
   readFile(path: string): Promise<ArrayBuffer>
   createSession(path: string): Promise<BackendResponse>

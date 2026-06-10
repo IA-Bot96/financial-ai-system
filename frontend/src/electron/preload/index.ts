@@ -3,9 +3,12 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke('backend:url'),
   getBackendLogPath: (): Promise<string> => ipcRenderer.invoke('backend:logPath'),
-  /** Proxy a backend HTTP call through the main process (no CORS in the renderer). */
-  request: (req: { method: string; path: string; json?: unknown }): Promise<{ status: number; body: unknown }> =>
+  /** Proxy a backend HTTP call through the main process (no CORS in the renderer).
+   *  Pass `id` to make the request cancellable via cancelRequest(id). */
+  request: (req: { method: string; path: string; json?: unknown; id?: string }): Promise<{ status: number; body: unknown }> =>
     ipcRenderer.invoke('backend:request', req),
+  /** Abort an in-flight request previously issued with the given id. */
+  cancelRequest: (id: string): Promise<void> => ipcRenderer.invoke('backend:cancel', id),
   pickFiles: (opts?: { extensions?: string[]; multi?: boolean }): Promise<
     { path: string; name: string; size: number }[]
   > => ipcRenderer.invoke('dialog:pickFiles', opts),

@@ -106,16 +106,31 @@ export interface BackendRequest {
   method: string
   path: string
   json?: unknown
+  // optional caller-assigned id so an in-flight request can be cancelled (see cancel()).
+  id?: string
 }
 export interface BackendResponse {
   status: number
   body: unknown
 }
 
-/** Proxy a backend call from main (no CORS). Returns status 0 if unreachable. */
+// In-flight cancellable requests, keyed by the caller's id. Lets the renderer abort a
+// long-running answer() via cancel(id) — the fetch is aborted and the promise resolves with
+// status -1 (cancelled), which the renderer treats as "user stopped", not an error.
+const _inflight = new Map<string, AbortController>()
+
+/** Abort an in-flight request previously issued with the given id (no-op if already done). */
+export function cancel(id: string): void {
+  _inflight.get(id)?.abort()
+}
+
+/** Proxy a backend call from main (no CORS). Returns status 0 if unreachable, -1 if cancelled. */
 export async function request(req: BackendRequest): Promise<BackendResponse> {
+  const ctrl = req.id ? new AbortController() : null
+  if (req.id && ctrl) _inflight.set(req.id, ctrl)
   try {
     const init: RequestInit = { method: req.method }
+    if (ctrl) init.signal = ctrl.signal
     if (req.json !== undefined) {
       init.body = JSON.stringify(req.json)
       init.headers = { 'Content-Type': 'application/json' }
@@ -123,8 +138,13 @@ export async function request(req: BackendRequest): Promise<BackendResponse> {
     const r = await fetch(_url + req.path, init)
     const body = await r.json().catch(() => null)
     return { status: r.status, body }
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      return { status: -1, body: null } // user cancelled
+    }
     return { status: 0, body: null } // connection refused / not up yet
+  } finally {
+    if (req.id) _inflight.delete(req.id)
   }
 }
 

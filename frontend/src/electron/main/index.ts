@@ -8,6 +8,7 @@ import {
   backendUrl,
   backendLogPath,
   request,
+  cancel,
   uploadWorkbook,
   createExtractionJob,
   cancelExtractionJob,
@@ -98,6 +99,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('backend:url', () => backendUrl())
   ipcMain.handle('backend:logPath', () => backendLogPath())
   ipcMain.handle('backend:request', (_e, req: BackendRequest) => request(req))
+  ipcMain.handle('backend:cancel', (_e, id: string) => cancel(id))
 
   // file dialogs + disk I/O
   ipcMain.handle('dialog:pickFiles', async (_e, opts?: { extensions?: string[]; multi?: boolean }) => {

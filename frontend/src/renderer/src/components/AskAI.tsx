@@ -217,9 +217,18 @@ function SendIcon({ className }: { className?: string }) {
   )
 }
 
+// filled rounded square — the conventional "stop generating" glyph (ChatGPT / Claude style)
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  )
+}
+
 // ---- main component ----------------------------------------------------------
 export function AskAI() {
-  const { chat, ask, session } = useApp()
+  const { chat, ask, session, cancelAsk } = useApp()
   const setPanel = useApp((s) => s.setPanel)
   const [input, setInput] = useState('')
   const now = useNow()
@@ -363,24 +372,31 @@ export function AskAI() {
               >
                 <MicIcon className="h-4 w-4" />
               </button>
-              {/* send */}
-              <button
-                onClick={() => send()}
-                disabled={!input.trim() || chat.pending}
-                title="Send (Enter)"
-                className={cn(
-                  'h-8 w-8 rounded-full flex items-center justify-center transition-colors',
-                  input.trim() && !chat.pending
-                    ? 'bg-accent text-white hover:bg-accent/80'
-                    : 'bg-line text-muted opacity-40 cursor-not-allowed'
-                )}
-              >
-                {chat.pending ? (
-                  <span className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                ) : (
+              {/* send / stop — while a request is in flight this becomes a Stop button that
+                  cancels it (aborts the backend fetch), mirroring ChatGPT / Claude */}
+              {chat.pending ? (
+                <button
+                  onClick={() => cancelAsk()}
+                  title="Stop"
+                  className="h-8 w-8 rounded-full flex items-center justify-center bg-accent text-white hover:bg-accent/80 transition-colors"
+                >
+                  <StopIcon className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => send()}
+                  disabled={!input.trim()}
+                  title="Send (Enter)"
+                  className={cn(
+                    'h-8 w-8 rounded-full flex items-center justify-center transition-colors',
+                    input.trim()
+                      ? 'bg-accent text-white hover:bg-accent/80'
+                      : 'bg-line text-muted opacity-40 cursor-not-allowed'
+                  )}
+                >
                   <SendIcon className="h-4 w-4" />
-                )}
-              </button>
+                </button>
+              )}
             </div>
           </div>
         </div>

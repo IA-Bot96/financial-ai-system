@@ -174,6 +174,9 @@ _EDIT_HISTORY_RE = re.compile(
     r"|\b(i (?:\w+ ){0,2}(made|did|make)|did i (?:\w+ ){0,2}(make|do))\b[^.?]{0,40}\b(change|edit|modification|update)s?\b"
     r"|\bmy (last |recent |latest )?(\d+ )?(unsaved )?(change|edit|modification|update)s?\b"
     r"|\bwhat did i (change|edit|update|modify)\b"
+    # manual-verification markers ("which cells did I mark as manually verified") — the MV toggles
+    # live in the edit log (Validation Ledger), so this is an edit-history ask, not a data question.
+    r"|\bmanually verified\b|\bmark\w*\b[^.?]{0,20}\bverif\w*\b|\bverified cells?\b"
     # "which sheet did I change/edit (most)" — first-person, so data queries don't match
     r"|\bwhich sheets?\b[^.?]{0,30}\b(did i|i)\b[^.?]{0,20}\b(chang\w*|edit\w*|made|make|updat\w*|modif\w*)\b"
     # workbook lifecycle: "when was this workbook opened/loaded" (tight — requires the
@@ -197,6 +200,53 @@ _ADHOC_METRIC_RE = re.compile(
 # the percentage path), NOT a two-series comparison.
 _PCT_OF_RE = re.compile(
     r"\b(percent(age)?|share|fraction|proportion)\s+of\b|%\s*of\b|\bas a (?:%|percent\w*|share)\b", re.I)
+
+# --------------------------------------------------------------------------------------------
+# Workbook-METADATA / availability ("does this workbook have cash-flow data?", "what years are
+# covered?", "what company is this?"). Answered deterministically from the store's metrics /
+# sheets / years / company — never a value lookup or the agent.
+#
+# CRITICAL — this is a RULES-ONLY intent. The LLM validator is deliberately NOT told it exists
+# (see understand(): the rules frame is kept as-is when it fires). That is what makes it safe:
+# the ONLY path into data_availability is these two narrow, anchored regexes, so the LLM can
+# never pull a value/ratio/trend/validation/qualitative query into it. Keep them TIGHT.
+# --------------------------------------------------------------------------------------------
+_AVAILABILITY_RE = re.compile(
+    # "does this workbook have / contain / is there ... <statement family | data | metric | figures>"
+    r"\b(do|does|is|are|has|have)\b[^?]{0,30}\b(have|contain|include|got|there|any)\b"
+    r"[^?]{0,30}\b(cash[\s-]?flow|cashflow|balance[\s-]?sheet|income statement|p&l|"
+    r"profit and loss|(statement of )?changes in equity|data|metrics?|figures?)\b"
+    # "is there a <statement family>"
+    r"|\bis there (any |a |an )?(cash[\s-]?flow|balance[\s-]?sheet|income statement|p&l|"
+    r"profit and loss|(statement of )?changes in equity)\b"
+    # "what/which <data|sheets|statements|metrics|years> ARE available / in this workbook" — the
+    # keyword must sit DIRECTLY after what/which, so the definitional "what IS <name> SHEET ..."
+    # (e.g. 'what is edit history sheet in this workbook') does NOT match.
+    r"|\b(what|which)\s+(financial\s+)?(years?|data|sheets?|statements?|metrics?)\b"
+    r"[^?]{0,25}\b(available|covered|present|included|in (this|the) (workbook|file|model)|"
+    r"does (this|the|it)|are there|exist|do (we|you) have)\b"
+    # bare coverage asks
+    r"|\bwhat\s+years?\b"
+    r"|\bwhat(?:'s| is| are)?\s+in (this|the) (workbook|file|model)\b"
+    # 'which financial statements'; counts ('how many / total / number of sheets|metrics|…')
+    r"|\bwhich financial statements?\b"
+    r"|\b(how many|total|number of|count of)\s+(metrics?|sheets?|tabs?|statements?|line items?|years?)\b"
+    # specific-sheet INDEX / position: 'index of sheet X', 'sheet X is on what index'
+    r"|\b(index|position)\b[^?]{0,25}\bsheets?\b|\bsheets?\b[^?]{0,25}\b(index|position)\b"
+    # specific-year membership: 'is 2020 included?', 'does it cover 2026?' — a coverage word must
+    # sit NEAR the year so a comparison ('is 2024 revenue > 2023?') is NOT caught
+    r"|\b(includ|cover|present|contain|have|got|reported?|available)\w*\b[^?]{0,25}\b(19|20)\d{2}\b"
+    r"|\b(19|20)\d{2}\b[^?]{0,25}\b(includ|cover|present|contain|available|reported?)\w*",
+    re.I)
+
+# Company / entity identity of the loaded workbook. Anchored so the POSSESSIVE "the company's
+# <metric>" (a value question) and "business risks / challenges" (qualitative) do NOT trip it.
+_COMPANY_ID_RE = re.compile(
+    r"\b(what|which)\s+(company|entity|firm|issuer)\b[^?]{0,25}"
+    r"\b(is|are|does|do|this|workbook|file|report|belong)\b"
+    r"|\bname of (the |this )?(company|entity|firm|issuer|business)\b"
+    r"|\bwhose\b[^?]{0,30}\b(financ|statement|workbook|report|book)\w*",
+    re.I)
 
 # A follow-up that is JUST a number/percentage/year ("1000%?", "25%", "2025?", "23?") — a
 # YEAR or ASSUMPTION swap on the immediately-preceding forecast/projection/calc question.
@@ -428,6 +478,11 @@ def build_frame(query: str, metric_matcher=None) -> QueryFrame:
     # financial data). High precedence so "what did I change" isn't mis-read as a lookup.
     if _EDIT_HISTORY_RE.search(query):
         return QueryFrame(raw_query=query, intent="edit_history", company=company, year=year)
+
+    # workbook METADATA / availability (incl. company identity) -> answered from the store's
+    # metrics/sheets/years/company. Rules-only intent (the LLM never routes here — see understand).
+    if _COMPANY_ID_RE.search(query) or _AVAILABILITY_RE.search(query):
+        return QueryFrame(raw_query=query, intent="data_availability", company=company, year=year)
 
     # ad-hoc formula / unregistered ratio -> agent (compute_expr). Keeps "calculate ROIC = a/(b-c)"
     # off the metric_lookup path, where the composed value would be numeric-guard rejected.
@@ -871,8 +926,16 @@ def understand(
         extra={"component": "Understand"},
     )
 
-    # Step 3: single GPT call — expand + validate in one shot
-    if llm is not None:
+    # Step 3: single GPT call — expand + validate in one shot.
+    # data_availability is a RULES-ONLY intent: the LLM validator isn't told it exists, so we
+    # must NOT send it through (the LLM would re-classify it into a value intent). Keeping the
+    # rules frame here is also what guarantees the LLM can never pull OTHER queries into
+    # data_availability — the regexes in build_frame are the only door.
+    if frame.intent == "data_availability":
+        result = frame
+        _log.info("fie understand: data_availability (rules-only) — skipping LLM validation",
+                  extra={"component": "Understand"})
+    elif llm is not None:
         validated = validate_frame_llm(
             query, frame, llm, available_metrics, available_years, history
         )

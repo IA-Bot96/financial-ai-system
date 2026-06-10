@@ -149,6 +149,7 @@ class FinancialIntelligenceEngine:
         "driver_analysis": "_h_driver_analysis",
         "validation": "_h_validation",
         "edit_history": "_h_edit_history",
+        "data_availability": "_h_data_availability",
         "risk_assessment": "_h_risk_assessment",
         "peer_comparison": "_h_peer_comparison",
         "valuation": "_h_valuation",
@@ -239,7 +240,7 @@ class FinancialIntelligenceEngine:
         clarifying = bool((ctx.extra or {}).get("clarify"))
         # edit_history answers from the change log (ctx.extra), never from financial evidence —
         # so an empty ctx.evidence is EXPECTED, not a miss. Don't let the agent fallback hijack it.
-        handled_via_extra = frame.intent == "edit_history"
+        handled_via_extra = frame.intent in ("edit_history", "data_availability")
         if (not clarifying and not handled_via_extra
                 and (frame.intent in ("unknown", "agent") or internal_empty)):
             self._run_agent(frame, ctx)
@@ -298,7 +299,7 @@ class FinancialIntelligenceEngine:
         # edit_history is a deterministic listing of app actions (not financial claims): it
         # carries no evidence/calcs, so confidence scoring is meaningless and narration would
         # only risk reformatting timestamps/values past the numeric guard. Render it as-is.
-        if frame.intent not in ("unknown", "edit_history"):
+        if frame.intent not in ("unknown", "edit_history", "data_availability"):
             conf = self.confidence.score(
                 evidence=ctx.evidence, calcs=ctx.calcs, conflicts=ctx.conflicts,
                 selected_insights=ctx.selected_insights,
@@ -808,6 +809,92 @@ class FinancialIntelligenceEngine:
             "balance": {"breaks": breaks, "checks_run": n_checks, "all_ok": not breaks, "scope": scope},
             "anomalies": {"anomalies": anomalies}}}
 
+    def _h_data_availability(self, frame, ctx, plan) -> None:
+        """Answer 'does this workbook have X data / what years / what's in it / what company is
+        this' deterministically from the store's statements, metrics, years and company name.
+        Never a value lookup and never the agent — so it can't punt. Rules-only intent (the LLM
+        validator is unaware of it), so reaching here means build_frame matched a metadata regex."""
+        q = (frame.raw_query or "").lower()
+        df = self.store.findata
+        statements: set = set()
+        data_years: list = []
+        if df is not None and not df.empty:
+            if "statement" in df.columns:
+                statements = {str(s) for s in df["statement"].dropna().unique() if str(s) != "other"}
+            valued = df[df["value"].notna()]
+            data_years = sorted({int(y) for y in valued["year"].dropna().unique()})
+        metrics = set(self.store.available_metrics()) | set(self.store.available_metrics(level="detail"))
+
+        fam_map = [
+            (("cash flow", "cashflow", "cash-flow", "cash flows"), "cf", "a cash-flow statement"),
+            (("balance sheet", "balance-sheet", "financial position"), "bs", "a balance sheet"),
+            (("income statement", "p&l", "profit and loss", "profit or loss"), "pl",
+             "an income statement (P&L)"),
+            (("changes in equity", "statement of equity", "equity statement"), "equity",
+             "a statement of changes in equity"),
+        ]
+        sheets = list(self.store.sheet_names or [])   # TRUE workbook tab order
+        av: dict = {"statements": sorted(statements), "years": data_years, "metric_count": len(metrics)}
+        cat = next(((fam, label) for kws, fam, label in fam_map if any(k in q for k in kws)), None)
+        if re.search(r"\b(index|position)\b", q) and re.search(r"\bsheets?\b", q):
+            # "index of sheet X" / "sheet X is on what index" — resolve X against the real tab order
+            target = None
+            if sheets:
+                direct = sorted((s for s in sheets if s.lower() in q), key=len, reverse=True)
+                if direct:
+                    target = direct[0]
+                else:   # token fallback: a DISTINCTIVE token of a sheet name appears in the query
+                    _stop = {"the", "of", "and", "in", "is", "on", "to", "for", "this", "what",
+                             "which", "sheet", "sheets", "index", "position", "workbook", "at",
+                             "an", "a", "are", "does", "do"}
+                    def _toks(text):
+                        return {t for t in re.findall(r"[a-z0-9&]+", text)
+                                if len(t) >= 3 and t not in _stop}
+                    qtok = _toks(q)
+                    target = next((s for s in sheets if _toks(s.lower()) & qtok), None)
+            av.update(kind="sheet_index", sheet=target, sheet_names=sheets,
+                      index=(sheets.index(target) if target else None), total=len(sheets))
+        elif re.search(r"\b(how many|total|number of|count of)\s+(sheets?|tabs?)\b", q):
+            av.update(kind="sheet_count", sheet_names=sheets, total=len(sheets))
+        elif understanding._COMPANY_ID_RE.search(q):
+            av.update(kind="company", company=(self.store.company or None))
+        elif cat:
+            fam, label = cat
+            av.update(kind="category", label=label, present=fam in statements)
+            if fam == "cf" and fam not in statements:   # surface the cash-related items it DOES carry
+                av["related"] = [m.replace("_", " ") for m in ("cash_and_bank", "dividends_paid")
+                                 if m in metrics]
+        elif re.search(r"\b(what|which)\s+sheets?\b", q):
+            av.update(kind="sheets_list", sheet_names=sheets)
+        elif re.search(r"\b(which|what)\s+(financial\s+)?statements?\b|\bhow many statements?\b", q):
+            av.update(kind="statements")
+        elif re.search(r"\bhow many (metrics?|line items?)\b|\b(total|number of|count of) metrics?\b", q):
+            av.update(kind="metric_count")
+        elif re.search(r"\b(what|which)\s+years?\b|\byears?\b[^?]*\b(covered|available|included)\b"
+                       r"|\bhow many years\b", q):
+            av.update(kind="years")
+        elif (ym := re.search(r"\b(19|20)\d{2}\b", q)):
+            yr = int(ym.group(0))
+            av.update(kind="year", year=yr, present=(yr in data_years))
+        else:
+            # specific-metric availability ("does it have depreciation data?") — match a metric by
+            # name, with a WHOLE-WORD substring fallback (so 'work' in 'workbook' can't false-match)
+            mtr = understanding._matched_metric(q, self.store.query_metric_matcher())
+            if not mtr:
+                mtr = next((c for c in metrics
+                            if any(len(w) >= 4 and re.search(rf"\b{re.escape(w)}\b", q)
+                                   for w in c.split("_"))), None)
+            if mtr and re.search(r"\b(have|has|contain|include|got|is there|any)\b", q):
+                av.update(kind="metric", label=mtr.replace("_", " "), present=mtr in metrics)
+            else:
+                av.update(kind="overview")
+
+        ctx.evidence = []
+        ctx.extra = {**(ctx.extra or {}), "availability": av}
+        _log.info("fie data_availability: kind=%s statements=%s years=%s metrics=%d",
+                  av.get("kind"), sorted(statements), data_years, len(metrics),
+                  extra={"component": "Respond"})
+
     def _h_edit_history(self, frame, ctx, plan) -> None:
         """Answer questions about the user's own edits, from the workbook's History log
         (saved changes) merged with the client's pending/unsaved edits. Filters parsed
@@ -883,6 +970,11 @@ class FinancialIntelligenceEngine:
         if qd:
             changes = [x for x in changes if x["_dt"] and x["_dt"].date() == qd.date()]
             applied.append(qd.strftime("%Y-%m-%d"))
+        elif (yr_m := re.search(r"\b(19|20)\d{2}\b", q)) and not win:
+            # bare calendar-year filter: "changes in 2026", "in year 1901" -> that year only
+            yv = int(yr_m.group(0))
+            changes = [x for x in changes if x["_dt"] and x["_dt"].year == yv]
+            applied.append(str(yv))
         sheet_q = self._history_sheet_filter(q, changes)
         if sheet_q:
             changes = [x for x in changes if x["sheet"].lower() == sheet_q.lower()]
@@ -904,11 +996,42 @@ class FinancialIntelligenceEngine:
             r"\b(how many|number of|count of|how often|per sheet|by sheet|each sheet|across sheets?)\b"
             r"|\bwhich sheets?\b|\bmost\s+(change|edit|modif|update)", q, re.I))
 
+        # manual-verification ask: "which cells did I mark as manually verified?" — list the cells
+        # CURRENTLY marked verified (net of later clears), not every edit. A Validation-Ledger
+        # toggle stores a boolean-ish new value: true/1/yes = verified, anything else = cleared
+        # (mirrors the frontend's render). Net state = the latest toggle per ledger cell.
+        asks_verified = bool(re.search(
+            r"manually verified|verified cells?|which\b[^?]*\bverif|mark\w*\b[^?]*\bverif", q, re.I))
+
         eh: dict = {"filters": applied, "total": len(changes),
                     "now": now.isoformat(timespec="seconds"),
                     "session_known": session_start is not None}
         shown_n = 0
-        if open_count:
+        if asks_verified:
+            eh["mode"] = "list"   # reuse list rendering (frontend-compatible)
+            vrows = [x for x in changes if x["sheet"].strip().lower() == "validation ledger"]
+            latest: dict = {}
+            for x in sorted(vrows, key=lambda r: r["_dt"] or datetime.min):
+                latest[x["cell"]] = x            # keep the most recent toggle per ledger cell
+            verified = [x for x in latest.values()
+                        if str(x.get("new", "")).strip().lower() in ("true", "1", "yes")]
+            verified.sort(key=lambda x: (x["_dt"] or datetime.min), reverse=True)
+            items = []
+            for x in verified:
+                vs, vc = self._mv_verified_ref(x["cell"])
+                items.append({"timestamp": x["timestamp"], "sheet": x["sheet"], "cell": x["cell"],
+                              "old": x["old"], "new": x["new"], "saved": x["saved"],
+                              "kind": "verify", "verified_sheet": vs, "verified_cell": vc})
+            eh["items"], eh["shown"], eh["total"] = items, len(items), len(items)
+            shown_n = len(items)
+            if items:
+                refs = ", ".join((f"{it['verified_sheet']}/" if it.get("verified_sheet") else "")
+                                 + (it.get("verified_cell") or it["cell"]) for it in items)
+                eh["lead"] = f"You have {len(items)} cell(s) currently marked as manually verified: {refs}."
+            else:
+                eh["lead"] = ("No cells are currently marked as manually verified"
+                              + (" — any earlier marks were later cleared." if vrows else "."))
+        elif open_count:
             eh["mode"] = "open_count"
             n = len(open_markers)
             eh["open_count"] = n
@@ -940,16 +1063,28 @@ class FinancialIntelligenceEngine:
                 eh["lead"] = f"No changes recorded{fstr}."
         else:
             eh["mode"] = "list"
-            # "first/earliest/oldest" -> the single OLDEST change; otherwise newest-first,
-            # honoring "last N" / "last change".
-            asks_first = bool(re.search(r"\b(first|earliest|oldest)\b", q, re.I))
+            # "first/earliest/oldest change" -> the single OLDEST change. But "newest/oldest
+            # FIRST" is an ORDERING directive (ascending vs descending), NOT a request for the
+            # first change — don't let that trailing "first" trip the single-change path.
+            # `changes` is already sorted newest-first.
+            order_newest = bool(re.search(
+                r"\b(newest|latest|most recent|recent)\s+first\b|\breverse[\s-]?chronologic", q, re.I))
+            order_oldest = (not order_newest) and bool(re.search(
+                r"\b(oldest|earliest)\s+first\b|\bchronologic", q, re.I))
+            ordering = order_newest or order_oldest
+            asks_first = (not ordering) and bool(re.search(
+                r"\b(earliest|oldest)\b|\bfirst\s+(change|edit|modification|update|one|thing)\b"
+                r"|\b(my|the)\s+first\b", q, re.I))
+            asks_all = bool(re.search(r"\b(all|every|each|entire|complete|full)\b", q, re.I))
             lm = _HIST_LIMIT_RE.search(q)
             if asks_first:
-                ordered_changes = list(reversed(changes))   # oldest first
+                ordered_changes = list(reversed(changes))   # the single oldest change
                 limit = 1
             else:
-                ordered_changes = changes
-                limit = max(1, int(lm.group(1))) if lm else (1 if _HIST_ONE_RE.search(q) else 20)
+                ordered_changes = list(reversed(changes)) if order_oldest else changes
+                limit = (max(1, int(lm.group(1))) if lm
+                         else len(changes) if (asks_all or ordering)
+                         else (1 if _HIST_ONE_RE.search(q) else 20))
             shown = ordered_changes[:limit]
             shown_n = len(shown)
             items = []

@@ -114,6 +114,7 @@ class FinancialFactStore:
         manifest: dict,
         ontology: MetricOntology,
         history: list[dict] | None = None,
+        sheet_names: list[str] | None = None,
     ) -> None:
         self.company = company
         self.unit = _UNIT
@@ -123,6 +124,10 @@ class FinancialFactStore:
         self._insights = insights
         self.manifest = manifest
         self.ontology = ontology
+        # the workbook's tabs in their TRUE order (from openpyxl), so metadata queries can answer
+        # "how many sheets" / "index of sheet X". findata's sheet order is parse order, NOT tab
+        # order, so it cannot be used for this. Empty for synthetic stores built without a workbook.
+        self.sheet_names: list[str] = list(sheet_names or [])
         # app-managed edit log parsed from the workbook's "History" sheet (may be empty);
         # each row: {timestamp, sheet, cell, old, new, saved:bool, event:Optional[str]}
         self.history: list[dict] = history or []
@@ -178,6 +183,7 @@ class FinancialFactStore:
             company=company, findata=findata, source_ledger=source_ledger,
             validation_ledger=validation_ledger, insights=insights,
             manifest=manifest, ontology=onto, history=history,
+            sheet_names=list(wb.sheetnames),   # TRUE tab order for sheet-metadata queries
         )
 
     @staticmethod

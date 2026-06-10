@@ -288,6 +288,7 @@ interface AppState {
   onCitation: (cite: Citation) => void
   clearNavCell: () => void
   ask: (query: string) => Promise<void>
+  cancelAsk: () => void
   setPdfPaths: (paths: string[]) => void
   setValidation: (v: ValidationSummary | null) => void
   setValidationEnabled: (v: boolean) => void
@@ -323,6 +324,9 @@ interface AppState {
 }
 
 let _tid = 0
+// id of the in-flight ask() request, so cancelAsk() can abort it and the (later) continuation
+// can detect it was cancelled/superseded and not clobber the UI. Null when no request is running.
+let _askReqId: string | null = null
 
 // Whether the (beta) validation-review feature is enabled at all — a persisted user PREFERENCE
 // set from Settings. Defaults to on. When off, the review bar and all highlighting are hidden.
@@ -498,6 +502,8 @@ export const useApp = create<AppState>((set) => ({
     if (!s.session || s.chat.pending) return
     const uid = `u${++_tid}`
     const aid = `a${++_tid}`
+    const reqId = `q${++_tid}`
+    _askReqId = reqId
     const now = Date.now()
 
     // Build conversation history from settled turns (exclude any still-pending assistant slot).
@@ -533,8 +539,19 @@ export const useApp = create<AppState>((set) => ({
     )
     const res = await api.answer(s.session.session_id, query, history, {
       client_now: nowLocalIso(),
-      pending_edits: pending
+      pending_edits: pending,
+      requestId: reqId
     })
+    // Superseded or already cleaned up by cancelAsk() — don't clobber the current UI.
+    if (_askReqId !== reqId) return
+    _askReqId = null
+    // status -1 = user cancelled (fetch aborted in main): drop the pending bubble, no error.
+    if (res.status === -1) {
+      set((st) => ({
+        chat: { pending: false, messages: st.chat.messages.filter((m) => m.id !== aid) }
+      }))
+      return
+    }
     set((st) => ({
       chat: {
         pending: false,
@@ -550,6 +567,19 @@ export const useApp = create<AppState>((set) => ({
                     `request failed (${res.status})`
                 }
         )
+      }
+    }))
+  },
+  cancelAsk: () => {
+    const id = _askReqId
+    if (!id) return
+    _askReqId = null              // mark cancelled so ask()'s continuation no-ops
+    void api.cancel(id).catch(() => {})
+    // immediately free the UI: clear pending and remove the in-flight (response-less) bubble
+    set((st) => ({
+      chat: {
+        pending: false,
+        messages: st.chat.messages.filter((m) => !(m.role === 'assistant' && !m.response && !m.error))
       }
     }))
   },

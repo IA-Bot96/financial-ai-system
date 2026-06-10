@@ -70,8 +70,8 @@ async function get<T>(path: string): Promise<{ status: number; body: T }> {
   const r = await window.api.request({ method: 'GET', path })
   return { status: r.status, body: r.body as T }
 }
-async function post<T>(path: string, json: unknown): Promise<{ status: number; body: T }> {
-  const r = await window.api.request({ method: 'POST', path, json })
+async function post<T>(path: string, json: unknown, id?: string): Promise<{ status: number; body: T }> {
+  const r = await window.api.request({ method: 'POST', path, json, ...(id ? { id } : {}) })
   return { status: r.status, body: r.body as T }
 }
 
@@ -117,14 +117,21 @@ export const api = {
     opts?: {
       client_now?: string
       pending_edits?: Array<{ timestamp: string; sheet: string; cell: string; old: string; new: string }>
+      requestId?: string
     }
   ) =>
-    post<FieResponse>(`/api/fie/sessions/${sessionId}/answer`, {
-      query,
-      history,
-      ...(opts?.client_now ? { client_now: opts.client_now } : {}),
-      ...(opts?.pending_edits ? { pending_edits: opts.pending_edits } : {})
-    }),
+    post<FieResponse>(
+      `/api/fie/sessions/${sessionId}/answer`,
+      {
+        query,
+        history,
+        ...(opts?.client_now ? { client_now: opts.client_now } : {}),
+        ...(opts?.pending_edits ? { pending_edits: opts.pending_edits } : {})
+      },
+      opts?.requestId
+    ),
+  /** Abort an in-flight answer() request issued with the given requestId. */
+  cancel: (requestId: string): Promise<void> => window.api.cancelRequest(requestId),
   series: (sessionId: string) =>
     get<SeriesResponse>(`/api/fie/sessions/${sessionId}/series`),
   // settings — read/update/reset engine config. POST returns the same { fields } snapshot;
