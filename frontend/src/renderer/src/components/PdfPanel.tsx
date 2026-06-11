@@ -239,11 +239,11 @@ export function PdfPanel() {
       pendingCellHl.current = null
       return
     }
-    // a citation carries a target page (pdfQueryPage); a plain cell-select doesn't (uses the
-    // current page). Only a citation can be switching documents — a cell-select never is, so
-    // don't defer it on a stale nav.pdfFile.
-    // Set the highlight term synchronously so pages render WITH marks (renderText matches the
-    // value's variants directly). The TARGET page is resolved by searching the sheet's source
+    // Both a citation AND a year-aware cell-select carry a target page (pdfQueryPage) and may
+    // switch documents (pdfFile = the cell's own report-year PDF). When the target doc differs
+    // from the open one, defer the highlight until it loads (`switching` below); otherwise resolve
+    // in place. Set the highlight term synchronously so pages render WITH marks (renderText matches
+    // the value's variants directly). The TARGET page is resolved by searching the sheet's source
     // pages for this PDF and jumping to the first that actually contains the value.
     setCellHl(term)
     const preferred = nav.pdfQueryPage ?? currentPage

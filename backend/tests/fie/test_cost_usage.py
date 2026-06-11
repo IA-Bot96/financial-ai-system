@@ -3,6 +3,8 @@
 All fixture-free: exercises the pure logic added this session (LLM usage capture, pricing.usage_cost
 delta, controller._merge_hints / _recent_context) without needing a workbook."""
 
+import pytest
+
 from app.engines.fie import controller, pricing
 from app.engines.fie.llm import NullLLM, OpenAILLM
 
@@ -108,3 +110,97 @@ def test_recent_context_keeps_non_metric_answer():
              "frame": {}}]
     rc = controller._recent_context(hist)
     assert rc and rc[0].get("answer") and "13 companies" in rc[0]["answer"]
+
+
+# ── confidence band from the two verify gates (grade, don't reject) ───────────
+@pytest.mark.parametrize("grounding,numbers,band", [
+    (True, True, "High"),       # both gates pass
+    (True, False, "Medium"),    # numbers gate fails
+    (False, True, "Medium"),    # grounding gate fails
+    (False, False, "Low"),      # both fail
+])
+def test_confidence_band_mapping(grounding, numbers, band):
+    b, reasons = controller._confidence_band(grounding, numbers)
+    assert b == band
+    # one reason per failing gate; none when both pass
+    assert len(reasons) == (0 if grounding else 1) + (0 if numbers else 1)
+
+
+# ── analysis-report year precedence: explicit > context > latest ──────────────
+class _FakeStore:
+    findata = None              # forces _recent_data_years to use `years`
+    years = [2023, 2024, 2025]
+
+
+class _FakeEngine:
+    def __init__(self, hint_years):
+        self.store = _FakeStore()
+        self._hints = {"years": hint_years}
+
+
+def test_report_year_context_wins_over_latest():
+    from app.engines.fie import tools
+    out = tools._default_report_years(_FakeEngine([2023]))
+    assert out[0] == 2023                 # contextual year tried first
+    assert 2025 in out and 2024 in out    # latest data years remain as fallbacks
+
+
+def test_report_year_latest_when_no_context():
+    from app.engines.fie import tools
+    out = tools._default_report_years(_FakeEngine([]))
+    assert out[0] == 2025                 # newest data year when the conversation gave none
+
+
+# ── frame remembers the SUBJECT SET (companies[]) + tools[] ───────────────────
+def test_frame_captures_offworkbook_subject_and_tool():
+    plan = {"needs": [{"kind": "tool", "tool": "getCompanyOverview",
+                       "args": {"company": "Systems Limited"}}],
+            "hints": {"company": "Systems Limited"}}
+    f = controller._frame("systems limited gp margin?", plan, "Millat Tractors Limited")
+    assert f.companies == ["Systems Limited"]      # the subject SET (not the workbook company)
+    assert f.company == "Systems Limited"          # primary mirrors companies[0]
+    assert f.tools == ["getCompanyOverview"]
+
+
+def test_frame_comparison_keeps_both_companies():
+    plan = {"needs": [{"kind": "tool", "tool": "getCompanyOverview", "args": {"company": "Millat Tractors Limited"}},
+                      {"kind": "tool", "tool": "getCompanyOverview", "args": {"company": "Lucky Cement"}}],
+            "hints": {"company": "Millat Tractors Limited"}}
+    f = controller._frame("millat vs lucky gp margin", plan, "Millat Tractors Limited")
+    assert f.companies == ["Millat Tractors Limited", "Lucky Cement"]   # BOTH kept, in order
+    assert f.tools == ["getCompanyOverview", "getCompanyOverview"]
+
+
+def test_frame_keeps_workbook_company_when_subject_is_workbook():
+    plan = {"needs": [{"kind": "metric", "metric": "revenue", "year": 2024}],
+            "hints": {"company": "Millat Tractors Limited"}}
+    f = controller._frame("revenue 2024?", plan, "Millat Tractors Limited")
+    assert f.companies == ["Millat Tractors Limited"] and f.tools == [] and f.year == 2024
+
+
+def test_frame_placeholder_company_falls_back_to_workbook():
+    f = controller._frame("hi", {"needs": [], "hints": {"company": "unknown"}},
+                          "Millat Tractors Limited")
+    assert f.companies == ["Millat Tractors Limited"]
+
+
+def test_frame_multiyear_populates_years_range():
+    plan = {"needs": [{"kind": "metric", "metric": "revenue", "year": 2022},
+                      {"kind": "metric", "metric": "revenue", "year": 2024}], "hints": {}}
+    f = controller._frame("revenue 2022 and 2024", plan, "Millat Tractors Limited")
+    assert f.years == [2022, 2024] and f.year == 2024   # range populated; operative = latest
+
+
+def test_recent_context_surfaces_subject_set_and_tools():
+    hist = [{"role": "assistant", "text": "Systems Limited gross margin was 26.77%.",
+             "frame": {"companies": ["Systems Limited"], "tools": ["getCompanyOverview"],
+                       "year": 2025, "company": "Systems Limited"}}]
+    rc = controller._recent_context(hist)
+    assert rc[0]["resolved"] == {"companies": ["Systems Limited"],
+                                 "tools": ["getCompanyOverview"], "year": 2025}
+
+
+def test_clarify_rule_and_schema_present():
+    from app.engines.fie import schemas
+    assert "CLARIFY" in schemas.PLAN_SYS and "SUBJECT STICKINESS" in schemas.PLAN_SYS
+    assert "clarification" in schemas.PLAN_SCHEMA["properties"]

@@ -177,6 +177,45 @@ export function reconstructSheetSources(sheets: ParsedSheet[]): SheetSources {
   return out
 }
 
+/** Per-CELL provenance: "Sheet!A1" → the exact source PDF + page that cell was extracted from.
+ *  The Source Ledger lists every written cell's origin (Sheet | Cell | … | Report file | Page),
+ *  so a selected cell (e.g. a 2022 value) resolves to ITS year's PDF + page — what drives the
+ *  "open that PDF, go to the page, then highlight" flow on cell-select. {} when no parseable ledger. */
+export type CellSources = Record<string, { file: string; page: number }>
+
+export function reconstructCellSources(sheets: ParsedSheet[]): CellSources {
+  const ledger = sheets.find((s) => s.name.trim().toLowerCase() === 'source ledger')
+  const header = ledger?.cellData?.[0]
+  if (!ledger || !header) return {}
+  const colOf = (label: string): number | null => {
+    for (const [c, cell] of Object.entries(header)) {
+      const v = cell?.v
+      if (typeof v === 'string' && v.trim().toLowerCase() === label) return Number(c)
+    }
+    return null
+  }
+  const cSheet = colOf('sheet')
+  const cCell = colOf('cell')
+  const cFile = colOf('report file')
+  const cPage = colOf('page')
+  if (cSheet == null || cCell == null || cFile == null || cPage == null) return {}
+  const out: CellSources = {}
+  for (const [rowKey, row] of Object.entries(ledger.cellData)) {
+    if (Number(rowKey) === 0) continue // header
+    const sheet = row?.[cSheet]?.v
+    const cell = row?.[cCell]?.v
+    const file = row?.[cFile]?.v
+    if (typeof sheet !== 'string' || typeof cell !== 'string' || typeof file !== 'string') continue
+    if (!sheet || !cell || !file) continue
+    const rawPage = row?.[cPage]?.v
+    const page = typeof rawPage === 'number' ? rawPage : Number(rawPage)
+    if (!Number.isFinite(page) || page < 1) continue
+    const key = `${sheet}!${cell.toUpperCase()}`
+    if (!(key in out)) out[key] = { file, page } // first origin wins
+  }
+  return out
+}
+
 /** The source pages of a given PDF for a sheet (e.g. BS → 2025.pdf → [137,138,139,179]).
  *  Used to scope the PDF value-highlight search to a sheet's source pages, not just one. */
 function sourcePagesFor(
@@ -232,6 +271,7 @@ interface AppState {
   pdfPaths: string[]
   validation: ValidationSummary | null
   sheetSources: SheetSources       // worksheet → source PDF pages (from extraction)
+  cellSources: CellSources         // "Sheet!A1" → exact source PDF + page for that cell
   activeSheet: string | null       // currently selected worksheet tab name
   activePdf: string | null         // filename of the PDF currently shown in the viewer
   activePdfPage: number | null     // 1-based page currently in view (reported by PdfPanel)
@@ -305,6 +345,8 @@ interface AppState {
   setActivePdf: (file: string | null) => void
   setActivePdfPage: (page: number | null) => void
   highlightPdf: (term: string | null) => void
+  // cell-select: resolve the cell's exact source PDF + page (year-aware) and open→page→highlight
+  highlightCellInPdf: (sheet: string, a1: string, value: string | null) => void
   setSyncPdfToSheet: (v: boolean) => void
   focusSheetSource: (entry: SheetSourceEntry, page?: number) => void
   toggleShowSource: () => void
@@ -355,6 +397,7 @@ export const useApp = create<AppState>((set) => ({
   pdfPaths: [],
   validation: null,
   sheetSources: {},
+  cellSources: {},
   activeSheet: null,
   activePdf: null,
   activePdfPage: null,
@@ -402,6 +445,7 @@ export const useApp = create<AppState>((set) => ({
       editTimes: {},
       historyMarkerWritten: false,
       sheetSources: {},
+      cellSources: {},
       activeSheet: null,
       activePdf: null,
       activePdfPage: null,
@@ -616,15 +660,22 @@ export const useApp = create<AppState>((set) => ({
     if (!data) return
     issue.verified = checked // shared ref in cellIssue/sheetIssues/workbookNotes → all reflect it
     const mvA1 = `${data.mvCell}${issue.ledgerRow + 1}`
+    const mvKey = `${data.ledgerSheetName}!${mvA1}`
     writeCell(data.ledgerSheetName, mvA1, checked ? 'TRUE' : '')
     // live recolour the data cell (only while highlighting is shown)
     if (st.showValidation && issue.cell) {
       setCellBackground(issue.sheet, issue.cell, VALIDATION_BG[colorOf(issue)])
     }
-    set({
+    // Stamp the verify time as NOW. This programmatic ledger write does NOT go through the grid's
+    // edit handler, so without this the History panel would fall back to the session-open time and
+    // the verify/unverify row would sort to the BOTTOM instead of the top. editSeq bump forces the
+    // History read model to recompute so the entry appears immediately.
+    set((s) => ({
       validationLedger: { ...data }, // new top ref → re-render
-      verifyWrites: { ...st.verifyWrites, [`${data.ledgerSheetName}!${mvA1}`]: checked ? 'TRUE' : '' }
-    })
+      verifyWrites: { ...s.verifyWrites, [mvKey]: checked ? 'TRUE' : '' },
+      editTimes: { ...s.editTimes, [mvKey]: nowLocalIso() },
+      editSeq: s.editSeq + 1
+    }))
   },
   // Navigate to a worksheet cell (used by the validation panel/chips). Mirrors the citation
   // path: switch to the sheet surface, mark the active sheet, and bump cellSeq so SheetView's
@@ -641,7 +692,9 @@ export const useApp = create<AppState>((set) => ({
   applySheetSources: async (buf, sheets) => {
     let ss = await readSheetSources(buf)
     if (!Object.keys(ss).length) ss = reconstructSheetSources(sheets)
-    set({ sheetSources: ss })
+    // per-cell provenance only lives in the Source Ledger sheet (the embedded property is the
+    // aggregated sheet→file map), so always rebuild it from the sheets.
+    set({ sheetSources: ss, cellSources: reconstructCellSources(sheets) })
   },
   setActiveSheet: (name) => {
     const st = useApp.getState()
@@ -699,6 +752,36 @@ export const useApp = create<AppState>((set) => ({
         pdfQuerySeq: s.nav.pdfQuerySeq + 1
       }
     }))
+  },
+  // Cell-select → PDF: resolve the cell's EXACT source PDF + page (so a 2022 value points at the
+  // 2022 report, not whatever PDF is open) and drive the citation-style nav — switch the doc, jump
+  // to the page, then highlight the value. PdfPanel runs these IN ORDER (it defers the highlight
+  // until the newly-switched doc has loaded), so each step waits for the previous. Falls back to
+  // searching the currently-open PDF when there's no per-cell provenance (or its PDF isn't loaded).
+  highlightCellInPdf: (sheet, a1, value) => {
+    const s = useApp.getState()
+    const term = value == null ? '' : String(value).trim()
+    const base = (p: string) => p.replace(/\\/g, '/').split('/').pop()?.toLowerCase() ?? ''
+    const src = s.cellSources[`${sheet}!${String(a1).toUpperCase()}`]
+    const loaded = !!src && s.pdfPaths.some((p) => base(p) === src.file.toLowerCase())
+    if (src && loaded) {
+      const pages = sourcePagesFor(s.sheetSources, sheet, src.file)
+      set((st) => ({
+        panels: { ...st.panels, pdf: true },
+        nav: {
+          ...st.nav,
+          pdfFile: src.file,
+          pdfPage: src.page,
+          pdfSeq: st.nav.pdfSeq + 1, // 1) switch doc + jump to the page (waits for load)
+          pdfQuery: term || null,
+          pdfQueryPage: src.page,
+          pdfQueryPages: pages.length ? pages : [src.page],
+          pdfQuerySeq: st.nav.pdfQuerySeq + 1 // 2) then highlight (deferred until the doc is ready)
+        }
+      }))
+      return
+    }
+    s.highlightPdf(term || null) // no per-cell source / PDF not loaded → search the open PDF
   },
   setSyncPdfToSheet: (v) => {
     set({ syncPdfToSheet: v })

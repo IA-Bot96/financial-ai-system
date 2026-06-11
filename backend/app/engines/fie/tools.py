@@ -1284,29 +1284,81 @@ def _ar_row(rec: dict) -> dict:
     return {k: rec.get(k) for k in _AR_FIELDS if rec.get(k) is not None}
 
 
+def _recent_data_years(engine) -> list[int]:
+    """The workbook's years that carry actual values, NEWEST first (forecast-only slots excluded)."""
+    try:
+        df = engine.store.findata
+        if df is not None and not df.empty:
+            ys = sorted({int(y) for y in df[df["value"].notna()]["year"].dropna().unique()})
+            if ys:
+                return list(reversed(ys))
+    except Exception:  # noqa: BLE001
+        pass
+    yrs = getattr(engine.store, "years", None) or []
+    return list(reversed(yrs))
+
+
+def _default_report_years(engine) -> list[int]:
+    """Years to try for the PSX report when the planner gave no explicit year, in PRECEDENCE order:
+    first the year(s) the planner resolved from the QUESTION + CONVERSATION (plan hints, which the
+    FOLLOW-UP rule fills from `recent`), THEN the workbook's latest DATA years. So a contextual year
+    (e.g. carried from an earlier turn) wins over 'latest', and 'latest' is only the last resort."""
+    out: list[int] = []
+    hints = getattr(engine, "_hints", None) or {}
+    for y in (hints.get("years") or []):
+        try:
+            iy = int(y)
+        except (TypeError, ValueError):
+            continue
+        if iy not in out:
+            out.append(iy)
+    out.sort(reverse=True)                       # newest contextual year first
+    for y in _recent_data_years(engine):         # then fall back to the latest data years
+        if y not in out:
+            out.append(y)
+    return out
+
+
 def get_analysis_report(engine, year: int = 0, company: str = "", symbol: str = "",
                         sector: str = "", limit: int = 60, **_) -> ToolResult:
     """PSX yearly fundamentals dataset for a given YEAR (Rs MILLION): per listed company — sales,
     profit-before-tax, profit-after-tax, shareholders' equity, total assets, financial charges,
     dividend %s and shareholder count, plus the company's sector. Pass a company/symbol for that
     one company's audited fundamentals; pass a sector for every company in it PLUS the sector
-    aggregate (net & PBT margin); pass neither for the whole-market totals. NOTE: figures are Rs
-    MILLION (the workbook is Rs thousand) — reconcile scale before mixing."""
+    aggregate (net & PBT margin); pass neither for the whole-market totals. If no year is given,
+    defaults to the workbook's most recent year that has a published PSX report. NOTE: figures are
+    Rs MILLION (the workbook is Rs thousand) — reconcile scale before mixing."""
     try:
         y = int(year)
     except (TypeError, ValueError):
         y = 0
-    if not y:
-        return {"tool": "getAnalysisReport", "note": "need a fiscal year (e.g. 2025)"}, [], []
     try:
         from .external import _adapters, _load_report
         ar, syms = _adapters(engine)
-        recs = _load_report(ar, y)            # {symbol: full record}, process-cached
     except Exception as e:  # noqa: BLE001
-        return {"tool": "getAnalysisReport", "year": y, "note": f"report unavailable: {e}"}, [], []
+        return {"tool": "getAnalysisReport", "year": (y or None),
+                "note": f"report unavailable: {e}"}, [], []
+    # Year precedence: (1) explicit arg the planner resolved from the question; else (2) the
+    # contextual year from the conversation, then (3) the latest data year — `_default_report_years`
+    # encodes context-before-latest. We then use the first candidate with a PUBLISHED report (the
+    # latest PSX report often lags the newest workbook year), so a 'sector margins / vs peers' ask
+    # hits PSX even when the planner omits the year.
+    candidates = [y] if y else _default_report_years(engine)
+    recs, used = {}, None
+    for cy in candidates[:6]:
+        try:
+            recs = _load_report(ar, int(cy))   # {symbol: full record}, process-cached
+        except Exception as e:  # noqa: BLE001
+            return {"tool": "getAnalysisReport", "year": int(cy),
+                    "note": f"report unavailable: {e}"}, [], []
+        if recs:
+            used = int(cy)
+            break
     if not recs:
-        return {"tool": "getAnalysisReport", "year": y,
-                "note": f"no PSX analysis report published for {y}"}, [], []
+        where = f"for {y}" if y else "for recent years"
+        return {"tool": "getAnalysisReport", "year": (y or None),
+                "note": f"no PSX analysis report published {where}"}, [], []
+    y = used
 
     # --- one company ---
     if company or symbol:
@@ -1590,7 +1642,7 @@ TOOLS: dict[str, Tool] = {
                     "comparison. With no sector, returns whole-market totals. Figures are Rs "
                     "MILLION (the workbook is Rs thousand).",
         inputs=({"name": "sector", "type": "string", "desc": "PSX sector name, e.g. 'CEMENT'"},
-                {"name": "year", "type": "integer", "desc": "fiscal year, e.g. 2025"},
+                {"name": "year", "type": "integer", "desc": "fiscal year, e.g. 2025 (optional; defaults to the latest published year)"},
                 {"name": "limit", "type": "integer", "desc": "max companies listed (default 60)"}),
         outputs="dict: {sector, companies_total, total_sales, total_pat, total_pbt, "
                 "net_margin_pct, pbt_margin_pct, companies[]}",

@@ -178,13 +178,18 @@ class QueryFrame(BaseModel):
 
     raw_query: str
     intent: str
-    company: Optional[str] = None
-    companies: list[str] = Field(default_factory=list)  # peer_comparison targets
-    year: Optional[int] = None
+    company: Optional[str] = None  # primary subject (= companies[0]); kept for trace/metrics
+    companies: list[str] = Field(default_factory=list)  # the SUBJECT SET (1 = single, N = compare)
+    sector: Optional[str] = None  # the sector in focus (off-workbook sector asks)
+    year: Optional[int] = None  # operative point year (what needs/tools consume, a follow-up sets)
     years: list[int] = Field(default_factory=list)  # explicit multi-year range (trend)
     window: Optional[int] = None  # "last N years" — resolved against the store in the engine
     aggregation: Optional[str] = None  # trend operator: "average" | "cagr" | None
-    formula: Optional[str] = None  # e.g. "current_ratio"
+    formula: Optional[str] = None  # primary formula (= formulas[0]); kept for compat
+    formulas: list[str] = Field(default_factory=list)  # all registered ratios this turn resolved to
+    tool: Optional[str] = None  # primary tool (= tools[0]); kept for compat
+    tools: list[str] = Field(default_factory=list)  # all named tools the turn used — so an
+    #                           elliptical follow-up can re-run them for the same subject set
     metrics: list[str] = Field(default_factory=list)  # required canonical metrics
     level: Level = "headline"
     period_type: PeriodType = "historical"

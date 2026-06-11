@@ -14,7 +14,7 @@ import time
 import uuid
 
 from . import citations as citations_mod
-from .models import QueryFrame, Response
+from .models import ConfidenceReport, QueryFrame, Response
 from . import schemas, verify
 from .observability import run_context
 from .pricing import usage_cost, usage_snapshot
@@ -91,7 +91,13 @@ def _recent_context(history) -> list[dict]:
                 out.append({"role": "user", "question": t})
         elif role == "assistant":
             fr = h.get("frame") or {}
-            resolved = {k: fr.get(k) for k in ("metrics", "formula", "year") if fr.get(k)}
+            # surface the SUBJECT SET (companies) + sector + the tools/formulas/metrics/years the
+            # turn resolved to, so an elliptical follow-up inherits the right entities AND re-runs
+            # the right tool(s). `companies` is a set so a comparison ('Millat vs Lucky') keeps
+            # BOTH; without it a follow-up loses the thread / drops a company.
+            resolved = {k: fr.get(k) for k in
+                        ("companies", "sector", "metrics", "formulas", "tools", "year", "years")
+                        if fr.get(k)}
             entry: dict = {"role": "assistant"}
             if resolved:
                 entry["resolved"] = resolved
@@ -152,6 +158,17 @@ def run(engine, query: str, *, audience: str = "analyst",
         for i, need in enumerate(needs):
             _log.info("PLAN need[%d] %s", i, _need_brief(need), extra={"component": "Plan"})
 
+        # ---- CLARIFY: genuinely ambiguous query -> ask ONE question instead of guessing. The
+        # planner emits `clarification` with no needs; we return the question as the answer (no
+        # FETCH/COMPOSE), with no confidence band (it's a question, not a graded answer).
+        clarification = (plan.get("clarification") or "").strip()
+        if clarification and not needs:
+            _log.info("CLARIFY -> %r", clarification[:200], extra={"component": "Plan"})
+            rl.dump("02b_clarification", {"question": clarification})
+            resp = _response(clarification, [], [], [], "deterministic", confidence=None)
+            rl.dump("10_response", resp)
+            return resp, frame, []
+
         # ---- FETCH: run each need through its deterministic primitive; collect cited
         # evidence/calcs. EVERY query type (incl. availability + edit-history) flows through the
         # same pipeline. The edit-history payload (UI chips) rides through to the Response.
@@ -179,19 +196,21 @@ def run(engine, query: str, *, audience: str = "analyst",
         # ---- COMPOSE (+ sufficiency self-check) -> VERIFY (gates), with ONE bounded open-web
         # escalation. _compose owns citation binding because a web round adds evidence to re-bind.
         rl.phase("compose")
-        direct, source, cites = _compose(llm, engine, query, fetched, gaps, frame,
-                                         evidence, calcs, rl)
+        direct, source, cites, band, conf_reasons = _compose(
+            llm, engine, query, fetched, gaps, frame, evidence, calcs, rl)
         findings = _findings(evidence, cites)
-        resp = _response(direct, findings, calcs, cites, source)
+        confidence = ConfidenceReport(band=band, score=_BAND_SCORE.get(band, 0.6),
+                                      reasons=conf_reasons)
+        resp = _response(direct, findings, calcs, cites, source, confidence)
         if edit_payload is not None:
             resp.edit_history = edit_payload  # UI renders change-chips from this, regardless of prose
         resp.usage = usage_cost(llm, usage_before)
 
         ms = round((time.monotonic() - t0) * 1000, 1)
         u = resp.usage
-        _log.info("DONE source=%s citations=%d findings=%d evidence=%d calcs=%d gaps=%d %.1fms"
-                  " | cost=%s",
-                  source, len(cites), len(findings), len(evidence), len(calcs), len(gaps), ms,
+        _log.info("DONE source=%s confidence=%s citations=%d findings=%d evidence=%d calcs=%d "
+                  "gaps=%d %.1fms | cost=%s",
+                  source, band, len(cites), len(findings), len(evidence), len(calcs), len(gaps), ms,
                   (f"${u.total_usd:.6f} ({u.prompt_tokens}+{u.completion_tokens} tok, "
                    f"{u.api_calls} call(s), {u.cached_calls} cached, model={u.model})"
                    if u else "n/a (no LLM)"),
@@ -200,6 +219,7 @@ def run(engine, query: str, *, audience: str = "analyst",
             "trace_id": trace_id, "query": query, "audience": audience,
             "company": engine.store.company, "answer_kind": plan.get("answer_kind"),
             "needs": [_need_brief(n) for n in needs], "gaps": gaps, "prose_source": source,
+            "confidence": band, "confidence_reasons": conf_reasons,
             "evidence": len(evidence), "calcs": len(calcs), "citations": len(cites),
             "findings": len(findings), "elapsed_ms": ms, "direct_answer": direct,
             "usage": u.model_dump() if u else None,
@@ -234,6 +254,22 @@ _QUALITATIVE_REFUSAL = ("I don't have the report's management commentary or insi
                         "available data.")
 
 
+_BAND_SCORE = {"High": 0.9, "Medium": 0.6, "Low": 0.3}
+
+
+def _confidence_band(grounding_ok: bool, numbers_pass: bool) -> tuple[str, list[str]]:
+    """The two verify gates GRADE the answer (they no longer reject it): both pass -> High, one
+    fails -> Medium, both fail -> Low. Returns the band + human reasons for the failing gate(s)."""
+    passed = int(bool(grounding_ok)) + int(bool(numbers_pass))
+    band = "High" if passed == 2 else "Medium" if passed == 1 else "Low"
+    reasons: list[str] = []
+    if not grounding_ok:
+        reasons.append("scope/qualitative grounding check did not pass")
+    if not numbers_pass:
+        reasons.append("a stated figure could not be traced to a cited source")
+    return band, reasons
+
+
 def _web_enabled(engine) -> bool:
     try:
         from app.core.config import get_settings
@@ -242,16 +278,20 @@ def _web_enabled(engine) -> bool:
         return True
 
 
-def _compose(llm, engine, query, fetched, gaps, frame, evidence, calcs, rl) -> tuple[str, str, list]:
+def _compose(llm, engine, query, fetched, gaps, frame, evidence, calcs, rl
+             ) -> tuple[str, str, list, str, list]:
     """COMPOSE (LLM writes prose + self-rates sufficiency) -> VERIFY two gates. If the answer is
     INSUFFICIENT (low confidence, an unbacked number, or a sector/peer/qualitative claim with no
     external evidence), run ONE hosted web search using the LLM's hints, fold the cited results
-    into evidence, and re-compose. The web round legitimises scope claims (real external evidence
-    now exists) and backs any figure quoted verbatim. Returns (answer, source_label, citations).
+    into evidence, and re-compose. Returns (answer, source_label, citations, confidence_band,
+    reasons).
 
-    `evidence`/`calcs` are mutated in place so the caller's findings/citations see the web round.
-    The gates remain the only correctness authority — the self-rated confidence merely TRIGGERS a
-    search, it never lets prose ship unverified."""
+    The two gates now GRADE the answer into a confidence band rather than rejecting it: both pass
+    -> High, one fails -> Medium, both fail -> Low. A failed GROUNDING gate swaps in the honest
+    corrected answer (company-only figures / 'no commentary loaded'); a failed NUMERIC gate swaps
+    the LLM prose for the verifiable-data answer — an unsourced figure is NEVER displayed, at any
+    band. `evidence`/`calcs` are mutated in place so findings/citations see the web round; the
+    self-rated confidence only TRIGGERS the web search."""
     from .external import web_search, build_search_query
     allow_web = _web_enabled(engine)
     cites, _ = citations_mod.bind(evidence, calcs)
@@ -306,27 +346,34 @@ def _compose(llm, engine, query, fetched, gaps, frame, evidence, calcs, rl) -> t
             _log.info("COMPOSE[%d] web escalation (%s) returned nothing (%s)",
                       attempt, trigger, res.get("note"), extra={"component": "Respond"})
 
-        # No (further) escalation — resolve this attempt against the gates.
+        # No (further) escalation — GRADE this attempt; the gates set CONFIDENCE, they do NOT reject.
+        band, reasons = _confidence_band(ok, numbers_pass)
+        rl.dump("08_citations", _dumps(cites))
+        _log.info("COMPOSE[%d] -> confidence=%s (grounding=%s numbers=%s)",
+                  attempt, band, ok, numbers_pass, extra={"component": "Respond"})
         if not ok and reason == "scope":
-            _log.warning("COMPOSE[%d] sector/peer claim, no external evidence -> honest fallback",
-                         attempt, extra={"component": "Respond"})
-            rl.dump("08_citations", _dumps(cites))
-            return _scope_fallback(fetched), "deterministic", cites
+            # LLM asserted a sector/peer scope on company-only data — show the corrected, honest
+            # answer (company figures + the limit), never the wrong-scope prose.
+            return (_scope_fallback(fetched), "deterministic", cites, band,
+                    ["only the company's own figures are available (not sector/peer)"] + reasons)
         if not ok and reason == "qualitative":
-            _log.warning("COMPOSE[%d] qualitative claim, no insight/external evidence -> refusal",
-                         attempt, extra={"component": "Respond"})
-            rl.dump("08_citations", _dumps(cites))
-            return _QUALITATIVE_REFUSAL, "deterministic", cites
+            return (_QUALITATIVE_REFUSAL, "deterministic", cites, band,
+                    ["no report commentary/insights loaded for this workbook"] + reasons)
         if numbers_pass:
-            # prose_source is constrained to 'llm'|'deterministic'; the web round is logged above.
-            rl.dump("08_citations", _dumps(cites))
-            return direct, "llm", cites
-        _log.warning("COMPOSE[%d] prose failed numeric guard -> deterministic fallback",
-                     attempt, extra={"component": "Respond"})
-        break
+            return direct, "llm", cites, band, reasons
+        # grounded, but a figure did not trace to a source — NEVER display the unsourced prose;
+        # show only the verifiable workbook values. The band already reflects the failed gate.
+        return (_deterministic(fetched, gaps), "deterministic", cites, band,
+                ["a stated figure could not be traced to a source; showing only verifiable values"]
+                + reasons)
 
+    # No usable LLM prose (empty reply / NullLLM): the deterministic answer is the workbook's own
+    # values — ground truth (High) — unless there was nothing answerable to show (Low).
     rl.dump("08_citations", _dumps(cites))
-    return _deterministic(fetched, gaps), "deterministic", cites
+    det = _deterministic(fetched, gaps)
+    if det.startswith("I couldn't find"):
+        return det, "deterministic", cites, "Low", ["no answerable data found in the workbook"]
+    return det, "deterministic", cites, "High", []
 
 
 # ----------------------------------------------------------------------------------- helpers
@@ -338,12 +385,42 @@ def _is_gap(res: dict) -> bool:
     return not any(res.get(k) not in (None, [], {}) for k in _CONTENT_KEYS)
 
 
+def _subject_companies(needs, hints, workbook_company) -> list[str]:
+    """The SUBJECT SET — every company the turn was about, in order: the planner's hint company
+    first, then any company named in a tool need's args (so 'Millat vs Lucky' keeps BOTH). Falls
+    back to the workbook company when nothing else is named (a list of one)."""
+    out: list[str] = []
+
+    def add(c):
+        c = (c or "").strip()
+        if c and c.lower() not in _PLACEHOLDER and c not in out:
+            out.append(c)
+
+    add((hints or {}).get("company"))
+    for n in needs:
+        add((n.get("args") or {}).get("company"))
+    return out or [workbook_company]
+
+
 def _frame(query, plan, company) -> QueryFrame:
     needs = plan.get("needs") or []
-    years = [n.get("year") for n in needs if isinstance(n.get("year"), int)]
+    hints = plan.get("hints") or {}
+    yrs = sorted({n["year"] for n in needs if isinstance(n.get("year"), int)})
     metrics = [n["metric"] for n in needs if n.get("metric")]
-    return QueryFrame(raw_query=query, intent="agent", company=company,
-                      year=(years[0] if years else None), metrics=metrics, source="llm")
+    tools = [n["tool"] for n in needs if n.get("tool")]
+    formulas = [n["formula"] for n in needs if n.get("formula")]
+    companies = _subject_companies(needs, hints, company)  # the SUBJECT SET (keeps comparisons)
+    sector = (hints.get("sector") or "").strip() or None
+    if sector and sector.lower() in _PLACEHOLDER:
+        sector = None
+    return QueryFrame(
+        raw_query=query, intent="agent",
+        company=companies[0], companies=companies,       # primary + the full set
+        sector=sector,
+        year=(yrs[-1] if yrs else None),                 # operative point year (latest requested)
+        years=(yrs if len(yrs) > 1 else []),             # explicit range only when multi-year
+        metrics=metrics, formula=(formulas[0] if formulas else None), formulas=formulas,
+        tool=(tools[0] if tools else None), tools=tools, source="llm")
 
 
 def _findings(evidence, cites) -> list[str]:
@@ -406,6 +483,6 @@ def _scope_fallback(fetched) -> str:
             "company's own figures, not sector or peer data." + tail)
 
 
-def _response(direct, findings, calcs, cites, source) -> Response:
+def _response(direct, findings, calcs, cites, source, confidence=None) -> Response:
     return Response(direct_answer=direct, key_findings=findings, calculations=calcs,
-                    citations=cites, prose_source=source)
+                    citations=cites, prose_source=source, confidence=confidence)

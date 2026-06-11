@@ -305,7 +305,16 @@ export function SheetView() {
         Event: { SelectionChanged: string }
         addEvent: (
           e: string,
-          cb: (p: { worksheet?: { getActiveRange?: () => { getValue?: () => unknown } | null } }) => void
+          cb: (p: {
+            worksheet?: {
+              getSheetName?: () => string
+              getActiveRange?: () => {
+                getValue?: () => unknown
+                getRow?: () => number
+                getColumn?: () => number
+              } | null
+            }
+          }) => void
         ) => { dispose: () => void }
       }
       selSub = evt.addEvent(evt.Event.SelectionChanged, (params) => {
@@ -313,9 +322,19 @@ export function SheetView() {
         if (selTimer) clearTimeout(selTimer)
         selTimer = setTimeout(() => {
           try {
-            const v = params?.worksheet?.getActiveRange?.()?.getValue?.()
+            const ws = params?.worksheet
+            const r = ws?.getActiveRange?.()
+            const v = r?.getValue?.()
             const term = v == null ? '' : String(v).trim()
-            useApp.getState().highlightPdf(term || null)
+            const sheet = ws?.getSheetName?.()
+            const row = r?.getRow?.()
+            const col = r?.getColumn?.()
+            // resolve the cell's exact source (year-aware) → open that PDF, page, then highlight
+            if (sheet != null && typeof row === 'number' && typeof col === 'number') {
+              useApp.getState().highlightCellInPdf(sheet, rcToA1(row, col), term || null)
+            } else {
+              useApp.getState().highlightPdf(term || null) // address unavailable → search open PDF
+            }
           } catch {
             /* best-effort */
           }

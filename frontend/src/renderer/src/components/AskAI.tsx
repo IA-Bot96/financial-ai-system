@@ -330,7 +330,12 @@ export function AskAI() {
               <div className="flex items-center gap-2">
                 <AiAvatar />
                 <span className="text-xs font-semibold text-ink">{AI_NAME}</span>
-                {m.response && <ConfidenceBadge band={m.response.confidence?.band} />}
+                {m.response && (
+                  <ConfidenceBadge
+                    band={m.response.confidence?.band}
+                    reasons={m.response.confidence?.reasons}
+                  />
+                )}
               </div>
               <div className="max-w-full">
                 {m.response ? (
@@ -550,7 +555,9 @@ function CitationChip({ refId, cite }: { refId: string; cite?: Citation }) {
   )
 }
 
-function ConfidenceBadge({ band }: { band?: 'High' | 'Medium' | 'Low' }) {
+/** Per-response confidence chip next to the Ask AI name. Both verify gates passed -> High (green),
+ *  one failed -> Medium (amber), both failed -> Low (red). The tooltip explains a Medium/Low. */
+function ConfidenceBadge({ band, reasons }: { band?: 'High' | 'Medium' | 'Low'; reasons?: string[] }) {
   if (!band) return null
   const cls =
     band === 'High'
@@ -558,8 +565,18 @@ function ConfidenceBadge({ band }: { band?: 'High' | 'Medium' | 'Low' }) {
       : band === 'Medium'
         ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
         : 'text-red-300 border-red-500/40 bg-red-500/10'
+  const title =
+    band === 'High'
+      ? 'High confidence — grounding and figure-tracing checks both passed'
+      : `${band} confidence — ${reasons && reasons.length ? reasons.join('; ') : 'one or more checks did not pass'}`
   return (
-    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[11px] border', cls)}>{band}</span>
+    <span
+      title={title}
+      className={cn('shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] border', cls)}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {band}
+    </span>
   )
 }
 

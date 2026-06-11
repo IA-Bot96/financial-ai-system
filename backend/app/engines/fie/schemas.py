@@ -99,10 +99,32 @@ PLAN_SYS = (
     "FOLLOW-UPS: if the message is a fragment that only resolves in context — a bare year ('25?', "
     "'and 2023'), a pronoun ('it', 'those'), a bare noun naming an attribute of the prior answer "
     "('names?', 'their tickers'), an expand request ('list them'), or a distributive ask ('X for "
-    "each') — resolve it against the MOST RECENT relevant turn(s) in `recent` FIRST: inherit that "
-    "turn's metric / formula / tool / subject and change ONLY the dimension the fragment supplies "
-    "(the year, the requested attribute, or the per-member fan-out). The latest turn wins; only "
-    "treat a fragment as a fresh standalone workbook query when it clearly is NOT a follow-up. "
+    "each') — resolve it against the MOST RECENT SUBSTANTIVE turn(s) in `recent` (each assistant "
+    "turn carries what it RESOLVED to: companies (the SUBJECT SET), sector, metrics, formulas, "
+    "tools, year, years, plus an answer snippet). INHERIT that turn's subject companies / metrics / "
+    "formulas / TOOLS and change ONLY the dimension the fragment supplies. The subject is a SET — "
+    "if the prior turn compared several companies, carry ALL of them. Skip trivial turns (a ticker "
+    "lookup, a clarification) when picking what to inherit — carry the last turn that actually "
+    "produced a figure/answer. If that turn used TOOL(S), re-run the SAME tool(s) for EVERY subject "
+    "company with the changed dimension. EXAMPLES: recent resolved {companies:['Systems Limited'], "
+    "tools:['getCompanyOverview']} about its gross margin; 'and in 2024?' -> [{kind:'tool', "
+    "tool:'getCompanyOverview', args:{company:'Systems Limited', year:2024}}]. recent resolved "
+    "{companies:['Millat Tractors Limited','Lucky Cement'], tools:['getCompanyOverview']} comparing "
+    "the two; 'and in 2024?' -> one getCompanyOverview need PER company for 2024 (keep BOTH, do not "
+    "drop one). "
+    "SUBJECT STICKINESS: the company set in focus PERSISTS across turns. Once the conversation is "
+    "about one or more companies (the workbook company OR off-workbook ones), stay on that SET for "
+    "follow-ups. Switch only when the user NAMES different companies (then the set becomes those). "
+    "Do NOT silently revert to `workbook.company` — to return to the workbook company the user must "
+    "name it. "
+    # ---- CLARIFY when genuinely ambiguous (don't guess)
+    "CLARIFY: if the question is genuinely ambiguous and you CANNOT reasonably resolve it from the "
+    "question + `recent` (e.g. an unknown or ambiguous company/word — 'systems' could be a company "
+    "or a topic; a pronoun with no referent; a metric you can't map), do NOT guess: set the "
+    "top-level `clarification` to ONE short question that would resolve it and emit an EMPTY `needs` "
+    "list. Use this SPARINGLY — only when guessing would likely be wrong; if context resolves it, "
+    "answer instead of asking. EXAMPLE: after a Millat discussion, 'for systems?' -> {clarification:"
+    "'Do you mean Systems Limited (PSX: SYS), or Millat's operational systems?', needs:[]}. "
     # ---- IDS + HINTS
     "Use metric ids, formula ids, and tool names EXACTLY as the menus spell them — copy them "
     "VERBATIM, never invent or transform an id (no 'gp_margin' when the list says 'gross_margin'); "
@@ -138,6 +160,7 @@ PLAN_SCHEMA = {
     "properties": {
         "interpretation": {"type": "string"},
         "answer_kind": {"type": "string"},  # value | ratio | comparison | availability | ...
+        "clarification": {"type": ["string", "null"]},  # a question to ask when genuinely ambiguous
         "hints": _HINTS_SCHEMA,             # company/sector/years/keywords for PSX + web lookups
         "needs": {
             "type": "array",
