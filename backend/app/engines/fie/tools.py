@@ -10,8 +10,9 @@ PrimitiveResult — ``(summary dict, evidence, calcs)`` — so its output flows 
 binding and the verify gates unchanged. Reference tools (symbol/sector/competitors) carry NO
 numbers, so their evidence values are None; they're cited to PSX.Symbols as the source.
 
-Today this wraps the PSX symbols registry; as more APIs are migrated, each becomes one or more
-tools here and is dropped from the opaque API catalog (external.list_apis).
+Every PSX endpoint the planner can reach is wrapped as a named tool here; the planner selects
+tools only (there is no longer an opaque API-catalog path). Tools resolve their endpoint via the
+registry (apis.registry.BY_NAME) and fetch through the shared RegistryFetcher.
 """
 
 from __future__ import annotations
@@ -144,7 +145,12 @@ def get_sector_companies(engine, sector: str = "", **_) -> ToolResult:
     if not companies:
         return {"tool": "getSectorCompanies", "sector": sector, "companies": [],
                 "note": "no listed companies for that sector name"}, [], []
-    res = {"tool": "getSectorCompanies", "sector": sector, "companies": companies, "count": len(companies)}
+    # `listing` is a ready-to-render "Full Name (SYMBOL)" form so the composer surfaces full names
+    # (not just tickers) when asked to "list them" / "names" / "full names" — both fields are kept.
+    listing = [f"{c['name']} ({c['symbol']})" if c.get("name") else (c.get("symbol") or "")
+               for c in companies]
+    res = {"tool": "getSectorCompanies", "sector": sector, "companies": companies,
+           "count": len(companies), "listing": listing}
     ev = [EvidenceItem(claim=f"The {sector} sector has {len(companies)} listed companies",
                        kind="external", citations=[_cite()], reliability=0.95)]
     return res, ev, []
@@ -641,6 +647,70 @@ def get_futures(engine, limit: int = 10, **_) -> ToolResult:
     return res, ev, []
 
 
+# ----------------------------------------------------- cash-settled futures (market-watch-csf)
+# CSF shares the deliverable-futures parser + record shape (_FUT_FIELDS/_fut_record); only the
+# board endpoint differs (market-watch-csf vs market-watch-futures), so these mirror the
+# getCompanyFutures / getFutures pair against the cash_settled_futures_market_watch api.
+def _csf_cite():
+    url = "https://dps.psx.com.pk/market-watch-csf"
+    return Citation(ref_id="C?", kind="external", display="PSX cash-settled futures",
+                    locator={"source": "PSX.CashSettledFutures", "url": url, "link": url})
+
+
+def get_company_cash_settled_futures(engine, company: str = "", symbol: str = "", **_) -> ToolResult:
+    """Today's CASH-SETTLED FUTURES (CSF) contracts for one company (one row per contract month):
+    price, day open/high/low, change, change %, volume. Resolves the company's base symbol, then
+    pulls all its contracts off the cash-settled-futures board."""
+    syms = _syms(engine)
+    sym, name = _resolve(syms, symbol or company) if syms else (symbol or None, None)
+    if not sym:
+        return {"tool": "getCompanyCashSettledFutures", "company": company or symbol,
+                "note": "could not resolve a PSX symbol"}, [], []
+    from .apis.registry import BY_NAME
+    api = BY_NAME.get("cash_settled_futures_market_watch")
+    items = _filings_fetcher(engine, 20).fetch(api, symbol=sym).items if api else []
+    rows = []
+    for it in items:
+        loc = (it.citations[0].locator if getattr(it, "citations", None) else {}) or {}
+        rows.append({k: loc.get(k) for k in _FUT_FIELDS if loc.get(k) is not None})
+    ev = [EvidenceItem(
+        claim=(f"{r.get('symbol')} (cash-settled future) — price {r.get('price')}, "
+               f"change {r.get('change')} ({r.get('change_pct')}%), open {r.get('open')}, "
+               f"high {r.get('high')}, low {r.get('low')}, volume {r.get('volume')}"),
+        kind="external", citations=[_csf_cite()], reliability=0.9) for r in rows]
+    res = {"tool": "getCompanyCashSettledFutures", "company": company or sym, "name": name,
+           "symbol": sym, "count": len(rows), "contracts": rows}
+    if not rows:
+        res["note"] = "no cash-settled-futures contracts trading for this company today"
+    return res, ev, []
+
+
+def get_cash_settled_futures(engine, limit: int = 10, **_) -> ToolResult:
+    """Whole-board snapshot of today's CASH-SETTLED FUTURES (CSF): top gaining and top losing
+    contracts (by % change) and the most-active contracts (by volume), across all listed CSF
+    contracts. Use for 'cash-settled futures overview / which CSF are moving / most-active CSF'."""
+    from .apis.registry import BY_NAME
+    api = BY_NAME.get("cash_settled_futures_market_watch")
+    items = _filings_fetcher(engine, 1000).fetch(api).items if api else []
+    rows = [_fut_record(it) for it in items]
+    gainers, losers, active = _movers(rows, max(1, int(limit)))
+
+    def _fc(r):
+        return (f"{r.get('symbol')} (cash-settled future) — price {r.get('price')}, change "
+                f"{r.get('change')} ({r.get('change_pct')}%), volume {r.get('volume')}")
+    seen, ev = set(), []
+    for r in [*gainers, *losers, *active]:
+        if r.get("symbol") in seen:
+            continue
+        seen.add(r.get("symbol"))
+        ev.append(EvidenceItem(claim=_fc(r), kind="external", citations=[_csf_cite()], reliability=0.9))
+    res = {"tool": "getCashSettledFutures", "board_size": len(rows), "top_n": int(limit),
+           "top_gainers": gainers, "top_losers": losers, "most_active": active}
+    if not rows:
+        res["note"] = "cash-settled-futures board is empty (market may be closed)"
+    return res, ev, []
+
+
 # --------------------------------------------------------- top performers (PSX official lists)
 def _perf_cite():
     url = "https://dps.psx.com.pk/performers"
@@ -710,8 +780,8 @@ def get_top_debt_advancers(engine, n: int = 10, **_) -> ToolResult:
     return res, _perf_ev(rows, "top debt advancer"), []
 
 
-_DEBT_FIELDS = ("symbol", "name", "price", "yield_pct", "change", "change_pct", "volume",
-                "sector_code", "status")
+_DEBT_FIELDS = ("symbol", "name", "price", "yield_pct", "ldcp", "open", "high", "low",
+                "change", "change_pct", "volume", "sector_code", "status")
 
 
 def _debt_cite():
@@ -1391,7 +1461,7 @@ TOOLS: dict[str, Tool] = {
                     "YIELD %, change, change %, volume. Use for debt/bond/sukuk market or yield "
                     "questions.",
         inputs=({"name": "limit", "type": "integer", "desc": "max securities (default 50)"},),
-        outputs="list of {symbol, name, price, yield_pct, change, change_pct, volume}",
+        outputs="list of {symbol, name, price, yield_pct, ldcp, open, high, low, change, change_pct, volume}",
         fn=get_debt_market_watch),
     "getMarketSummary": Tool(
         name="getMarketSummary",
@@ -1557,6 +1627,24 @@ TOOLS: dict[str, Tool] = {
         inputs=({"name": "company", "type": "string", "desc": "company name OR PSX base ticker (auto-detected)"},),
         outputs="list of {symbol, base_symbol, contract, price, open, high, low, change, change_pct, volume}",
         fn=get_company_futures),
+    "getCashSettledFutures": Tool(
+        name="getCashSettledFutures",
+        description="WHOLE-BOARD snapshot of today's CASH-SETTLED FUTURES (CSF): top gaining / "
+                    "losing contracts (by % change) and most-active contracts (by volume), across "
+                    "all listed CSF. Use for 'cash-settled futures overview / which CSF are moving'. "
+                    "For DELIVERABLE futures use getFutures instead.",
+        inputs=({"name": "limit", "type": "integer", "desc": "how many per list (default 10)"},),
+        outputs="dict: board_size, top_gainers[], top_losers[], most_active[] (each {symbol, contract, price, change_pct, volume})",
+        fn=get_cash_settled_futures),
+    "getCompanyCashSettledFutures": Tool(
+        name="getCompanyCashSettledFutures",
+        description="Today's CASH-SETTLED FUTURES (CSF) contracts for one company — one row per "
+                    "contract month: price, day open/high/low, change, change %, volume. Use for "
+                    "cash-settled futures contract questions about a company. For DELIVERABLE "
+                    "futures use getCompanyFutures instead.",
+        inputs=({"name": "company", "type": "string", "desc": "company name OR PSX base ticker (auto-detected)"},),
+        outputs="list of {symbol, base_symbol, contract, price, open, high, low, change, change_pct, volume}",
+        fn=get_company_cash_settled_futures),
     "getCompanyPayouts": Tool(
         name="getCompanyPayouts",
         description="A company's dividend / payout history — each entry: announcement date, result "

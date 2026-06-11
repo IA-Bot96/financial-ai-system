@@ -129,19 +129,12 @@ def test_filter_futures_anchors_on_base_segment():
     assert got == ["ASL-JUN"]
 
 
-def test_company_futures_registry_entry():
+def test_deliverable_futures_registry_entry():
     base = BY_NAME["deliverable_futures_market_watch"]
-    comp = BY_NAME["company_deliverable_futures_market_watch"]
-    assert base.endpoint == comp.endpoint and comp.method == "GET"
-    assert comp.parser_fn is P.parse_deliverable_futures_market_watch   # same feed/parser
-    assert comp.scope == "company" and comp.dynamic_params == ("symbol",)
-    # exposes its real output fields (provides tags removed)
-    assert "symbol" in comp.returns and "price" in comp.returns
-
-
-def test_company_futures_shortlists_for_symbol_query():
-    ranked = [a.name for a, _ in shortlist("MTL deliverable futures price", top_k=3)]
-    assert "company_deliverable_futures_market_watch" in ranked
+    assert base.method == "GET" and base.endpoint.endswith("/market-watch-futures")
+    assert base.parser_fn is P.parse_deliverable_futures_market_watch
+    # getCompanyFutures narrows this whole-board feed by base symbol (see filter test above)
+    assert "symbol" in base.returns and "price" in base.returns
 
 
 def test_futures_malformed_input():

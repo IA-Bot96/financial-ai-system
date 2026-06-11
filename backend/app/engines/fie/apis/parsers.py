@@ -380,13 +380,6 @@ def parse_debt_market_watch(raw: Any) -> list[dict]:
     return _parse_market_watch_precise(raw)
 
 
-def parse_sector_market_watch(raw: Any) -> list[dict]:
-    """The sector market-watch reuses the same /market-watch feed (one GET returns
-    the whole market), so parsing is identical to market_watch. The caller then
-    narrows to the queried sector with filter_market_watch_by_sector()."""
-    return parse_market_watch(raw)
-
-
 def resolve_sector_code(sector: Any) -> str | None:
     """Map a user-supplied sector to a PSX sector code. Accepts an exact code
     ('0804'), an exact sector name, or a keyword/substring ('cement' -> 0804).
@@ -585,13 +578,6 @@ def parse_stock_screener(raw: Any) -> list[dict]:
             row[fld] = _num(val)
         out.append(row)
     return out
-
-
-def parse_sector_stock_screener(raw: Any) -> list[dict]:
-    """Sector-scoped screener reuses the same /screener feed (one GET = whole market);
-    the caller narrows to the queried sector with filter_market_watch_by_sector()
-    (screener rows carry the same sector_code/sector fields)."""
-    return parse_stock_screener(raw)
 
 
 def filter_screener_by_symbol(rows: list[dict], symbol: Any) -> list[dict]:
@@ -1170,9 +1156,7 @@ def _num(v: Any) -> float | None:
 PARSERS = {
     "symbols_master": parse_symbols_master,
     "company_announcements": parse_company_announcements,
-    "secp_notices": parse_secp_notices,
-    # sector-scoped variants reuse the same parsers (same endpoint, query instead of symbol)
-    "sector_announcements": parse_company_announcements,
+    # sector SECP notices reuse the company SECP parser (same endpoint, query instead of symbol)
     "sector_secp_notices": parse_secp_notices,
     "company_overview": parse_company_overview,
     "company_payouts": parse_company_payouts,
@@ -1180,16 +1164,10 @@ PARSERS = {
     "debt_market_watch": parse_debt_market_watch,
     "performers": parse_performers,
     "debt_performers": parse_performers,   # same page structure as /performers
-    # sector market-watch hits the same feed, then narrows by sector id (see registry)
-    "sector_market_watch": parse_sector_market_watch,
     "deliverable_futures_market_watch": parse_deliverable_futures_market_watch,
-    # company-scoped futures hits the same feed, then narrows by base symbol (MTL-JUN -> MTL)
-    "company_deliverable_futures_market_watch": parse_deliverable_futures_market_watch,
     "cash_settled_futures_market_watch": parse_cash_settled_futures_market_watch,
     "daily_market_summary": parse_daily_market_summary,
     "analysis_reports": parse_analysis_report_xlsx,
     "sector_summary": parse_sector_summary,
     "stock_screener": parse_stock_screener,
-    # sector screener hits the same /screener feed, then narrows by sector id
-    "sector_stock_screener": parse_sector_stock_screener,
 }

@@ -8,12 +8,10 @@ from app.engines.fie import (
     ExternalSources,
     FinancialFactStore,
     FinancialIntelligenceEngine,
-    ForecastRepo,
     News,
     PSX,
 )
 from app.engines.fie.apis import ApiClient
-from app.engines.fie import understanding
 
 
 # --- fake transports ---
@@ -96,11 +94,6 @@ def test_valuation_degrades_without_shares(millat_store):
     assert "pe_ratio" in fids and "ev_ebitda" not in fids
 
 
-def test_ev_ebitda_query_routes_to_valuation():
-    assert understanding.build_frame("EV/EBITDA for MTL").intent == "valuation"
-    assert understanding.build_frame("price to book for lucky").intent == "valuation"
-
-
 # --- 4.5 peer comparison (multi-workbook, internal) ---
 
 def test_peer_comparison(millat_store, lucky_store):
@@ -115,16 +108,6 @@ def test_peer_comparison_missing_peer_partial(millat_store):
     eng = FinancialIntelligenceEngine(millat_store)  # no peers registered
     r = eng.answer("current ratio MTL vs Lucky 2024")
     assert any("coverage" in c for c in r.confidence.caps_applied)
-
-
-# --- 4.4/4.5 forecast validation ---
-
-def test_forecast_validation_with_forecast(millat_store):
-    fc = ForecastRepo(overrides={("Millat Tractors Limited", "revenue", 2026): 60_000_000})
-    eng = FinancialIntelligenceEngine(millat_store, external=ExternalSources(forecast=fc))
-    r = eng.answer("is my 2026 revenue forecast for MTL still valid?")
-    assert "forecast" in r.direct_answer.lower()
-    assert "52,108,997" in r.direct_answer  # latest actual FY2025 shown
 
 
 # --- 4.6 graceful degradation ---
@@ -147,13 +130,3 @@ def test_degradation_psx_down(millat_store):
     assert r.confidence.band == "Low"  # pure-external metric, no internal fallback
 
 
-# --- understanding routes the new intents ---
-
-@pytest.mark.parametrize("q,intent", [
-    ("current ratio MTL vs Lucky 2024", "peer_comparison"),
-    ("P/E for MTL", "valuation"),
-    ("is the 2026 forecast on track", "forecast_validation"),
-    ("latest news on MTL", "news_impact"),
-])
-def test_intent_routing(q, intent):
-    assert understanding.build_frame(q).intent == intent

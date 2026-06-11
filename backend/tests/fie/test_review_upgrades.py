@@ -3,25 +3,12 @@
 import pytest
 
 from app.engines.fie import FinancialIntelligenceEngine
-from app.engines.fie import understanding
 from app.engines.fie.calc import CalcEngine
 from app.engines.fie.insights import InsightSelector
 from app.engines.fie.models import QueryFrame
 
 
 # --- Q2: temporal range parsing + trend intent ---
-
-@pytest.mark.parametrize("q,years,window", [
-    ("revenue trend 2021 to 2024", [2021, 2022, 2023, 2024], None),
-    ("revenue 2022-2025 history", [2022, 2023, 2024, 2025], None),
-    ("revenue over the last 3 years", [], 3),
-    ("5-year revenue trend", [], 5),
-])
-def test_period_extraction(q, years, window):
-    f = understanding.build_frame(q)
-    assert f.intent == "trend_analysis"
-    assert f.years == years and f.window == window
-
 
 def test_trend_explicit_range(millat_store):
     eng = FinancialIntelligenceEngine(millat_store)
@@ -40,19 +27,6 @@ def test_trend_window(millat_store):
 
 
 # --- aggregation operator: "average increase" + bare "assets" alias + caveat ---
-
-def test_bare_assets_alias_routes_to_total_assets():
-    f = understanding.build_frame("average increase in assets from 2021 - 2025")
-    assert f.intent == "trend_analysis"
-    assert f.metrics == ["total_assets"]
-    assert f.years == [2021, 2022, 2023, 2024, 2025]
-    assert f.aggregation == "average"
-
-
-def test_specific_assets_patterns_still_win():
-    assert understanding.build_frame("current assets 2024").metrics == ["current_assets"]
-    assert understanding.build_frame("current ratio MTL 2024").formula == "current_ratio"
-
 
 def test_average_increase_reports_growth_abs_and_cagr(millat_store):
     eng = FinancialIntelligenceEngine(millat_store)

@@ -9,8 +9,6 @@ from .analysis_reports import AnalysisReports
 from .announcements import PSXAnnouncements, SECPNotices
 from .base import ApiClient, ApiSpec, CallResult, HttpTransport, Transport, monthly_windows
 from .fetch import RegistryFetcher
-from .forecast import ForecastRepo
-from .macro import Macro
 from .news import News
 from .overview import CompanyOverview
 from .payouts import CompanyPayouts
@@ -29,10 +27,8 @@ class ExternalSources:
 
     psx: Optional[PSX] = None
     news: Optional[News] = None
-    forecast: Optional[ForecastRepo] = None
     announcements: Optional[PSXAnnouncements] = None
     secp: Optional[SECPNotices] = None
-    macro: Optional[Macro] = None
     symbols: Optional[Symbols] = None
     company_overview: Optional[CompanyOverview] = None
     payouts: Optional[CompanyPayouts] = None
@@ -44,8 +40,8 @@ class ExternalSources:
 
 __all__ = [
     "ApiClient", "ApiSpec", "CallResult", "HttpTransport", "Transport",
-    "monthly_windows", "PSX", "News", "Macro", "Symbols", "CompanyOverview",
-    "CompanyPayouts", "AnalysisReports", "ForecastRepo", "PSXAnnouncements",
+    "monthly_windows", "PSX", "News", "Symbols", "CompanyOverview",
+    "CompanyPayouts", "AnalysisReports", "PSXAnnouncements",
     "SECPNotices", "ExternalSources", "API_REGISTRY", "ApiInfo", "shortlist",
     "RegistryFetcher",
 ]

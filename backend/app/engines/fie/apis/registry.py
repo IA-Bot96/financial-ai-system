@@ -58,32 +58,12 @@ REGISTRY: list[ApiInfo] = [
         description="Recent official PSX disclosures filed BY a specific company (by symbol): "
                     "EOGM/board-meeting notices, dividend/corporate-action announcements, "
                     "material-information filings. Each item is a titled, dated filing with a PDF.",
-        returns=("title", "date", "symbol", "pdf_url", "doc_id"),
+        returns=("date", "time", "symbol", "name", "title", "status", "pdf_url", "doc_id"),
         endpoint="https://dps.psx.com.pk/announcements", method="POST", content_type="form",
         response_type="html",
         params={"type": "C", "count": 50, "offset": 0, "page": "annc"},
         dynamic_params=("symbol", "date_from", "date_to"),
         parser="company_announcements"),
-    ApiInfo(
-        name="sector_announcements", category="disclosures", scope="sector",
-        description="Recent PSX disclosures matched by keyword/sector (no single company): titled, "
-                    "dated filings with PDFs.",
-        returns=("title", "date", "symbol", "pdf_url", "doc_id"),
-        endpoint="https://dps.psx.com.pk/announcements", method="POST", content_type="form",
-        response_type="html",
-        params={"type": "C", "count": 50, "offset": 0, "page": "annc"},
-        dynamic_params=("query", "date_from", "date_to"),
-        parser="sector_announcements"),
-    ApiInfo(
-        name="secp_notices", category="disclosures", scope="company",
-        description="Recent SECP regulatory notices/orders (by symbol): titled, dated items with "
-                    "a PDF — compliance, governance, enforcement.",
-        returns=("title", "date", "pdf_url", "doc_id"),
-        endpoint="https://dps.psx.com.pk/announcements", method="POST", content_type="form",
-        response_type="html",
-        params={"type": "B", "count": 50, "offset": 0, "page": "annc"},
-        dynamic_params=("symbol", "date_from", "date_to"),
-        parser="secp_notices"),
     ApiInfo(
         name="sector_secp_notices", category="disclosures", scope="sector",
         description="Recent SECP regulatory notices matched by keyword/sector: titled, dated items "
@@ -103,10 +83,12 @@ REGISTRY: list[ApiInfo] = [
         dynamic_params=("symbol",), parser="company_overview"),
     ApiInfo(
         name="company_payouts", category="fundamentals", scope="company",
-        description="A company's recent payout EVENTS (by symbol): the date of each dividend/bonus "
-                    "and its book-closure date. Flags whether each event was a dividend/bonus — "
-                    "does NOT return the dividend amount or rate.",
-        returns=("date", "dividend", "bonus", "book_closure"),
+        description="A company's recent payout EVENTS (by symbol): for each event the announcement "
+                    "date, the result period (financial_results) and details, the payout percent "
+                    "(payout_pct), whether it was interim/final and cash-dividend/bonus/right, and "
+                    "the book-closure window.",
+        returns=("date", "financial_results", "details", "book_closure", "payout_pct",
+                 "interim", "final", "dividend", "bonus", "right"),
         endpoint="https://dps.psx.com.pk/company/payouts", method="POST", content_type="form",
         response_type="html", dynamic_params=("symbol",), parser="company_payouts"),
     ApiInfo(
@@ -140,26 +122,11 @@ REGISTRY: list[ApiInfo] = [
         endpoint="https://dps.psx.com.pk/market-watch", method="GET", response_type="html",
         parser="market_watch"),
     ApiInfo(
-        name="sector_market_watch", category="market", scope="sector",
-        description="Live quote board narrowed to one sector (by sector): per-security price, "
-                    "daily change, volume.",
-        returns=("symbol", "name", "sector", "price", "change_pct", "volume"),
-        endpoint="https://dps.psx.com.pk/market-watch", method="GET", response_type="html",
-        dynamic_params=("sector",), parser="sector_market_watch"),
-    ApiInfo(
         name="deliverable_futures_market_watch", category="market",
         description="Live deliverable-futures quote board: per-contract price, change, volume.",
         returns=("symbol", "price", "change", "change_pct", "volume"),
         endpoint="https://dps.psx.com.pk/market-watch-futures", method="GET",
         response_type="html", parser="deliverable_futures_market_watch"),
-    ApiInfo(
-        name="company_deliverable_futures_market_watch", category="market", scope="company",
-        description="Deliverable-futures contracts for one company (by base symbol): per-contract "
-                    "price, change, volume.",
-        returns=("symbol", "price", "change", "change_pct", "volume"),
-        endpoint="https://dps.psx.com.pk/market-watch-futures", method="GET",
-        response_type="html", dynamic_params=("symbol",),
-        parser="company_deliverable_futures_market_watch"),
     ApiInfo(
         name="cash_settled_futures_market_watch", category="market",
         description="Live cash-settled-futures quote board: per-contract price, change, volume "
@@ -202,15 +169,6 @@ REGISTRY: list[ApiInfo] = [
                  "pe_ratio_ttm", "dividend_yield_pct", "free_float", "volume_30d_avg"),
         endpoint="https://dps.psx.com.pk/screener", method="GET", response_type="html",
         dynamic_params=("symbol",), parser="stock_screener"),
-    ApiInfo(
-        name="sector_stock_screener", category="market", scope="sector",
-        description="VALUATION & liquidity snapshot for every company in a SECTOR (by sector) — "
-                    "for peer comparison: P/E (TTM), dividend yield %, market cap, free float, "
-                    "1-year return %, 30-day avg volume, price.",
-        returns=("symbol", "name", "sector", "market_cap", "price", "change_pct", "change_1y_pct",
-                 "pe_ratio_ttm", "dividend_yield_pct", "free_float", "volume_30d_avg"),
-        endpoint="https://dps.psx.com.pk/screener", method="GET", response_type="html",
-        dynamic_params=("sector",), parser="sector_stock_screener"),
 ]
 
 BY_NAME = {a.name: a for a in REGISTRY}

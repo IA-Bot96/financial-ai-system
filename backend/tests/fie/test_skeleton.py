@@ -3,25 +3,7 @@
 import pytest
 
 from app.engines.fie import FinancialIntelligenceEngine
-from app.engines.fie import understanding
 from app.engines.fie.calc import CalcEngine
-
-
-# --- L1 understanding (1.2) ---
-
-def test_build_frame_current_ratio():
-    f = understanding.build_frame("What is the current ratio for MTL in 2024?")
-    assert f.intent == "ratio_analysis"
-    assert f.formula == "current_ratio"
-    assert f.company == "Millat Tractors Limited"
-    assert f.year == 2024
-    assert f.metrics == ["current_assets", "current_liabilities"]
-
-
-def test_build_frame_unknown_intent():
-    f = understanding.build_frame("tell me a joke")
-    assert f.intent == "unknown"
-    assert f.formula is None
 
 
 # --- L4 calc (1.5 / Phase 2 registry-backed) ---

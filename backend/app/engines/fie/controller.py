@@ -17,11 +17,13 @@ from . import citations as citations_mod
 from .models import QueryFrame, Response
 from . import schemas, verify
 from .observability import run_context
+from .pricing import usage_cost, usage_snapshot
 from .primitives import describe_workbook, execute_need, list_formulas
 
 _log = logging.getLogger("app.engines.fie")
 
-_MAX_NEEDS = 12  # bound the work a single plan can request
+_MAX_NEEDS = 24  # bound the work a single plan can request (room for compound asks + per-member
+#                  fan-out across a sector, e.g. one getCompanyOverview need per listed company)
 
 
 def _need_brief(n: dict) -> str:
@@ -72,6 +74,55 @@ def _dumps(items) -> list:
     return [x.model_dump() if hasattr(x, "model_dump") else x for x in (items or [])]
 
 
+def _recent_context(history) -> list[dict]:
+    """The prior conversation for the planner — each user question interleaved with what the engine
+    RESOLVED it to, so an elliptical follow-up ('25?', 'what about X', 'list them') can inherit the
+    prior subject. Assistant turns echo back their QueryFrame (see the sessions route); we surface
+    its metric/formula/year AND a short answer snippet. The snippet is essential for follow-ups
+    whose referent is NOT a metric — e.g. 'How many companies are in the sector?' resolves to no
+    metric/formula/year, so without the answer text ('… sector has 13 companies') the planner has
+    nothing to attach 'list them' to. Kept compact (one truncated line) to avoid verbose narratives."""
+    out: list[dict] = []
+    for h in (history or [])[-8:]:
+        role = h.get("role")
+        if role == "user":
+            t = (h.get("text") or "").strip()
+            if t:
+                out.append({"role": "user", "question": t})
+        elif role == "assistant":
+            fr = h.get("frame") or {}
+            resolved = {k: fr.get(k) for k in ("metrics", "formula", "year") if fr.get(k)}
+            entry: dict = {"role": "assistant"}
+            if resolved:
+                entry["resolved"] = resolved
+            ans = (h.get("text") or "").strip()
+            if ans:
+                entry["answer"] = ans[:220]   # compact referent for elliptical/pronoun follow-ups
+            if len(entry) > 1:                # has resolved and/or answer — otherwise nothing to add
+                out.append(entry)
+    return out[-6:]
+
+
+_PLACEHOLDER = {"unknown", "n/a", "none", "null", ""}
+
+
+def _merge_hints(*sources) -> dict:
+    """Merge hint dicts in priority order (earlier wins), skipping placeholder/empty values. Used so
+    the web-escalation query draws company/sector from the reliable PLAN hints (derived from the
+    workbook + question) rather than the COMPOSE LLM's often-'unknown' self-reported hints."""
+    out: dict = {}
+    for src in sources:
+        for k, v in (src or {}).items():
+            if out.get(k) not in (None, "", []):
+                continue                                  # an earlier (higher-priority) source set it
+            if isinstance(v, str) and v.strip().lower() in _PLACEHOLDER:
+                continue
+            if v in (None, "", []):
+                continue
+            out[k] = v
+    return out
+
+
 def run(engine, query: str, *, audience: str = "analyst",
         history: list[dict] | None = None, pending_edits: list[dict] | None = None,
         now: str | None = None) -> tuple[Response, QueryFrame, list]:
@@ -81,6 +132,7 @@ def run(engine, query: str, *, audience: str = "analyst",
     t0 = time.monotonic()
     with run_context(engine, trace_id, query, audience) as rl:
         llm = engine.llm   # the recording wrapper in DEBUG, the raw LLM otherwise
+        usage_before = usage_snapshot(llm)   # diff'd at the end to bill this query's tokens
         # stash edit-history context where the edit_history primitive can read it
         engine._pending_edits = pending_edits or []
         engine._now = now
@@ -133,10 +185,16 @@ def run(engine, query: str, *, audience: str = "analyst",
         resp = _response(direct, findings, calcs, cites, source)
         if edit_payload is not None:
             resp.edit_history = edit_payload  # UI renders change-chips from this, regardless of prose
+        resp.usage = usage_cost(llm, usage_before)
 
         ms = round((time.monotonic() - t0) * 1000, 1)
-        _log.info("DONE source=%s citations=%d findings=%d evidence=%d calcs=%d gaps=%d %.1fms",
+        u = resp.usage
+        _log.info("DONE source=%s citations=%d findings=%d evidence=%d calcs=%d gaps=%d %.1fms"
+                  " | cost=%s",
                   source, len(cites), len(findings), len(evidence), len(calcs), len(gaps), ms,
+                  (f"${u.total_usd:.6f} ({u.prompt_tokens}+{u.completion_tokens} tok, "
+                   f"{u.api_calls} call(s), {u.cached_calls} cached, model={u.model})"
+                   if u else "n/a (no LLM)"),
                   extra={"component": "Respond"})
         rl.dump("00_summary", {
             "trace_id": trace_id, "query": query, "audience": audience,
@@ -144,6 +202,7 @@ def run(engine, query: str, *, audience: str = "analyst",
             "needs": [_need_brief(n) for n in needs], "gaps": gaps, "prose_source": source,
             "evidence": len(evidence), "calcs": len(calcs), "citations": len(cites),
             "findings": len(findings), "elapsed_ms": ms, "direct_answer": direct,
+            "usage": u.model_dump() if u else None,
         })
         rl.dump("10_response", resp)
         return resp, frame, evidence
@@ -151,15 +210,13 @@ def run(engine, query: str, *, audience: str = "analyst",
 
 # --------------------------------------------------------------------------------- LLM steps
 def _plan(llm, query, menu, formulas, history, rl) -> dict:
-    from .external import list_apis
     from .tools import list_tools
     payload = {
         "question": query,
         "workbook": menu,
         "formulas": formulas,
         "tools": list_tools(),
-        "apis": list_apis(),
-        "recent": [h.get("text", "") for h in history[-6:] if h.get("role") == "user"],
+        "recent": _recent_context(history),
     }
     rl.dump("01_plan_input", payload)   # exact menus + question sent to the planner LLM
     data = llm.complete_json(schemas.PLAN_SYS, json.dumps(payload, default=str), schemas.PLAN_SCHEMA)
@@ -226,7 +283,9 @@ def _compose(llm, engine, query, fetched, gaps, frame, evidence, calcs, rl) -> t
 
         # ESCALATE once to the open web when workbook/PSX evidence is insufficient.
         if insufficient and allow_web and not escalated:
-            hints = (data.get("hints") or {}) or getattr(engine, "_hints", None) or {}
+            # PLAN hints first (company/sector derived from the workbook + question), then the
+            # COMPOSE LLM's hints to fill gaps — dropping 'unknown'/empty so the query is scoped.
+            hints = _merge_hints(getattr(engine, "_hints", None), data.get("hints"))
             q = (data.get("search_query") or "").strip() or build_search_query(query, hints)
             trigger = reason or ("low-confidence" if conf == "low" else "unbacked-number")
             rl.phase("web_search")

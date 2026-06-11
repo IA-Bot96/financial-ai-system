@@ -260,6 +260,29 @@ class Conflict(BaseModel):
     resolved: bool = False
 
 
+class UsageCost(BaseModel):
+    """Per-query LLM token usage and its estimated USD cost (rendered as a chip in the UI).
+
+    Tokens are the actual counts the API returned (summed across PLAN + COMPOSE rounds + any web
+    escalation, excluding in-process cache hits, which cost nothing). USD is computed from a
+    per-model rate table (see pricing.py) because the API does not return a cost — hence
+    ``source='estimated'``. If a provider ever returns a billed cost directly, set
+    ``source='api'`` and the figure is shown as-is, not recomputed."""
+
+    model: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    api_calls: int = 0       # billed calls this query (cache hits excluded)
+    cached_calls: int = 0    # served from the in-process cache at $0
+    input_usd: float = 0.0
+    output_usd: float = 0.0
+    total_usd: float = 0.0
+    input_rate_per_1m: float = 0.0
+    output_rate_per_1m: float = 0.0
+    source: Literal["estimated", "api"] = "estimated"
+
+
 class ReasoningGraph(BaseModel):
     """Explicit premises → inferences → conclusion (L5). Every premise references
     cited evidence; the LLM narrates *over* this, it does not invent it."""
@@ -286,6 +309,9 @@ class Response(BaseModel):
     # structured edit-history payload (only for intent=edit_history) so the UI can render the
     # change list with timestamp chips + arrows; None for every other intent.
     edit_history: Optional[dict] = None
+    # per-query LLM token usage + estimated USD cost (UI renders a cost chip); None when the
+    # deterministic path ran with no LLM (NullLLM), so there is nothing to bill.
+    usage: Optional[UsageCost] = None
 
     @model_validator(mode="after")
     def _findings_must_cite(self) -> "Response":

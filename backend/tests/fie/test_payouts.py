@@ -8,7 +8,6 @@ from app.engines.fie import (
     FinancialIntelligenceEngine,
     Symbols,
 )
-from app.engines.fie import understanding
 from app.engines.fie.apis import ApiClient
 from app.engines.fie.apis.parsers import parse_company_payouts
 
@@ -73,16 +72,7 @@ def test_payouts_resolves_symbol_from_company():
     assert t.body == {"symbol": "MTL"}  # name -> symbols API -> MTL
 
 
-# --- intent routing + end-to-end ---
-
-@pytest.mark.parametrize("q,intent", [
-    ("dividend history for MTL", "dividend_analysis"),
-    ("payouts for lucky", "dividend_analysis"),
-    ("dividend announcements for MTL", "news_impact"),  # 'announcements' -> news
-])
-def test_dividend_intent_routing(q, intent):
-    assert understanding.build_frame(q).intent == intent
-
+# --- end-to-end ---
 
 def test_dividend_analysis_end_to_end(millat_store):
     class _T:

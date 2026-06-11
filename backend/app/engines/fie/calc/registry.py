@@ -206,7 +206,3 @@ REGISTRY: dict[str, FormulaSpec] = {s.id: s for s in _SPECS}
 
 def get(formula_id: str) -> Optional[FormulaSpec]:
     return REGISTRY.get(formula_id)
-
-
-def register(spec: FormulaSpec) -> None:
-    REGISTRY[spec.id] = spec

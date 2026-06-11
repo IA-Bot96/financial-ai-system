@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { useApp } from '@/store'
-import type { Citation, EditHistory, FieResponse } from '@/api'
+import type { Citation, EditHistory, FieResponse, UsageCost } from '@/api'
 import { cn } from '@/lib/util'
 import { CrossIcon } from './HistoryIcons'
 
@@ -477,7 +477,54 @@ function AnswerCard({ r }: { r: FieResponse }) {
           ))}
         </div>
       )}
+
+      {r.usage && (
+        <div className="flex justify-end pt-0.5">
+          <CostChip u={r.usage} />
+        </div>
+      )}
     </div>
+  )
+}
+
+/** Format a USD amount for the cost chip: $0.00 exactly, 4 decimals under a cent, else 2. */
+function fmtUsd(v: number): string {
+  if (v <= 0) return '$0.00'
+  if (v < 0.01) return `$${v.toFixed(4)}`
+  return `$${v.toFixed(2)}`
+}
+
+/** Estimated-cost chip: model + token counts → USD. When the cost is estimated (computed from a
+ *  rate table) it's prefixed with "≈"; an API-billed figure is shown as-is. Hover shows the
+ *  token split, call count, and the per-1M rates used. */
+function CostChip({ u }: { u: UsageCost }) {
+  const est = u.source !== 'api'
+  const cached = u.api_calls === 0 && u.cached_calls > 0
+  const label = cached ? '$0.00 · cached' : `${est ? '≈ ' : ''}${fmtUsd(u.total_usd)}`
+  const title = [
+    u.model,
+    `${u.prompt_tokens.toLocaleString()} in · ${u.completion_tokens.toLocaleString()} out tokens`,
+    `${u.api_calls} call${u.api_calls !== 1 ? 's' : ''}${u.cached_calls ? ` · ${u.cached_calls} cached` : ''}`,
+    est
+      ? `rates: $${u.input_rate_per_1m}/1M in · $${u.output_rate_per_1m}/1M out (estimated)`
+      : 'billed by provider'
+  ].join('\n')
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center gap-1 rounded-full border border-line bg-panel px-1.5 py-0.5 text-[10px] tabular-nums text-muted"
+    >
+      <svg viewBox="0 0 16 16" fill="none" className="h-2.5 w-2.5 shrink-0" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M8 4.5v7M9.8 6.1c-.3-.6-1-.9-1.8-.9-1 0-1.8.5-1.8 1.3 0 1.9 3.7 1 3.7 2.9 0 .8-.8 1.3-1.9 1.3-.9 0-1.6-.4-1.9-1"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+      </svg>
+      {label}
+    </span>
   )
 }
 

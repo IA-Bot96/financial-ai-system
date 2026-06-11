@@ -203,27 +203,10 @@ def execute_need(engine, need: dict, frame=None) -> PrimitiveResult:
         return run_formula(engine, need["formula"], yr)
     if kind == "compute" and need.get("expression"):
         return compute(engine, need["expression"], need.get("year"), need.get("label"))
-    if kind == "sector":
-        from .external import sector_profitability
-        return sector_profitability(engine, need.get("year"))
     if kind == "tool" and need.get("tool"):
         from .tools import run_tool
         return run_tool(engine, need["tool"], need.get("args"))
     hints = getattr(engine, "_hints", None) or {}
-    if kind == "api" and (need.get("name") or need.get("index") is not None):
-        from .external import call_api, api_for_index
-        # planner selects by INDEX; deterministic hints inject by NAME — accept either.
-        name = need.get("name") or api_for_index(need.get("index"))
-        if not name:
-            return {"kind": "api", "note": f"no api for index {need.get('index')}"}, [], []
-        # off-workbook asks carry the target company/sector in plan hints — let the API narrow to
-        # THAT entity (e.g. Lucky Cement / CEMENT), not always the workbook company.
-        return call_api(engine, name, {
-            "symbol": need.get("symbol"),
-            "company": need.get("company") or hints.get("company") or engine.store.company,
-            "query": need.get("query"), "year": need.get("year"),
-            "sector": need.get("sector") or hints.get("sector"),
-        })
     if kind == "news":
         from .external import news_search
         return news_search(engine, need.get("query") or hints.get("company") or engine.store.company)

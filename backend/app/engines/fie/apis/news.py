@@ -120,7 +120,3 @@ class News:
                 provider=loc.get("provider", ""), published_at=loc.get("published_at"),
                 symbols=loc.get("symbols") or [], sentiment=loc.get("sentiment")))
         return out
-
-    def headlines(self, query: str, *, symbol: Optional[str] = None):
-        """Back-compat entry point (engine calls this)."""
-        return self.search(query, symbol=symbol)

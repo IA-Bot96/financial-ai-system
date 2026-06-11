@@ -53,6 +53,24 @@ export interface EditHistory {
   opens?: string[]
 }
 
+/** Per-query LLM token usage + estimated USD cost (rendered as a chip). Null on the deterministic
+ *  path (no LLM was consulted). `source='estimated'` ⇒ computed from tokens × a model rate table;
+ *  `source='api'` ⇒ a billed figure the provider returned directly (shown as-is, no '≈'). */
+export interface UsageCost {
+  model: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  api_calls: number
+  cached_calls: number
+  input_usd: number
+  output_usd: number
+  total_usd: number
+  input_rate_per_1m: number
+  output_rate_per_1m: number
+  source: 'estimated' | 'api'
+}
+
 export interface FieResponse {
   direct_answer: string
   key_findings: string[]
@@ -64,6 +82,7 @@ export interface FieResponse {
   prose_source: 'deterministic' | 'llm'
   frame?: Record<string, unknown>  // resolved QueryFrame — echoed back so history can carry it
   edit_history?: EditHistory | null  // structured change log (only for intent=edit_history)
+  usage?: UsageCost | null  // token usage + estimated cost; null when no LLM ran
 }
 
 async function get<T>(path: string): Promise<{ status: number; body: T }> {

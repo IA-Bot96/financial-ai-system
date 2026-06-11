@@ -57,6 +57,8 @@ _INTENT_SIGNALS: dict[str, list[str]] = {
     "risk_assessment": [
         "risk", "margin", "pressure", "liquidity", "demand", "cost", "debt",
         "exposure", "default", "regulatory", "compliance", "operational",
+        "governance", "related party", "related-party", "board", "audit",
+        "disclosure", "conflict", "litigation", "contingency", "fraud", "penalty",
     ],
     "trend_analysis": [
         "revenue", "sales", "growth", "margin", "profit", "trend", "decline",
@@ -71,6 +73,26 @@ _INTENT_SIGNALS: dict[str, list[str]] = {
         "inflation", "policy", "announcement",
     ],
 }
+
+# The LLM-first controller labels every query intent="agent" (it doesn't pre-classify into the
+# categories above). When the intent isn't one of the known keys, score against the UNION of all
+# signal vocabularies (so risk / governance / margin / growth terms still match) instead of the
+# weak raw-query-word fallback — otherwise genuine insights score below the relevance threshold
+# and every insight is dropped, leaving qualitative answers ungrounded.
+_ALL_SIGNALS: list[str] = sorted({t for terms in _INTENT_SIGNALS.values() for t in terms})
+
+# Generic stop-words stripped from a query before its content words are used as signal terms.
+_QUERY_STOP = {"there", "these", "this", "that", "with", "from", "have", "does", "they",
+               "their", "about", "which", "were", "into", "your", "yours", "any", "are",
+               "the", "for", "and", "what", "this", "company", "companys", "concern"}
+
+
+def _query_terms(raw_query: str) -> list[str]:
+    """Content words (>=4 chars, minus stop-words) from the question — used so an 'agent'-intent
+    query still selects insights SPECIFIC to what was asked (governance, dividend, capex, …)."""
+    words = (raw_query or "").lower().replace("-", " ").replace("/", " ").split()
+    return [w.strip(",.?!:;()") for w in words
+            if len(w.strip(",.?!:;()")) >= 4 and w.strip(",.?!:;()") not in _QUERY_STOP]
 
 
 def _relevance(rec: dict, frame: QueryFrame) -> float:
@@ -99,8 +121,11 @@ def _relevance(rec: dict, frame: QueryFrame) -> float:
     if not text:
         return 0.0
 
-    # Signal terms: intent vocabulary + explicit metric names from the frame
-    signal_terms: list[str] = list(_INTENT_SIGNALS.get(frame.intent, []))
+    # Signal terms: a known intent uses its own vocabulary; the controller's generic "agent" intent
+    # uses the UNION of all vocabularies PLUS the question's own content words (so the ranking is
+    # query-specific — a governance ask surfaces governance insights, not just any financial one).
+    known = _INTENT_SIGNALS.get(frame.intent)
+    signal_terms: list[str] = list(known) if known else list(_ALL_SIGNALS) + _query_terms(frame.raw_query)
     signal_terms += [m.replace("_", " ") for m in (frame.metrics or [])]
 
     if signal_terms:
@@ -205,7 +230,7 @@ class InsightSelector:
             dropped_by_cap = 0
 
         filtered_out = total - len(scored) - dropped_by_cap
-        signal_terms = list(_INTENT_SIGNALS.get(frame.intent, []))
+        signal_terms = list(_INTENT_SIGNALS.get(frame.intent) or _ALL_SIGNALS)
         signal_terms += [m.replace("_", " ") for m in (frame.metrics or [])]
 
         _log.debug(

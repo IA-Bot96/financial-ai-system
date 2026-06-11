@@ -110,6 +110,10 @@ class OpenAILLM:
         self.seed = seed
         self._omit_temperature = False
         self._omit_seed = False
+        # cumulative token usage across this client's lifetime. The controller snapshots the
+        # delta around a single query to bill that query's cost (see pricing.estimate_cost).
+        # Cache hits cost nothing, so they bump `cached_calls` only — never the token counts.
+        self.usage = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "cached_calls": 0}
         _log.info(
             "OpenAILLM ready: model=%s key_set=%s max_input_chars=%d max_output_tokens=%d",
             self.model, bool(self._api_key), self.max_input_chars, self.max_output_tokens,
@@ -120,6 +124,25 @@ class OpenAILLM:
         if text and len(text) > self.max_input_chars:
             return text[:self.max_input_chars]
         return text
+
+    def _record_usage(self, usage) -> None:
+        """Accumulate one API response's token usage. Normalizes both shapes: Chat Completions
+        (`prompt_tokens`/`completion_tokens`) and the Responses API (`input_tokens`/`output_tokens`)."""
+        if not usage:
+            return
+        prompt = getattr(usage, "prompt_tokens", None)
+        if prompt is None:
+            prompt = getattr(usage, "input_tokens", 0)
+        completion = getattr(usage, "completion_tokens", None)
+        if completion is None:
+            completion = getattr(usage, "output_tokens", 0)
+        self.usage["prompt_tokens"] += int(prompt or 0)
+        self.usage["completion_tokens"] += int(completion or 0)
+        self.usage["calls"] += 1
+
+    def usage_snapshot(self) -> dict:
+        """A copy of the cumulative usage counters (so callers can diff start vs end)."""
+        return dict(self.usage)
 
     def _cache_get(self, key: tuple):
         return self._cache.get(key, _MISS)
@@ -178,6 +201,7 @@ class OpenAILLM:
         key = ("json", system, user, repr(sorted((schema or {}).items())))
         hit = self._cache_get(key)
         if hit is not _MISS:
+            self.usage["cached_calls"] += 1
             _log.debug("OpenAI complete_json: cache hit", extra={"component": "LLM"})
             return hit
         try:
@@ -189,6 +213,7 @@ class OpenAILLM:
             )
             out = _loads_lenient(resp.choices[0].message.content)
             usage = resp.usage
+            self._record_usage(usage)
             _log.debug(
                 "OpenAI complete_json ok: model=%s prompt_tokens=%s completion_tokens=%s",
                 self.model,
@@ -216,6 +241,7 @@ class OpenAILLM:
         key = ("web", query)
         hit = self._cache_get(key)
         if hit is not _MISS:
+            self.usage["cached_calls"] += 1
             _log.debug("OpenAI web_search: cache hit", extra={"component": "LLM"})
             return hit
         try:
@@ -242,6 +268,7 @@ class OpenAILLM:
                         sources.append({"url": url, "title": getattr(ann, "title", None) or url,
                                         "snippet": snippet})
             out = {"text": text, "sources": sources}
+            self._record_usage(getattr(resp, "usage", None))
             _log.info("OpenAI web_search ok: model=%s sources=%d", self.model, len(sources),
                       extra={"component": "LLM"})
             self._cache_put(key, out)
@@ -256,6 +283,7 @@ class OpenAILLM:
         key = ("text", system, user)
         hit = self._cache_get(key)
         if hit is not _MISS:
+            self.usage["cached_calls"] += 1
             _log.debug("OpenAI complete_text: cache hit", extra={"component": "LLM"})
             return hit
         try:
@@ -266,6 +294,7 @@ class OpenAILLM:
             )
             out = resp.choices[0].message.content
             usage = resp.usage
+            self._record_usage(usage)
             _log.debug(
                 "OpenAI complete_text ok: model=%s prompt_tokens=%s completion_tokens=%s",
                 self.model,

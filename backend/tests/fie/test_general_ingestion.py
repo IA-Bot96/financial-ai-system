@@ -9,8 +9,7 @@ import os
 
 import pytest
 
-from app.engines.fie import FinancialFactStore, Macro
-from app.engines.fie.apis import ApiClient
+from app.engines.fie import FinancialFactStore
 from app.engines.fie.calc import CalcEngine
 from app.engines.fie.ingest.classify import classify_sheet, statement_family
 
@@ -87,19 +86,3 @@ def test_registry_has_formula(fid):
     assert registry.get(fid) is not None
 
 
-# --- Macro adapter (offline) ---
-
-class _FakeT:
-    def get(self, url, params, timeout):
-        return {"indicators": {"policy_rate": 11.0, "inflation": 4.9, "fx_usd_pkr": 278.5}}
-    def post(self, url, body, timeout):
-        raise AssertionError("macro is GET")
-
-
-def test_macro_adapter_normalizes():
-    m = Macro(ApiClient(_FakeT(), sleep=lambda s: None, now=lambda: "2026-06-06"))
-    res = m.indicators("PK")
-    assert res.status == "ok"
-    inds = {i.citations[0].locator["indicator"]: i.value for i in res.items}
-    assert inds["policy_rate"] == 11.0 and inds["fx_usd_pkr"] == 278.5
-    assert all(i.kind == "external" for i in res.items)

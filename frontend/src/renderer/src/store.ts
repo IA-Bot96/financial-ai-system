@@ -511,14 +511,17 @@ export const useApp = create<AppState>((set) => ({
     const now = Date.now()
 
     // Build conversation history from settled turns (exclude any still-pending assistant slot).
-    // Assistant turns carry the resolved QueryFrame (compact, ~40 chars) instead of prose
-    // (~1000+ chars), so we can send 8 full turns for the same token cost as 4 prose turns.
+    // Assistant turns carry BOTH the resolved QueryFrame (compact metric/year, for inheriting a
+    // metric across an elliptical year follow-up) AND the direct answer (so a referential
+    // follow-up like "list them" / "names" has a subject to attach to — a sector/list answer
+    // resolves to no metric, so the frame alone leaves nothing to inherit). The backend truncates
+    // the answer, so we send it whole.
     const history = s.chat.messages
       .filter((m) => m.role === 'user' ? !!m.text : !!(m.response || m.error))
       .slice(-16)   // last 8 complete turns (user + assistant each)
       .map((m) => ({
         role: m.role,
-        text: m.role === 'user' ? (m.text ?? '') : '',
+        text: m.role === 'user' ? (m.text ?? '') : (m.response?.direct_answer ?? m.error ?? ''),
         ...(m.role === 'assistant' && m.frame ? { frame: m.frame } : {})
       }))
 

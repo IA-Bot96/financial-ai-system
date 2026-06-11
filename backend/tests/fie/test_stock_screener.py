@@ -117,7 +117,8 @@ def test_screener_filter_by_symbol():
 
 
 def test_screener_filter_by_sector_reuses_market_watch_filter():
-    rows = P.parse_sector_stock_screener(_REAL_HTML)
+    # getSectorScreener fetches the whole /screener board, then narrows with this shared filter
+    rows = P.parse_stock_screener(_REAL_HTML)
     cement = P.filter_market_watch_by_sector(rows, "cement")
     assert [r["symbol"] for r in cement] == ["LUCK"]
     assert cement[0]["pe_ratio_ttm"] == 38.944043321299645
@@ -130,17 +131,12 @@ def test_screener_malformed_safe():
     assert P.parse_stock_screener("<table><thead><tr><th>X</th></tr></thead></table>") == []
 
 
-def test_screener_registry_entries():
+def test_screener_registry_entry():
     comp = BY_NAME["stock_screener"]
-    sect = BY_NAME["sector_stock_screener"]
     assert comp.method == "GET" and comp.response_type == "html"
     assert comp.endpoint.endswith("/screener")
     assert comp.scope == "company" and comp.dynamic_params == ("symbol",)
     assert comp.parser_fn is P.parse_stock_screener
-    # same feed, sector-scoped variant
-    assert sect.endpoint == comp.endpoint
-    assert sect.scope == "sector" and sect.dynamic_params == ("sector",)
-    assert sect.parser_fn is P.parse_sector_stock_screener
     # exposes the valuation fields it actually returns (provides tags removed)
     assert "pe_ratio_ttm" in comp.returns and "dividend_yield_pct" in comp.returns
 

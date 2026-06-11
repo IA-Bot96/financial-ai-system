@@ -58,7 +58,7 @@ def test_symbols_normalized_and_malformed_safe():
 
 def test_parsers_registry_covers_catalog():
     expected = {
-        "symbols_master", "company_announcements", "secp_notices", "company_overview",
+        "symbols_master", "company_announcements", "sector_secp_notices", "company_overview",
         "company_payouts", "market_watch", "deliverable_futures_market_watch",
         "cash_settled_futures_market_watch", "daily_market_summary",
         "analysis_reports", "sector_summary",

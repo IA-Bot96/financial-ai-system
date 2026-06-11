@@ -7,7 +7,7 @@ LLM narration accepted only when guarded (3.2/3.3), and audience modes (3.4).
 import pytest
 
 from app.engines.fie import FinancialIntelligenceEngine
-from app.engines.fie import safety, understanding
+from app.engines.fie import safety
 from app.engines.fie.models import QueryFrame
 
 
@@ -29,16 +29,6 @@ class HallucinatingNarrator:
         return None
     def complete_text(self, system, user):
         return "The company is clearly worth Rs 999,999,999 and growing at 87.3%."
-
-
-class IntentLLM:
-    """Returns a structured frame for queries the rules can't classify."""
-    def __init__(self, payload):
-        self._payload = payload
-    def complete_json(self, system, user, schema):
-        return self._payload
-    def complete_text(self, system, user):
-        return None
 
 
 # --- 3.5 numeric guard ---
@@ -83,35 +73,6 @@ def test_honest_llm_prose_is_used(millat_store):
     r = eng.answer("current ratio for MTL 2024")
     assert r.prose_source == "llm"
     assert "1.24x" in r.supporting_analysis
-
-
-# --- 3.1 LLM understanding fallback (rules stay first) ---
-
-def test_rules_take_precedence_over_llm():
-    # rules classify this; LLM must not be consulted (would return junk)
-    llm = IntentLLM({"intent": "risk_assessment"})
-    f = understanding.understand("current ratio for MTL 2024", llm=llm)
-    assert f.intent == "ratio_analysis" and f.source == "rules"
-
-
-def test_llm_fallback_for_unclassifiable_query():
-    llm = IntentLLM({"intent": "metric_lookup", "company": None, "year": 2025,
-                     "formula": None, "metrics": ["revenue"]})
-    f = understanding.understand("show me the top line last year", llm=llm)
-    assert f.intent == "metric_lookup" and f.source == "llm" and f.metrics == ["revenue"]
-
-
-def test_llm_unknown_intent_keeps_rules_unknown():
-    llm = IntentLLM({"intent": "definitely_not_supported"})
-    f = understanding.understand("xyzzy", llm=llm)
-    assert f.intent == "unknown"  # unsupported LLM intent ignored
-
-
-def test_llm_unknown_formula_is_dropped():
-    llm = IntentLLM({"intent": "ratio_analysis", "formula": "made_up_ratio",
-                     "year": 2024, "metrics": []})
-    f = understanding.understand("some odd ratio phrasing", llm=llm)
-    assert f.formula is None  # never trust an unknown formula id
 
 
 # --- 3.4 audience modes ---

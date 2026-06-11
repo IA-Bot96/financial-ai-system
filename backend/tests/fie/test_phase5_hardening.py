@@ -3,7 +3,6 @@
 import pytest
 
 from app.engines.fie import FinancialIntelligenceEngine
-from app.engines.fie.devtools.eval_harness import run_eval
 from app.engines.fie.trace import TraceStore
 
 
@@ -27,20 +26,6 @@ def test_replay_is_deterministic(millat_store):
     b = eng.answer("debt to equity for millat 2024")
     assert a.direct_answer == b.direct_answer
     assert a.calculations[0].value == b.calculations[0].value
-
-
-# --- 5.3 eval harness ---
-
-def test_eval_harness_all_green(millat_store, lucky_store):
-    from app.engines.fie import ExternalSources, ForecastRepo
-    fc = ForecastRepo(overrides={("Millat Tractors Limited", "revenue", 2026): 60_000_000})
-    ext = ExternalSources(peers={lucky_store.company: lucky_store}, forecast=fc)
-    eng = FinancialIntelligenceEngine(millat_store, external=ext)
-    report = run_eval(eng)
-    assert report.passed, [c.failures for c in report.cases if not c.passed]
-    m = report.metrics()
-    assert m["passed"] == m["cases"]
-    assert "ratio_analysis" in m["by_intent"]
 
 
 # --- 5.4 observability / coverage ---

@@ -82,44 +82,6 @@ def _registry_fetcher(engine):
     return cache["rf"]
 
 
-def list_apis() -> list[dict]:
-    """The PSX API catalog menu the planner selects from — an opaque INDEX, what each API does,
-    and the exact fields it RETURNS. The name is withheld on purpose: the planner must choose by
-    the corrected description + actual return fields, not by guessing from a suggestive name. The
-    chosen index maps back to the API in the rule-base (api_for_index)."""
-    from .apis.registry import REGISTRY
-    out = []
-    for i, a in enumerate(REGISTRY):        # `i` is the canonical REGISTRY index (api_for_index)
-        if a.name in _TOOL_SUPERSEDED:      # covered by a named tool (tools.py) -> not an opaque api
-            continue
-        entry = {"index": i, "description": a.description, "returns": list(a.returns)}
-        if a.use_for:                       # what WE use it for — extra routing signal for the planner
-            entry["use_for"] = a.use_for
-        out.append(entry)
-    return out
-
-
-# APIs now exposed as named, typed tools (external.list_tools/tools.py) instead of an opaque
-# catalog index — the planner picks the tool, not the raw api.
-_TOOL_SUPERSEDED = {"symbols_master", "company_announcements", "sector_announcements",
-                    "secp_notices", "sector_secp_notices", "company_overview", "company_payouts",
-                    "market_watch", "sector_market_watch", "performers",
-                    "debt_performers", "debt_market_watch",
-                    "deliverable_futures_market_watch", "company_deliverable_futures_market_watch",
-                    "daily_market_summary", "sector_summary", "analysis_reports",
-                    "stock_screener", "sector_stock_screener"}
-
-
-def api_for_index(idx) -> str | None:
-    """Map a planner-selected catalog index back to the API name (rule-base side)."""
-    from .apis.registry import REGISTRY
-    try:
-        i = int(idx)
-    except (TypeError, ValueError):
-        return None
-    return REGISTRY[i].name if 0 <= i < len(REGISTRY) else None
-
-
 def company_identity(engine) -> dict:
     """Resolve the workbook company's PSX ticker + sector ONCE (cached), deterministically, from
     the full symbols master — NOT from a truncated API table (which previously mislabelled Millat
@@ -148,49 +110,6 @@ def company_identity(engine) -> dict:
             pass
         cache["identity"] = {"symbol": symbol, "sector": sector}
     return cache["identity"]
-
-
-def call_api(engine, name: str, params: dict | None = None):
-    """Generic: fetch+parse one catalog API by name and return its rows as external evidence.
-    The data lives in each item's claim + locator (numbers there are admitted by the numeric
-    guard as cited external chunks). Some APIs return the whole market — filtered to the symbol
-    when one is given. Returns (result, external_evidence, [])."""
-    from .apis.registry import BY_NAME
-    api = BY_NAME.get(name)
-    if api is None:
-        return {"api": name, "note": f"unknown api '{name}'"}, [], []
-    params = params or {}
-    try:
-        rf = _registry_fetcher(engine)   # builds + caches the syms adapter too
-    except Exception as e:  # noqa: BLE001
-        return {"api": name, "note": f"fetch setup failed: {e}"}, [], []
-    # resolve the ticker AFTER the fetcher exists (so syms is available) — many APIs need it,
-    # and market-wide ones are filtered to it below.
-    sym = params.get("symbol")
-    syms = engine.__dict__.get("_ext", {}).get("syms")
-    if sym is None and params.get("company") and syms is not None:
-        sym = syms.ticker_for(params["company"])
-    try:
-        res = rf.fetch(api, symbol=sym, query=params.get("query"),
-                       year=params.get("year"), sector=params.get("sector"))
-    except Exception as e:  # noqa: BLE001
-        return {"api": name, "note": f"fetch failed: {e}"}, [], []
-    items = list(res.items or [])
-    if sym:  # market-wide APIs (e.g. stock_screener) return everything — narrow to the symbol
-        narrowed = [it for it in items
-                    if it.citations and (it.citations[0].locator or {}).get("symbol") == sym]
-        if narrowed:
-            items = narrowed
-    rows = []
-    for it in items[:12]:
-        loc = (it.citations[0].locator if it.citations else {}) or {}
-        extra = {k: v for k, v in loc.items()
-                 if k not in ("source", "api", "category", "retrieved_at", "chunk_text")}
-        rows.append({"claim": it.claim, **extra})
-    out = {"api": name, "status": res.status, "count": len(items), "rows": rows}
-    if not items:
-        out["note"] = "no data returned"
-    return out, items, []
 
 
 def news_search(engine, query: str, *, symbol=None):
@@ -235,15 +154,28 @@ def news_search(engine, query: str, *, symbol=None):
     return out, items, []
 
 
+_PLACEHOLDER_HINTS = {"unknown", "n/a", "none", "null", ""}
+
+
+def _clean_hint(v) -> str:
+    """A hint value as a clean string: lists are joined, placeholder values ('unknown', 'n/a',
+    'none') are dropped — so a vague LLM hint never leaks a literal 'unknown' into the web query."""
+    if isinstance(v, (list, tuple)):
+        return " ".join(_clean_hint(x) for x in v if _clean_hint(x))
+    s = str(v if v is not None else "").strip()
+    return "" if s.lower() in _PLACEHOLDER_HINTS else s
+
+
 def build_search_query(query: str, hints: dict | None) -> str:
     """Compose a precise open-web query from the user's question plus the LLM-extracted hints
-    (company, sector, years, keywords). Hints make PSX/web lookups specific instead of vague."""
+    (company, sector, years, keywords). Hints make PSX/web lookups specific instead of vague.
+    Placeholder/empty hint values are dropped and list-valued keywords/years are flattened, so the
+    query is company-scoped rather than carrying junk like 'unknown' or a Python list repr."""
     h = hints or {}
-    parts = [str(h.get("company") or "").strip(), str(h.get("sector") or "").strip(),
-             str(h.get("keywords") or "").strip()]
+    parts = [_clean_hint(h.get("company")), _clean_hint(h.get("sector")),
+             _clean_hint(h.get("keywords"))]
     yrs = h.get("years") or []
-    if isinstance(yrs, list):
-        parts.append(" ".join(str(y) for y in yrs if y))
+    parts.append(" ".join(str(y) for y in yrs if y) if isinstance(yrs, list) else _clean_hint(yrs))
     extra = " ".join(p for p in parts if p)
     base = (query or "").strip()
     # keywords lead (they're the distilled intent); fall back to the raw question if no hints.
@@ -288,78 +220,3 @@ def web_search(engine, query: str, *, hints: dict | None = None):
                                          "snippet": snip})],
             reliability=0.6))
     return {"web": q, "text": text, "n_sources": len(sources)}, evidence, []
-
-
-def _ext_evidence(claim: str, value: float, year: int, sector: str, n: int) -> EvidenceItem:
-    cite = Citation(ref_id="C?", kind="external",
-                    display=f"PSX analysis report {year} — {sector} sector ({n} companies)",
-                    locator={"source": "PSX.AnalysisReports", "year": int(year),
-                             "sector": sector, "companies": n})
-    return EvidenceItem(claim=claim, value=value, unit="percent", kind="external",
-                        citations=[cite], reliability=0.85)
-
-
-def sector_profitability(engine, year, *, symbol=None):
-    """Sector NET and PBT margin for the subject company's sector, from the PSX analysis report.
-    Returns (result, external_evidence, calcs). Gross margin is NOT available (PSX has no COGS)."""
-    try:
-        ar, syms = _adapters(engine)
-    except Exception as e:  # noqa: BLE001 — missing httpx / offline must degrade, not crash
-        return {"note": f"external data unavailable: {e}"}, [], []
-
-    company = engine.store.company
-    sym = symbol or (syms.ticker_for(company) if syms else None)
-
-    # try the requested year, else newest DATA year first. NB: store.years includes empty
-    # forecast slots (e.g. 2026-2030) that have no PSX report — iterate only years that actually
-    # carry workbook values, so the search doesn't burn out on unpublished future years.
-    if year is not None:
-        yrs = [int(year)]
-    else:
-        df = engine.store.findata
-        data_years = (sorted({int(y) for y in df[df["value"].notna()]["year"].dropna().unique()})
-                      if df is not None and not df.empty else list(engine.store.years))
-        yrs = list(reversed(data_years))
-    recs, used = {}, None
-    for y in yrs[:6]:
-        recs = _load_report(ar, int(y))
-        if recs:
-            used = int(y)
-            break
-    if not recs:
-        return {"note": f"PSX analysis report unavailable for {year or 'recent years'}"}, [], []
-
-    me = recs.get(sym) if sym else None
-    sector = (me or {}).get("sector")
-    if not sector:
-        return {"note": f"could not resolve the sector for {company} in PSX data"}, [], []
-
-    peers = [r for r in recs.values() if (r.get("sector") or "") == sector and r.get("sales")]
-    ssales = sum(r["sales"] for r in peers)
-    spat = sum((r.get("pat") or 0.0) for r in peers)
-    spbt = sum((r.get("pbt") or 0.0) for r in peers)
-    if not ssales:
-        return {"note": f"no sector sales recorded for {sector} in {used}"}, [], []
-
-    net = round(spat / ssales, 6)
-    pbt = round(spbt / ssales, 6)
-    ev = [_ext_evidence(f"{sector} sector net margin FY{used}", net, used, sector, len(peers)),
-          _ext_evidence(f"{sector} sector PBT margin FY{used}", pbt, used, sector, len(peers))]
-    calcs = [
-        CalcResult(formula_id="sector_net_margin", value=net, unit="percent", confidence="Medium",
-                   expression="sum(PAT)/sum(sales) across the sector",
-                   note=f"{sector}, {len(peers)} companies, FY{used} (PSX analysis report)"),
-        CalcResult(formula_id="sector_pbt_margin", value=pbt, unit="percent", confidence="Medium",
-                   expression="sum(PBT)/sum(sales) across the sector",
-                   note=f"{sector}, {len(peers)} companies, FY{used} (PSX analysis report)"),
-    ]
-    res = {
-        "kind": "sector", "sector": sector, "year": used, "companies": len(peers),
-        "net_margin": net, "pbt_margin": pbt,
-        "peers": [r["symbol"] for r in peers],
-        "note": ("PSX publishes no cost-of-sales, so a sector GROSS margin cannot be computed; "
-                 "these are sector NET and PBT margins."),
-    }
-    _log.info("sector_profitability: sector=%s year=%s cos=%d net=%.4f pbt=%.4f",
-              sector, used, len(peers), net, pbt, extra={"component": "Retrieve"})
-    return res, ev, calcs

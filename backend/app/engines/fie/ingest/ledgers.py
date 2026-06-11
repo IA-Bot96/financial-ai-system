@@ -14,16 +14,6 @@ import pandas as pd
 from ..ontology import normalize_label
 
 
-def _header_map(ws) -> dict[str, int]:
-    """Map normalized header name -> column index from row 1."""
-    out: dict[str, int] = {}
-    for c in range(1, ws.max_column + 1):
-        v = ws.cell(1, c).value
-        if v is not None:
-            out[str(v).strip().lower()] = c
-    return out
-
-
 def _rows_to_df(ws) -> pd.DataFrame:
     headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
     headers = [str(h).strip() if h is not None else f"col{c}" for c, h in enumerate(headers)]

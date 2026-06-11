@@ -197,7 +197,7 @@ def test_psx_sectors_constant_matches_dropdown():
     assert len(P.PSX_SECTORS) == 38
 
 
-# --- sector_market_watch: same feed, narrowed by sector id ---
+# --- sector narrowing: getSectorMarketWatch fetches the market_watch board, then filters ---
 
 def test_resolve_sector_code():
     assert P.resolve_sector_code("0804") == "0804"            # already a code
@@ -208,33 +208,12 @@ def test_resolve_sector_code():
     assert P.resolve_sector_code("") is None
 
 
-def test_sector_market_watch_parser_returns_full_feed():
-    # same parse as market_watch (the narrowing happens after parsing)
-    assert P.parse_sector_market_watch(_REAL_HTML) == P.parse_market_watch(_REAL_HTML)
-
-
 def test_filter_market_watch_by_sector():
-    rows = P.parse_sector_market_watch(_REAL_HTML)
+    # getSectorMarketWatch fetches the whole market_watch board, then narrows with this filter
+    rows = P.parse_market_watch(_REAL_HTML)
     cement = P.filter_market_watch_by_sector(rows, "cement")  # name keyword
     assert [r["symbol"] for r in cement] == ["LUCK"]
     by_code = P.filter_market_watch_by_sector(rows, "0801")   # sector id
     assert [r["symbol"] for r in by_code] == ["MTL"]
     assert P.filter_market_watch_by_sector(rows, "tobacco") == []   # none in sample
     assert P.filter_market_watch_by_sector(rows, "") == rows        # no filter
-
-
-def test_sector_market_watch_registry_entry():
-    a = BY_NAME["sector_market_watch"]
-    mw = BY_NAME["market_watch"]
-    # same endpoint + parser as market_watch, but sector-scoped and sector-param
-    assert a.endpoint == mw.endpoint and a.method == "GET"
-    assert a.parser_fn is P.parse_sector_market_watch
-    assert a.scope == "sector" and a.dynamic_params == ("sector",)
-
-
-@pytest.mark.skip(reason="shortlist heuristic retired with `provides`; APIs are selected by the "
-                         "LLM over index + description + returns (external.list_apis)")
-def test_shortlist_distinguishes_company_vs_sector_market_watch():
-    assert shortlist("current share price", top_k=1)[0][0].name == "market_watch"
-    ranked = [a.name for a, _ in shortlist("cement sector share prices", top_k=4)]
-    assert ranked[0] == "sector_market_watch"

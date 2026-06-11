@@ -131,8 +131,8 @@ def test_announcements_adapter_form_post_and_parse():
 
 # --- API register ---
 
-@pytest.mark.skip(reason="shortlist heuristic retired with `provides`; APIs are selected by the "
-                         "LLM over index + description + returns (external.list_apis)")
+@pytest.mark.skip(reason="shortlist heuristic retired from the planner path; the planner now "
+                         "selects named tools only — no opaque API catalog")
 @pytest.mark.parametrize("query,expected_top", [
     ("dividend announcements for Millat", "company_announcements"),
     ("current share price", "market_watch"),
@@ -161,31 +161,14 @@ def test_announcements_entry_matches_real_contract():
     assert "query" not in a.dynamic_params
 
 
-def test_company_vs_sector_scoped_entries():
-    comp = BY_NAME["company_announcements"]
-    sect = BY_NAME["sector_announcements"]
-    # same endpoint + type + parser; differ only by scope/param (symbol vs query)
-    assert comp.endpoint == sect.endpoint
-    assert comp.params["type"] == sect.params["type"] == "C"
-    assert comp.parser_fn is sect.parser_fn          # same parser function
-    assert comp.scope == "company" and "symbol" in comp.dynamic_params
-    assert sect.scope == "sector" and sect.dynamic_params == ("query", "date_from", "date_to")
-    assert "symbol" not in sect.dynamic_params         # sector path has no symbol
-
-
 def test_sector_secp_entry():
-    c = BY_NAME["secp_notices"]
+    # SECP notices are a single sector/keyword-scoped entry (the SECP feed has no symbol column,
+    # so there is no symbol-scoped variant). Type B, query-driven.
     s = BY_NAME["sector_secp_notices"]
-    assert c.params["type"] == s.params["type"] == "B"
-    assert c.scope == "company" and s.scope == "sector"
-    assert c.parser_fn is s.parser_fn
+    assert s.params["type"] == "B"
+    assert s.scope == "sector"
+    assert s.parser_fn is P.parse_secp_notices
     assert s.dynamic_params == ("query", "date_from", "date_to")
-
-
-def test_sector_query_shortlists_sector_entry():
-    # a sector query should surface the sector-scoped announcement API
-    ranked = [a.name for a, _ in shortlist("cement sector announcements", top_k=4)]
-    assert "sector_announcements" in ranked
 
 
 def test_registry_matches_curl_contracts():
@@ -197,10 +180,6 @@ def test_registry_matches_curl_contracts():
         "symbols_master":      ("GET",  None,   "json", "/symbols", set()),
         "company_announcements": ("POST", "form", "html", "/announcements",
                                   {"type", "count", "offset", "page", "symbol"}),
-        "sector_announcements":  ("POST", "form", "html", "/announcements",
-                                  {"type", "query"}),
-        "secp_notices":          ("POST", "form", "html", "/announcements",
-                                  {"type", "symbol"}),
         "company_overview":      ("GET",  None,   "html", "/company/{symbol}", {"symbol"}),
         "company_payouts":       ("POST", "form", "html", "/company/payouts", {"symbol"}),
         "market_watch":          ("GET",  None,   "html", "/market-watch", set()),
@@ -229,13 +208,11 @@ def test_registry_matches_curl_contracts():
     ann = BY_NAME["company_announcements"]
     assert ann.params["type"] == "C" and ann.params["count"] == 50
     assert ann.params["offset"] == 0 and ann.params["page"] == "annc"
-    assert BY_NAME["secp_notices"].params["type"] == "B"
+    assert BY_NAME["sector_secp_notices"].params["type"] == "B"
 
-    # the 3 remaining entries are shared-endpoint variants (same endpoint+parser as a
-    # confirmed base, differing only by scope/param — covered by the scope tests).
-    shared_variants = {"sector_market_watch", "sector_secp_notices",
-                       "company_deliverable_futures_market_watch",
-                       "sector_stock_screener"}
+    # the remaining entry is a shared-endpoint variant (same /announcements endpoint + SECP parser
+    # as company_announcements, differing only by scope/param — covered by the scope tests).
+    shared_variants = {"sector_secp_notices"}
     # every entry is therefore accounted for — none left spec-only/unverified
     assert set(confirmed) | shared_variants == set(BY_NAME)
 
