@@ -77,7 +77,7 @@ export interface FieResponse {
   supporting_analysis: string
   citations: Citation[]
   conflicts: Conflict[]
-  confidence: { band: 'High' | 'Medium' | 'Low'; score?: number; reasons?: string[] } | null
+  confidence: { band: 'High' | 'Medium' | 'Low'; score?: number; completeness?: number | null; reasons?: string[] } | null
   coverage: Record<string, unknown>
   prose_source: 'deterministic' | 'llm'
   frame?: Record<string, unknown>  // resolved QueryFrame — echoed back so history can carry it

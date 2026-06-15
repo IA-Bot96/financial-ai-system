@@ -336,6 +336,9 @@ export function AskAI() {
                     reasons={m.response.confidence?.reasons}
                   />
                 )}
+                {m.response && (
+                  <CompletenessBadge value={m.response.confidence?.completeness} />
+                )}
               </div>
               <div className="max-w-full">
                 {m.response ? (
@@ -576,6 +579,27 @@ function ConfidenceBadge({ band, reasons }: { band?: 'High' | 'Medium' | 'Low'; 
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       {band}
+    </span>
+  )
+}
+
+/** How completely the answer addresses the question (0..1), self-rated by the composer and used to
+ *  drive the agentic loop. Shown alongside the confidence chip: ≥80% green, ≥50% amber, else red. */
+function CompletenessBadge({ value }: { value?: number | null }) {
+  if (value == null) return null
+  const pct = Math.round(value * 100)
+  const cls =
+    value >= 0.8
+      ? 'text-green-400 border-green-500/40 bg-green-500/10'
+      : value >= 0.5
+        ? 'text-amber-300 border-amber-500/40 bg-amber-500/10'
+        : 'text-red-300 border-red-500/40 bg-red-500/10'
+  return (
+    <span
+      title={`Completeness — how fully this answers your question (${pct}%)`}
+      className={cn('shrink-0 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] border', cls)}
+    >
+      {pct}% complete
     </span>
   )
 }

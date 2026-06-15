@@ -236,6 +236,9 @@ class CalcResult(BaseModel):
 class ConfidenceReport(BaseModel):
     band: ConfidenceBand
     score: float = 0.0
+    # how completely the answer addresses the user's question (0..1), self-rated by the composer
+    # and used to drive the agentic re-fetch loop; surfaced in the UI alongside the band.
+    completeness: Optional[float] = None
     reasons: list[str] = Field(default_factory=list)
     caps_applied: list[str] = Field(default_factory=list)
     # min-weakest-link composition: the final score is min(component values); the

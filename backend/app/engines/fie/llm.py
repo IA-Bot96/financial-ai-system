@@ -62,6 +62,10 @@ class LLMClient(Protocol):
     def web_search(self, query: str) -> Optional[dict]:
         """Hosted open-web search. Return {'text': str, 'sources': [{url,title,snippet}]} or None."""
 
+    def complete_json_web(self, system: str, user: str, schema: dict):
+        """COMPOSE with the hosted web_search tool attached so the model searches the web ITSELF.
+        Return (json_or_None, sources[]). Degrades to (None, []) on failure."""
+
 
 class NullLLM:
     """Default no-op client — forces the deterministic path."""
@@ -74,6 +78,9 @@ class NullLLM:
 
     def web_search(self, query: str) -> Optional[dict]:
         return None
+
+    def complete_json_web(self, system: str, user: str, schema: dict):
+        return None, []
 
 
 class OpenAILLM:
@@ -278,6 +285,48 @@ class OpenAILLM:
             _log.warning("OpenAI web_search failed: %s  [model=%s]", self.last_error, self.model,
                          extra={"component": "LLM"})
             return None
+
+    def complete_json_web(self, system: str, user: str, schema: dict):
+        """COMPOSE with the hosted `web_search` tool attached, so the model searches the open web
+        ITSELF while writing the JSON answer (used after a rule-based web search wasn't enough).
+        Returns (parsed_json_or_None, sources[]) — sources are the model's own citation annotations,
+        captured exactly like web_search() so they become cited evidence. Degrades to (None, []) on
+        any failure, so the caller keeps its prior (non-web-LLM) answer. Not cached (live web)."""
+        try:
+            client = self._ensure()
+            resp = client.responses.create(
+                model=self.model,
+                tools=[{"type": "web_search"}],
+                input=[{"role": "system", "content": self._clip(system)
+                        + " Search the web as needed, then respond with ONE JSON object only "
+                          "(matching the schema) and nothing else."},
+                       {"role": "user", "content": self._clip(user)}],
+            )
+            text = getattr(resp, "output_text", None) or ""
+            sources: list[dict] = []
+            seen: set[str] = set()
+            for item in getattr(resp, "output", []) or []:
+                if getattr(item, "type", None) != "message":
+                    continue
+                for chunk in getattr(item, "content", []) or []:
+                    snippet = getattr(chunk, "text", None) or ""
+                    for ann in getattr(chunk, "annotations", []) or []:
+                        url = getattr(ann, "url", None)
+                        if not url or url in seen:
+                            continue
+                        seen.add(url)
+                        sources.append({"url": url, "title": getattr(ann, "title", None) or url,
+                                        "snippet": snippet})
+            self._record_usage(getattr(resp, "usage", None))
+            data = _loads_lenient(text)
+            _log.info("OpenAI complete_json_web ok: model=%s sources=%d json=%s",
+                      self.model, len(sources), bool(data), extra={"component": "LLM"})
+            return (data if isinstance(data, dict) else None), sources
+        except Exception as exc:  # noqa: BLE001
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            _log.warning("OpenAI complete_json_web failed: %s  [model=%s]", self.last_error,
+                         self.model, extra={"component": "LLM"})
+            return None, []
 
     def complete_text(self, system: str, user: str) -> Optional[str]:
         key = ("text", system, user)

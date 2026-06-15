@@ -120,6 +120,12 @@ class Settings(BaseSettings):
     # to disable (pins the engine to workbook + PSX/news only — no open-web round).
     fie_web_escalation: bool = True
 
+    # Agentic compose loop: the composer self-rates answer `completeness` (0..1). While it is below
+    # this threshold (and rounds remain), the engine re-fetches the composer's requested rule-based
+    # needs and re-composes; once the rule-based rounds are exhausted and completeness is still
+    # below it, ONE terminal open-web search (LLM-supplied query) runs as the last resort.
+    fie_completeness_threshold: float = 0.9
+
     # --- Interpretation stage: GPT (read from .env) ---
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-mini"

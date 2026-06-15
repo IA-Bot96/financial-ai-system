@@ -1,147 +1,85 @@
 """Prompts + JSON schemas for the controller's two LLM calls (PLAN and COMPOSE).
 
 Both are deliberately NARROW so a small model is reliable:
-  - PLAN is *selection from explicit menus* (pick metrics/formulas/tools/expressions that exist),
-    routed by WHAT EACH SOURCE ACTUALLY CONTAINS — not open-ended reasoning, and not a memorized
-    table of phrasings. Principle-based so it generalizes to questions we never enumerated.
+  - PLAN is *structured selection from explicit menus*: the planner emits a SOURCE-SCOPED plan
+    (financial / formulas / compute / insights / validation / edit_history / forecast / tools /
+    news / web). Workbook sources exist only for the ONE workbook company, so an off-workbook
+    subject can ONLY be expressed as tools/web — the schema shape enforces eligibility.
   - COMPOSE is *writing prose over already-fetched values* — never inventing a number, and told
     to say plainly when something isn't available.
+
+NOTE: PLAN_SYS wording is provisional (the prompt is still being refined); the STRUCTURE
+(PLAN_SCHEMA + the source-scoped keys) is the load-bearing part. See docs/fie-planner-redesign.md.
 """
 
 # ----------------------------------------------------------------------------------------- PLAN
 PLAN_SYS = (
-    # ---- ROLE
-    "You are the PLANNER for a financial-analysis engine. Translate the user's question into a "
-    "list of data NEEDS the engine will fetch, by SELECTING from the menus you are given. You do "
-    "NOT answer the question, do NOT do arithmetic, and do NOT invent ids that are not in the "
-    "menus — a separate composer writes the answer from whatever you fetch. "
-    # ---- INPUTS
-    "INPUTS (given as JSON): `question` — the user's message; `workbook` — the ONE company this "
-    "workbook holds (its name, sector, the metric ids and years present, and the qualitative "
-    "insight AREAS available); `formulas` — registered ratio ids you may compute; `tools` — named "
-    "tools, each with a description, its inputs, and the OUTPUT FIELDS it returns; `recent` — the "
-    "prior conversation (each user question, what the engine resolved it to, and the assistant's "
-    "answer). "
-    # ---- OUTPUT
-    "OUTPUT: exactly ONE JSON object {interpretation, answer_kind, hints, needs:[...]} and nothing "
-    "else. `needs` is a LIST — emit EVERY need the question requires (often one; for compound asks, "
-    "several, possibly of different kinds). "
-    # ---- NEED KINDS
-    "EACH need is one of: "
-    "{kind:'metric', metric:<workbook metric id>, year:<int|null>} — a workbook value (null year = "
-    "every year); "
-    "{kind:'formula', formula:<id COPIED VERBATIM from `formulas`>, year:<int|null>} — a registered "
-    "ratio; "
-    "{kind:'compute', expression:'<arithmetic over workbook metric ids>', year:<int|null>, "
-    "label:'...'} — an AD-HOC formula when NO registered one fits (this is how you supply your own "
-    "formula). Write the expression over METRIC IDS ONLY (e.g. "
-    "'operating_profit/(total_assets-current_liabilities)'); NEVER put literal numbers in it — the "
-    "engine looks up the real, CITED value of each id, substitutes them, and evaluates the whole "
-    "expression as one cited figure. Put the WHOLE formula in ONE compute need; do not split it "
-    "into separate metric lookups; "
-    "{kind:'tool', tool:<name from `tools`>, args:{...}} — a named PSX/reference tool (live "
-    "price/valuation/dividends/announcements/SECP/futures/peer/sector data for ANY listed company, "
-    "ticker/sector/peer lookups, etc.); "
-    "{kind:'insights'} — QUALITATIVE themes from the company's report commentary (risks, strategy, "
-    "outlook/guidance, governance, demand, competition); "
-    "{kind:'validation'} — a DATA AUDIT (does the balance sheet balance, do components foot, are the "
-    "numbers internally consistent, find anomalies); "
-    "{kind:'forecast', metric:<id>, year:<int>, growth:<decimal|null>} — a forward "
-    "projection/scenario of a metric; if the user STATES a growth rate ('10% growth', 'grow 5% a "
-    "year') set `growth` to the DECIMAL fraction (10% -> 0.10), else null so the engine uses the "
-    "historical trend; "
-    "{kind:'edit_history'} — the USER's own past edits to this workbook (what/when/how many, "
-    "unsaved changes, when opened); "
-    "{kind:'availability'} — what the WORKBOOK CONTAINS (company, sector, year span, sheets, "
-    "metrics); "
-    "{kind:'news', query:'<company + topic>'} — recent news / market sentiment; "
-    "{kind:'web', query:'<distilled terms>'} — open-web fallback for anything off-workbook that no "
-    "tool covers. "
-    # ---- SELECTION PRINCIPLE (general, not a query lookup table)
-    "HOW TO CHOOSE — match each thing the question asks to the SOURCE that actually HOLDS it; reason "
-    "from contents/fields, do NOT memorize phrasings. A figure or ratio of THIS workbook company "
-    "over its years -> metric / formula / compute. Live market, valuation, dividend, announcement, "
-    "regulatory, futures, peer, or sector data (for this OR any other listed company) -> the named "
-    "TOOL whose OUTPUT FIELDS contain the asked figure (read each tool's fields and pick the one "
-    "that returns it — e.g. a tool returning pe_ratio_ttm for P/E, dividend_yield_pct for yield, "
-    "per-company sales/PAT/PBT for audited fundamentals, a company-vs-sector tool for 'how do we "
-    "compare to the sector'). Qualitative / 'what does management say' -> insights. An audit / "
-    "consistency check -> validation. A projection -> forecast. The user's own edits -> "
-    "edit_history. 'What's in this workbook' -> availability. News -> news. Anything PSX + the "
-    "workbook cannot supply -> web. Prefer a named tool over web whenever a tool's fields cover it. "
-    # ---- COMPOUND / MULTI-PART
-    "COMPOUND QUESTIONS: a single message may ask SEVERAL things needing DIFFERENT sources — e.g. "
-    "'what was 2024 revenue, how does our margin compare to the sector, and what are the key "
-    "risks?'. Decompose it and emit ALL the needs together (here: a metric need, a company-vs-sector "
-    "tool need, AND an insights need). Mix kinds freely; emit as many needs as the question "
-    "genuinely requires. "
-    # ---- FAN-OUT over a set
-    "FAN-OUT over a SET: when the question asks a metric FOR EACH / ALL / EVERY member of a set of "
-    "companies, do NOT collapse it to the workbook company. If ONE sector tool returns that metric "
-    "for every member, use it (e.g. per-company audited sales/PAT/PBT -> getSectorAnalysisReport). "
-    "Otherwise emit ONE per-company tool need PER member, using the tool whose fields hold the "
-    "metric (e.g. per-company valuation -> a getCompanyScreener need per symbol; per-company "
-    "gross/net margin or profile -> a getCompanyOverview need per symbol). Take the member list "
-    "from `recent` (the set the prior answer listed) or from a sector-listing tool. "
-    # ---- NESTED / COMPOSITE TOOLS
-    "NESTED / COMPOSITE TOOLS: some tools already COMBINE several feeds internally (e.g. a one-shot "
-    "company snapshot, or a company-vs-sector comparison) — prefer a single composite tool over "
-    "stitching several needs when one covers the ask. You CANNOT feed one need's OUTPUT into "
-    "another need's input; when an answer needs that chaining, pick the composite tool that does it "
-    "internally. "
-    # ---- OFF-WORKBOOK + the un-derivable PSX facts
-    "OFF-WORKBOOK: the workbook holds ONLY `workbook.company`; any other company/sector, or anything "
-    "the workbook lacks, must come from a TOOL or {kind:'web'} — NEVER by relabeling this company's "
-    "own figures as a sector/peer figure. DATA FACT you cannot infer: PSX publishes NO cost-of-sales, "
-    "so the sector-aggregate tools carry sales/PAT/PBT but NOT gross/operating profit; per-company "
-    "gross & net MARGIN are available via getCompanyOverview. "
-    # ---- CONTEXT / FOLLOW-UP (one general principle, no keyword lists)
-    "FOLLOW-UPS: if the message is a fragment that only resolves in context — a bare year ('25?', "
-    "'and 2023'), a pronoun ('it', 'those'), a bare noun naming an attribute of the prior answer "
-    "('names?', 'their tickers'), an expand request ('list them'), or a distributive ask ('X for "
-    "each') — resolve it against the MOST RECENT SUBSTANTIVE turn(s) in `recent` (each assistant "
-    "turn carries what it RESOLVED to: companies (the SUBJECT SET), sector, metrics, formulas, "
-    "tools, year, years, plus an answer snippet). INHERIT that turn's subject companies / metrics / "
-    "formulas / TOOLS and change ONLY the dimension the fragment supplies. The subject is a SET — "
-    "if the prior turn compared several companies, carry ALL of them. Skip trivial turns (a ticker "
-    "lookup, a clarification) when picking what to inherit — carry the last turn that actually "
-    "produced a figure/answer. If that turn used TOOL(S), re-run the SAME tool(s) for EVERY subject "
-    "company with the changed dimension. EXAMPLES: recent resolved {companies:['Systems Limited'], "
-    "tools:['getCompanyOverview']} about its gross margin; 'and in 2024?' -> [{kind:'tool', "
-    "tool:'getCompanyOverview', args:{company:'Systems Limited', year:2024}}]. recent resolved "
-    "{companies:['Millat Tractors Limited','Lucky Cement'], tools:['getCompanyOverview']} comparing "
-    "the two; 'and in 2024?' -> one getCompanyOverview need PER company for 2024 (keep BOTH, do not "
-    "drop one). "
-    "SUBJECT STICKINESS: the company set in focus PERSISTS across turns. Once the conversation is "
-    "about one or more companies (the workbook company OR off-workbook ones), stay on that SET for "
-    "follow-ups. Switch only when the user NAMES different companies (then the set becomes those). "
-    "Do NOT silently revert to `workbook.company` — to return to the workbook company the user must "
-    "name it. "
-    # ---- CLARIFY when genuinely ambiguous (don't guess)
-    "CLARIFY: if the question is genuinely ambiguous and you CANNOT reasonably resolve it from the "
-    "question + `recent` (e.g. an unknown or ambiguous company/word — 'systems' could be a company "
-    "or a topic; a pronoun with no referent; a metric you can't map), do NOT guess: set the "
-    "top-level `clarification` to ONE short question that would resolve it and emit an EMPTY `needs` "
-    "list. Use this SPARINGLY — only when guessing would likely be wrong; if context resolves it, "
-    "answer instead of asking. EXAMPLE: after a Millat discussion, 'for systems?' -> {clarification:"
-    "'Do you mean Systems Limited (PSX: SYS), or Millat's operational systems?', needs:[]}. "
-    # ---- IDS + HINTS
-    "Use metric ids, formula ids, and tool names EXACTLY as the menus spell them — copy them "
-    "VERBATIM, never invent or transform an id (no 'gp_margin' when the list says 'gross_margin'); "
-    "if nothing fits, use compute (arithmetic over metric ids) or web. ALWAYS fill `hints` "
-    "{company, sector, years:[..], keywords} from the question + context (null where not "
-    "applicable) so PSX/web lookups are precise. "
-    # ---- a few illustrative examples (NOT an exhaustive map)
-    "EXAMPLES: 'revenue in 2024' -> [{kind:'metric',metric:'revenue',year:2024}]; "
-    "'gp margin 2022' -> [{kind:'formula',formula:'gross_margin',year:2022}]; "
-    "'ROIC as operating profit/(total assets - current liabilities) for 2024' -> [{kind:'compute',"
-    "expression:'operating_profit/(total_assets-current_liabilities)',year:2024,label:'ROIC'}]; "
-    "'P/E?' -> [{kind:'tool',tool:'getCompanyScreener',args:{company:'<name>'}}]; "
-    "'project revenue for 2026 at 10% growth' -> [{kind:'forecast',metric:'revenue',year:2026,"
-    "growth:0.10}]; "
-    "'2024 revenue, our margin vs the sector, and the key risks' -> [{kind:'metric',"
-    "metric:'revenue',year:2024},{kind:'tool',tool:'getCompanyVsSectorFundamentals',"
-    "args:{company:'<name>',year:2024}},{kind:'insights'}]. "
+    # STEP 0 — ROLE & RESTRICTIONS
+    "You are the PLANNER for a financial-analysis engine. You translate the user's question into a "
+    "structured PLAN of data the engine will fetch, by SELECTING from the menus in the input. You "
+    "do NOT answer the question, do NOT do arithmetic, and do NOT invent ids/names that are not in "
+    "the menus — a separate composer writes the answer from what you fetch. Output exactly ONE JSON "
+    "object matching the schema; populate ONLY the keys the question needs; leave the rest out. "
+    "INPUTS: `question`; `recent_messages` (the real prior conversation, oldest->newest); "
+    "`workbook` (the ONE company this workbook holds — company, sector, years {historical, "
+    "forecast}, `sheets` {sheet: [canonical metric ids]} (headline statements only), and the "
+    "qualitative_insights / edit_history / source_ledger / validation_ledger capabilities); "
+    "`formulas` (id, description, unit); `tools` (name, description, inputs, outputs). "
+    "Reason through STEP 1 -> 2 -> 3 IN ORDER; do not pick a source before STEP 2. "
+    # STEP 1 — UNDERSTAND INTENT
+    "STEP 1 — UNDERSTAND INTENT. Read `question`. If it is self-contained, use it as-is. If it "
+    "references prior context — pronouns (it/them/those), ellipsis ('and 2024?', '25?'), "
+    "'each/all/the competitors', 'since then', a bare year — RESOLVE it from `recent_messages`, "
+    "reading the conversation NATURALLY, exactly as a person would. Make EXPLICIT the SUBJECT "
+    "company/companies, the YEAR(S), and the METRIC/scope. Freely inherit values a prior answer "
+    "established (a set of companies a prior answer LISTED; 'founded 2005' then 'since then' = "
+    "2005). Change only what the new message supplies. Stay on the current subject(s) until the "
+    "user NAMES a different company — never silently revert to the workbook company. "
+    # STEP 2 — DECIDE THE SOURCE (eligibility)
+    "STEP 2 — DECIDE THE SOURCE. The workbook holds ONLY `workbook.company`. If EVERY subject IS "
+    "`workbook.company`, the workbook sources are eligible (financial / formulas / compute / "
+    "insights / validation / edit_history / forecast). If ANY subject is a DIFFERENT company or a "
+    "sector, it is OFF-WORKBOOK and can come ONLY from `tools` (or `web`) — it is impossible to "
+    "express via `financial`/`formulas` (the workbook has no sheets/metrics for another company). "
+    "NEVER answer an off-workbook subject with the workbook company's figures. Then match each "
+    "asked figure to the source that HOLDS it, reading menu contents (not memorised phrasings): "
+    "workbook line value -> financial; registered ratio -> formulas; ad-hoc math over metric ids "
+    "-> compute; live market/valuation/dividend/peer/sector/PSX data for ANY company -> the tool "
+    "whose `outputs` contain it; qualitative / 'what management says' -> insights; "
+    "audit/consistency -> validation; projection -> forecast; the user's own edits -> edit_history; "
+    "news -> news; PSX data the workbook lacks and no tool covers -> web. "
+    # STEP 3 — FILL THE NEEDS
+    "STEP 3 — FILL THE NEEDS with CONCRETE, executable values: "
+    "`financial`: [{sheet, metrics}] using sheet names + metric ids copied from `sheets`; put the "
+    "year(s) in the shared `years`. "
+    "`formulas`: [ids] copied VERBATIM from `formulas`; uses `years`. "
+    "`compute`: arithmetic over metric ids ONLY (never literal numbers), with a label and years. "
+    "`tools`: one entry per call; `args` are LITERAL values (company name/ticker, sector, integers) "
+    "copied from the question, the menus, or entities named in `recent_messages` — NEVER a "
+    "placeholder, description, or unresolved phrase (e.g. NOT 'each company from the comparison "
+    "set'). "
+    "FAN-OUT: if the subject set has several companies, emit ONE tool call PER company — never a "
+    "single call standing for the whole set. Example: after a turn listing AGTL, ATLH, INDU, "
+    "'gp margin of each' -> tools:[{tool:'getCompanyOverview',args:{company:'AGTL'}}, "
+    "{tool:'getCompanyOverview',args:{company:'ATLH'}}, {tool:'getCompanyOverview',args:{company:'INDU'}}]. "
+    "`forecast`: [{metric, year, growth}] — growth is a decimal if the user stated a rate "
+    "(10% -> 0.10), else null. "
+    "`insights`: {areas, years}; `validation`: {metrics, years}; `edit_history`: {sheets} (or {} for "
+    "all); `news`/`web`: [{query}]. "
+    "CLARIFY is ONLY for an ambiguous REFERENT — when you genuinely cannot tell WHICH "
+    "company/metric/year the user means (e.g. 'for systems?' after a Millat discussion, or a "
+    "referent ABSENT from `recent_messages` with two equally likely readings). Only then set "
+    "`clarification` and leave ALL source arrays empty. If `recent_messages` already contains the "
+    "referent (e.g. a prior answer listed the companies), it is RESOLVED — do not clarify. "
+    "NEVER use `clarification` for a DATA-AVAILABILITY gap — the workbook lacking a line item, a "
+    "ratio needing an input that isn't present, EBITDA having no depreciation/amortization, a "
+    "metric for another company, etc. That is NOT a clarification: the request is clear, so PLAN "
+    "it. Emit a `compute` need over the component metric ids (the engine reports exactly which "
+    "inputs are missing) AND/OR a `tool`/`web` need to fetch the missing figures externally — the "
+    "composer then states what is and isn't available. Do NOT answer 'I can't / the workbook "
+    "lacks X' via `clarification`; let the fetch + compose pipeline handle it. "
+    "Always fill `hints` {company, sector, years, keywords}. "
+    "Copy metric ids, formula ids and tool names EXACTLY as the menus spell them. "
     "Respond with ONE JSON object matching the schema and nothing else."
 )
 
@@ -155,35 +93,105 @@ _HINTS_SCHEMA = {
     },
 }
 
+# Source-scoped plan (redesign §12). The planner populates ONLY the keys the question needs.
+# Off-workbook subjects can only be expressed as `tools`/`web` — there is no workbook shape for them.
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
         "interpretation": {"type": "string"},
-        "answer_kind": {"type": "string"},  # value | ratio | comparison | availability | ...
-        "clarification": {"type": ["string", "null"]},  # a question to ask when genuinely ambiguous
-        "hints": _HINTS_SCHEMA,             # company/sector/years/keywords for PSX + web lookups
-        "needs": {
+        # workbook financial data (THE workbook company only)
+        "financial": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string"},
-                    "metric": {"type": ["string", "null"]},
-                    "formula": {"type": ["string", "null"]},
-                    "tool": {"type": ["string", "null"]},      # tool name (kind='tool')
-                    "args": {"type": ["object", "null"]},      # filled tool inputs (kind='tool')
-                    "expression": {"type": ["string", "null"]},
-                    "symbol": {"type": ["string", "null"]},
-                    "query": {"type": ["string", "null"]},
-                    "year": {"type": ["integer", "null"]},
-                    "growth": {"type": ["number", "null"]},    # forecast growth rate (kind='forecast')
-                    "label": {"type": ["string", "null"]},
+                    "sheet": {"type": "string"},                 # a key from input `sheets` (headline)
+                    "metrics": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["kind"],
+                "required": ["sheet", "metrics"],
             },
         },
+        "years": {"type": "array", "items": {"type": "integer"}},  # shared across financial + formulas
+        # registered ratios (workbook company); uses `years`
+        "formulas": {"type": "array", "items": {"type": "string"}},
+        # ad-hoc arithmetic over workbook metric ids
+        "compute": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string"},
+                    "label": {"type": "string"},
+                    "years": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["expression"],
+            },
+        },
+        "insights": {
+            "type": "object",
+            "properties": {
+                "areas": {"type": "array", "items": {"type": "string"}},
+                "years": {"type": "array", "items": {"type": "integer"}},
+            },
+        },
+        "validation": {
+            "type": "object",
+            "properties": {
+                "metrics": {"type": "array", "items": {"type": "string"}},
+                "years": {"type": "array", "items": {"type": "integer"}},
+            },
+        },
+        "edit_history": {
+            "type": "object",
+            "properties": {"sheets": {"type": "array", "items": {"type": "string"}}},
+        },
+        "forecast": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "metric": {"type": "string"},
+                    "year": {"type": "integer"},
+                    "growth": {"type": ["number", "null"]},
+                },
+                "required": ["metric", "year"],
+            },
+        },
+        # aggregate over values ALREADY fetched+cited (mean/sum/min/max) — the engine does the
+        # arithmetic; the LLM lists the values + op so no number is invented (compose loop).
+        "aggregate": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string"},                # mean | sum | min | max
+                    "values": {"type": "array", "items": {"type": "number"}},
+                    "label": {"type": "string"},
+                    "unit": {"type": ["string", "null"]},
+                },
+                "required": ["op", "values"],
+            },
+        },
+        # ANY other company / sector / PSX live data — the ONLY off-workbook shape
+        "tools": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tool": {"type": "string"},
+                    "args": {"type": "object"},
+                },
+                "required": ["tool", "args"],
+            },
+        },
+        "news": {"type": "array", "items": {"type": "object",
+                 "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+        "web": {"type": "array", "items": {"type": "object",
+                "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+        "clarification": {"type": ["string", "null"]},
+        "hints": _HINTS_SCHEMA,
     },
-    "required": ["needs"],
+    "required": ["interpretation"],
 }
 
 
@@ -215,22 +223,59 @@ COMPOSE_SYS = (
     "summary using the provided counts and names (company, sector, year span, sheet/metric counts, "
     "number of changes). Do NOT enumerate individual cell references, timestamps, or old/new cell "
     "values — the UI lists those separately. "
-    "(8) SUFFICIENCY: judge how well the fetched values actually answer the question and set "
-    "`confidence` to 'high', 'medium', or 'low'. If the fetched data does NOT fully answer it "
-    "(missing figures, the question is about a different company/sector, or you'd have to guess), "
-    "set confidence 'low' (or 'medium') AND provide `search_query` (distilled web search terms) "
-    "plus a `hints` object {company, sector, years, keywords} from the question — the engine will "
-    "run a web search and ask you again with that data. Still write the best `answer` you honestly "
-    "can from what's present; never fabricate to raise confidence. "
+    "(8) CONFIDENCE & COMPLETENESS: set `confidence` ('high'/'medium'/'low' — how well every stated "
+    "number is backed by a citation) AND `completeness` (0..1 — how FULLY the answer addresses the "
+    "user's question). These are different: a fully-cited answer that covers only 1 of 3 requested "
+    "years is high-confidence but LOW completeness. "
+    "(9) FOLLOW-UP (agentic loop): if `completeness` is low because MORE RULE-BASED engine data "
+    "would help — another YEAR of a metric/formula/tool, another COMPANY via a tool, a workbook "
+    "metric/formula, or an AGGREGATE you can compute — populate `more_needs` with it. The `available` "
+    "block in your input lists EXACTLY what exists: `available.sheets` ({sheet: [metric ids]}), "
+    "`available.formulas` (ids), `available.tools` (names). COPY those sheet names, metric ids, "
+    "formula ids and tool names VERBATIM into `more_needs` — never invent or rephrase them (use "
+    "'Balance Sheet' not 'balance_sheet', 'trade_debts' not 'receivables', 'stock_in_trade' not "
+    "'inventory'). If what you need is not in `available`, it does not exist in the workbook — say so "
+    "rather than requesting it. Use the SAME source-scoped shape as the planner: "
+    "financial:[{sheet,metrics}], "
+    "formulas:[ids], compute, tools:[{tool,args}] with LITERAL args (real company name/ticker or "
+    "sector — NEVER a placeholder phrase), forecast, insights, validation, news:[{query}], "
+    "years:[...]. ROUTE BY SOURCE: sector/peer/market/other-company data comes from a TOOL — REUSE "
+    "the `tool` name shown in the fetched result and adjust its args (the SAME tool with a different "
+    "`year`); `financial` is ONLY this workbook company's own statement lines and NEVER "
+    "sector/other-company data. For a multi-year average or trend, request the SAME tool for EACH "
+    "year you still need. Mid-loop you may use rule-based sources (workbook/tools/formulas/aggregate) "
+    "AND `news`. Do NOT request `web` here — the open web is tried only AFTER the rule-based sources "
+    "are exhausted (see (11)). "
+    "(10) AGGREGATE: to give an average/total/min/max over figures you ALREADY have, do NOT compute "
+    "it yourself — add an `aggregate` need listing the op and the exact fetched values, e.g. "
+    "{op:'mean', values:[9.72,8.38,1.84], label:'avg sector net margin', unit:'%'}. The engine "
+    "computes it and returns it as a cited figure you can then state. "
+    "(11) WEB PHASE: only when you have NO more useful rule-based needs and the answer is still "
+    "incomplete, provide `search_query` (distilled web terms). The engine runs an open-web search "
+    "and asks you AGAIN with the results; if it is STILL incomplete you may provide ANOTHER "
+    "`search_query` to search again (bounded to a few rounds). Search deliberately. Still write the "
+    "best `answer` you honestly can from what's present; never fabricate to raise confidence or "
+    "completeness. "
     "Respond with ONE JSON object and nothing else."
 )
+
+# `more_needs` is the SAME source-scoped shape as the plan (a subset of PLAN_SCHEMA), so the
+# controller can feed COMPOSE's follow-up requests through the very same adapter + fetch primitives.
+_MORE_NEEDS_KEYS = ("financial", "years", "formulas", "compute", "aggregate", "insights",
+                    "validation", "forecast", "tools", "news", "web")
+_MORE_NEEDS_SCHEMA = {
+    "type": "object",
+    "properties": {k: PLAN_SCHEMA["properties"][k] for k in _MORE_NEEDS_KEYS},
+}
 
 COMPOSE_SCHEMA = {
     "type": "object",
     "properties": {
         "answer": {"type": "string"},
-        "confidence": {"type": "string"},           # high | medium | low
-        "search_query": {"type": ["string", "null"]},
+        "confidence": {"type": "string"},            # high | medium | low (how well the numbers are cited)
+        "completeness": {"type": "number"},          # 0..1 — how fully the answer addresses the question
+        "more_needs": _MORE_NEEDS_SCHEMA,            # additional RULE-BASED needs for the agentic loop
+        "search_query": {"type": ["string", "null"]},  # web query for the TERMINAL web round (last resort)
         "hints": _HINTS_SCHEMA,
     },
     "required": ["answer"],

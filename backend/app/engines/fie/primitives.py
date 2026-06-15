@@ -27,26 +27,64 @@ PrimitiveResult = tuple[dict, list[EvidenceItem], list[CalcResult]]
 
 # --------------------------------------------------------------------------- menus (sent to LLM)
 def describe_workbook(engine) -> dict:
-    """The 'what's in this workbook' menu the planner selects from. Includes the company's PSX
-    ticker + sector, resolved deterministically at load (so sector is a known fact, not guessed
-    from a market feed)."""
+    """The 'what's in this workbook' menu the planner selects from (redesign §3/§11).
+
+    `sheets` is a flat {headline-sheet: [canonical metric ids]} map (P&L / Balance Sheet only —
+    detail sheets are omitted per D1; their canonical id is just the total, already in headline).
+    `years` is split historical vs forecast so forecast years no longer masquerade as data present.
+    The ledger/insight blocks carry a one-line `capability` (+ field `schema`) so the planner can
+    ROUTE to them — extraction is whole-sheet, so no row data is in the menu."""
     s = engine.store
-    areas = sorted({(r.get("area") or "").strip() for r in s.insights()} - {""})
     ident = {}
     try:
         from .external import company_identity
         ident = company_identity(engine)
     except Exception:  # noqa: BLE001
         ident = {}
+    df = s.findata
+
+    def _years(period_type: str) -> list[int]:
+        if df is None or df.empty:
+            return []
+        sel = df[df["period_type"] == period_type]
+        return sorted(int(y) for y in sel["year"].dropna().unique())
+
+    # flat {sheet: [canonical metric ids]} — headline, value-bearing, historical only
+    sheets: dict[str, list[str]] = {}
+    if df is not None and not df.empty:
+        sub = df[(df["level"] == "headline") & (df["period_type"] == "historical")
+                 & df["value"].notna() & df["metric"].notna()]
+        for sheet, grp in sub.groupby("sheet"):
+            sheets[str(sheet)] = sorted(set(grp["metric"].dropna().astype(str)))
+
+    ins = s.insights()
+    areas = sorted({(r.get("area") or "").strip() for r in ins} - {""})
+    ins_years = sorted({r.get("year") for r in ins if isinstance(r.get("year"), int)})
+
     return {
         "company": s.company,
         "ticker": ident.get("symbol"),
         "sector": ident.get("sector"),
-        "years": s.years,
-        "sheets": list(s.sheet_names or []),
-        "headline_metrics": sorted(s.available_metrics()),
-        "detail_metrics": sorted(s.available_metrics(level="detail")),
-        "insight_areas": areas,
+        "years": {"historical": _years("historical"), "forecast": _years("forecast")},
+        "sheets": sheets,
+        "qualitative_insights": {
+            "areas": areas, "years": ins_years,
+            "schema": ["area", "takeaway", "year", "source_report_year",
+                       "source_section", "page", "confidence"]},
+        "edit_history": {
+            "capability": "the user's own edits to this workbook — what changed, in which "
+                          "sheet/cell, when, saved vs unsaved.",
+            "schema": ["timestamp", "sheet", "cell", "old", "new", "saved", "event"]},
+        "source_ledger": {
+            "capability": "provenance of each figure — which source report / page / table a "
+                          "value was taken from.",
+            "schema": ["Sheet", "Cell", "Template label", "Matched label", "Year", "Value",
+                       "Report year", "Report file", "Page", "Table id", "Confidence", "Note"]},
+        "validation_ledger": {
+            "capability": "data-quality audit — which metric/year cells are flagged, their "
+                          "status, vs face/source truth.",
+            "schema": ["Status", "Sheet", "Cell/Label", "Metric", "Year", "Value",
+                       "Face truth", "Source", "Note"]},
     }
 
 
@@ -56,35 +94,108 @@ def availability(engine) -> PrimitiveResult:
     counts are registered as calcs so the numeric guard admits '25 sheets / 45 metrics'; the
     `lead` is the deterministic fallback if the composed prose is rejected."""
     s = engine.store
-    m = describe_workbook(engine)
+    ident = {}
+    try:
+        from .external import company_identity
+        ident = company_identity(engine)
+    except Exception:  # noqa: BLE001
+        ident = {}
     yrs = list(s.years or [])
     span = f"{yrs[0]}–{yrs[-1]}" if len(yrs) > 1 else (str(yrs[0]) if yrs else "no")
-    n_sheets = len(m.get("sheets") or [])
-    n_metrics = len(m.get("headline_metrics") or [])
-    lead = (f"This workbook holds {m.get('company') or 'the company'}"
-            + (f" ({m['sector']})" if m.get("sector") else "")
+    # the FULL workbook tab list + headline metric ids (availability speaks of the whole workbook,
+    # not the planner's headline-only menu) — self-contained, not derived from describe_workbook.
+    sheets = list(s.sheet_names or [])
+    metrics = sorted(s.available_metrics())
+    areas = sorted({(r.get("area") or "").strip() for r in s.insights()} - {""})
+    n_sheets = len(sheets)
+    n_metrics = len(metrics)
+    lead = (f"This workbook holds {s.company or 'the company'}"
+            + (f" ({ident.get('sector')})" if ident.get("sector") else "")
             + f" financials covering {span}, across {n_sheets} sheet(s) with "
             + f"{n_metrics} headline metric(s).")
-    res = {"kind": "availability", "lead": lead, "company": m.get("company"),
-           "sector": m.get("sector"), "ticker": m.get("ticker"), "year_span": span,
-           "n_sheets": n_sheets, "n_metrics": n_metrics, "sheets": m.get("sheets"),
-           "metrics": m.get("headline_metrics"), "insight_areas": m.get("insight_areas")}
+    res = {"kind": "availability", "lead": lead, "company": s.company,
+           "sector": ident.get("sector"), "ticker": ident.get("symbol"), "year_span": span,
+           "n_sheets": n_sheets, "n_metrics": n_metrics, "sheets": sheets,
+           "metrics": metrics, "insight_areas": areas}
     calcs = [CalcResult(formula_id="workbook_meta", value=float(n_sheets), confidence="High"),
              CalcResult(formula_id="workbook_meta", value=float(n_metrics), confidence="High")]
     return res, [], calcs
 
 
+# Self-sufficient, unique one-line descriptions (redesign §8) — replace the registry's
+# non-discriminating ones ("profitability" for three different margins). With these the menu can
+# drop `expression`: the planner selects by id + description, the engine computes from the registry.
+_FORMULA_DESC = {
+    "revenue_growth": "Year-over-year percentage change in revenue.",
+    "earnings_growth": "Year-over-year percentage change in net profit (PAT).",
+    "gross_profit_growth": "Year-over-year percentage change in gross profit.",
+    "operating_profit_growth": "Year-over-year percentage change in operating profit (EBIT).",
+    "pretax_profit_growth": "Year-over-year percentage change in profit before tax.",
+    "gross_margin": "Gross profit as a percentage of revenue (revenue after direct/production costs).",
+    "operating_margin": "Operating profit (EBIT) as a percentage of revenue.",
+    "net_margin": "Net profit (PAT) as a percentage of revenue.",
+    "pretax_margin": "Profit before tax as a percentage of revenue.",
+    "cogs_ratio": "Cost of goods sold as a percentage of revenue.",
+    "opex_ratio": "Operating expenses as a percentage of revenue.",
+    "effective_tax_rate": "Income tax expense as a percentage of profit before tax.",
+    "roe": "Net profit as a percentage of average shareholders' equity (return on equity).",
+    "roa": "Net profit as a percentage of average total assets (return on assets).",
+    "return_on_capital_employed": "Operating profit (EBIT) as a percentage of capital employed (ROCE).",
+    "equity_ratio": "Share of total assets financed by equity.",
+    "current_ratio": "Current assets / current liabilities (short-term liquidity).",
+    "quick_ratio": "Liquid current assets excluding inventory / current liabilities.",
+    "cash_ratio": "Cash and equivalents / current liabilities.",
+    "debt_to_equity": "Total debt relative to total equity (financial leverage).",
+    "debt_to_assets": "Share of total assets financed by debt.",
+    "long_term_debt_ratio": "Long-term debt as a share of total assets.",
+    "equity_multiplier": "Total assets / total equity (leverage).",
+    "interest_coverage": "Operating profit (EBIT) relative to interest expense.",
+    "asset_turnover": "Revenue generated per unit of average total assets.",
+    "fixed_asset_turnover": "Revenue generated per unit of net fixed assets.",
+    "inventory_turnover": "Times inventory is sold and replaced (COGS / inventory).",
+    "receivables_turnover": "Times receivables are collected (revenue / receivables).",
+    "days_sales_outstanding": "Average days to collect receivables (DSO).",
+    "days_inventory_outstanding": "Average days inventory is held before sale (DIO).",
+    "working_capital": "Current assets minus current liabilities.",
+    "capital_employed": "Total assets minus current liabilities (long-term capital in use).",
+    "net_debt": "Total debt minus cash and equivalents.",
+    "ebitda": "Earnings before interest, tax, depreciation and amortization.",
+    "ebitda_margin": "EBITDA as a percentage of revenue.",
+    "debt_to_ebitda": "Total debt relative to EBITDA.",
+    "free_cash_flow": "Operating cash flow minus capital expenditure.",
+    "free_cash_flow_margin": "Free cash flow as a percentage of revenue.",
+    "operating_cash_flow_margin": "Operating cash flow as a percentage of revenue.",
+    "operating_cash_flow_ratio": "Operating cash flow relative to current liabilities.",
+    "cash_flow_to_debt": "Operating cash flow relative to total debt.",
+    "capex_to_sales": "Capital expenditure as a percentage of revenue.",
+    "payables_turnover": "Speed of paying suppliers (COGS / payables).",
+    "days_payable_outstanding": "Average days taken to pay suppliers (DPO).",
+    "cash_conversion_cycle": "Days to convert inventory/receivables back to cash (DSO + DIO - DPO).",
+    "book_value_per_share": "Common equity per outstanding share.",
+    "eps_computed": "Net profit per weighted-average outstanding share (EPS).",
+    "dividend_payout_ratio": "Share of net profit paid out as dividends.",
+    "retention_ratio": "Share of net profit retained (1 - payout ratio).",
+    "forecast_error": "Percentage deviation of actual from forecast.",
+}
+
+_UNIT_LABEL = {"percent": "%", "x": "x", "currency": "currency", "days": "days"}
+
+
 def list_formulas(engine) -> list[dict]:
-    """The registry-formula menu (id + definition) — so the LLM maps 'gp margin' -> gross_margin
-    rather than guessing arithmetic."""
+    """The registry-formula menu (redesign §8): {id, description, unit}. GATED to formulas whose
+    inputs all exist in THIS workbook (so the planner can't pick an uncomputable ratio), and with
+    `expression` dropped (internal — the engine computes it; the planner selects by id+description)."""
     reg = engine.calc._registry
+    avail = engine.store.available_metrics() | engine.store.available_metrics(level="detail")
     out = []
     for fid, spec in reg.items():
+        needed = {i.metric for i in spec.inputs if getattr(i, "metric", None)}
+        if needed - avail:                       # an input this workbook lacks -> not computable
+            continue
         out.append({
             "id": fid,
-            "expression": spec.expression,
-            "unit": spec.output_unit,
-            "description": (spec.description or spec.category),
+            "description": _FORMULA_DESC.get(fid, spec.description or spec.category),
+            "unit": _UNIT_LABEL.get(str(spec.output_unit), str(spec.output_unit)),
         })
     return out
 
@@ -229,4 +340,17 @@ def execute_need(engine, need: dict, frame=None) -> PrimitiveResult:
                             now=getattr(engine, "_now", None))
     if kind == "availability":
         return availability(engine)
+    if kind == "aggregate":
+        # rule-based mean/sum/min/max over LLM-listed values (the composer loop usually computes this
+        # with fetched-value validation; this is the plan-time fallback path).
+        op = (need.get("op") or "").strip().lower()
+        vals = [v for v in (need.get("values") or [])
+                if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if op in ("mean", "sum", "min", "max") and vals:
+            res = (sum(vals) / len(vals) if op == "mean" else sum(vals) if op == "sum"
+                   else min(vals) if op == "min" else max(vals))
+            return ({"kind": "aggregate", "op": op, "label": need.get("label"),
+                     "unit": need.get("unit"), "value": res, "components": vals}, [],
+                    [CalcResult(formula_id="aggregate", value=float(res), confidence="High")])
+        return {"kind": "aggregate", "note": "invalid aggregate need"}, [], []
     return {"kind": kind, "note": f"unsupported or incomplete need: {need}"}, [], []
